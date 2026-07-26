@@ -1,0 +1,786 @@
+{
+  "config": {
+    "models": [
+      "llama3.2:3b",
+      "llama3.1:8b",
+      "llama3-groq-tool-use:8b",
+      "qwen3:4b",
+      "qwen3:8b",
+      "qwen3:14b"
+    ],
+    "reps": 3,
+    "think": false
+  },
+  "results": [
+    {
+      "model": "llama3.2:3b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\",\"unit\":\"celsius\"})",
+          "ttftMs": 338.61179999999996,
+          "totalMs": 342.8567
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 306.6188000000001,
+          "totalMs": 311.15060000000005
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 290.5864999999999,
+          "totalMs": 295.05320000000006
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"latest news Mars Perseverance rover\"})",
+          "ttftMs": 299.6412,
+          "totalMs": 304.67769999999996
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"text\":\"Call mom\",\"time\":\"tomorrow at 5pm\"})",
+          "ttftMs": 333.82359999999994,
+          "totalMs": 338.30189999999993
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": false,
+          "detail": "unexpectedly called search_web",
+          "ttftMs": 275.7304999999999,
+          "totalMs": 280.4213000000002
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 236.6514000000002,
+          "totalMs": 250.7741000000001
+        },
+        {
+          "name": "speed-math",
+          "pass": false,
+          "response": "80",
+          "ttftMs": 196.98000000000002,
+          "totalMs": 198.91460000000006
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 193.5068000000001,
+          "totalMs": 208.71849999999995
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "6",
+          "ttftMs": 206.94280000000026,
+          "totalMs": 212.13250000000016
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold.",
+          "ttftMs": 203.89400000000023,
+          "totalMs": 217.64559999999983
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 183.85500000000002,
+          "totalMs": 189.15120000000024
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "The word \"necessary\" spelled backwards is \"ylssenesen\".",
+          "ttftMs": 181.66550000000007,
+          "totalMs": 254.55279999999993
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 183.9333999999999,
+          "totalMs": 513.8691000000003,
+          "tokensPerSec": 199.88188797528733,
+          "evalCount": 66
+        },
+        {
+          "ttftMs": 173.84730000000036,
+          "totalMs": 496.6850000000004,
+          "tokensPerSec": 204.4147389221149,
+          "evalCount": 66
+        },
+        {
+          "ttftMs": 183.23419999999987,
+          "totalMs": 508.0643,
+          "tokensPerSec": 203.07317403371016,
+          "evalCount": 66
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "llama3.1:8b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\",\"unit\":\"celsius\"})",
+          "ttftMs": 491.5778,
+          "totalMs": 500.78889999999956
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 397.97519999999986,
+          "totalMs": 406.84299999999985
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 354.5544,
+          "totalMs": 363.6342000000004
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"Mars Perseverance rover latest news\"})",
+          "ttftMs": 405.76980000000003,
+          "totalMs": 414.6761999999999
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"time\":\"tomorrow at 5pm\",\"text\":\"call mom\"})",
+          "ttftMs": 448.6173999999992,
+          "totalMs": 457.35209999999915
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": false,
+          "detail": "unexpectedly called search_web",
+          "ttftMs": 352.58230000000003,
+          "totalMs": 361.51850000000013
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 244.2533000000003,
+          "totalMs": 266.95340000000033
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 199.84120000000075,
+          "totalMs": 212.28220000000147
+        },
+        {
+          "name": "decimal-compare",
+          "pass": false,
+          "response": "0.89",
+          "ttftMs": 199.23710000000028,
+          "totalMs": 230.70140000000174
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "8",
+          "ttftMs": 197.3796999999995,
+          "totalMs": 209.3190999999988
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 218.71090000000004,
+          "totalMs": 229.8615000000009
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 193.0699999999997,
+          "totalMs": 204.95750000000044
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "yrracessen",
+          "ttftMs": 194.60200000000077,
+          "totalMs": 245.674500000001
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 198.86359999999877,
+          "totalMs": 943.1885999999995,
+          "tokensPerSec": 110.13896313568314,
+          "evalCount": 82
+        },
+        {
+          "ttftMs": 203.5007000000005,
+          "totalMs": 1045.647500000001,
+          "tokensPerSec": 110.37986101632553,
+          "evalCount": 93
+        },
+        {
+          "ttftMs": 199.78260000000046,
+          "totalMs": 1039.7482,
+          "tokensPerSec": 110.62367965285576,
+          "evalCount": 93
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "llama3-groq-tool-use:8b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 243.07760000000053,
+          "totalMs": 707.9776999999995
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 455.3568000000014,
+          "totalMs": 472.61439999999857
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 413.01000000000204,
+          "totalMs": 429.61209999999846
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"Mars Perseverance rover\"})",
+          "ttftMs": 445.4343999999983,
+          "totalMs": 463.4614999999976
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"text\":\"Call mom\",\"time\":\"tomorrow at 5pm\"})",
+          "ttftMs": 511.0755999999965,
+          "totalMs": 528.6282999999967
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 200.6718000000037,
+          "totalMs": 212.58439999999973
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 381.6267000000007,
+          "totalMs": 403.47389999999723
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 202.06409999999596,
+          "totalMs": 213.6356999999989
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 196.66219999999885,
+          "totalMs": 226.56640000000334
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "8",
+          "ttftMs": 196.07489999999962,
+          "totalMs": 205.59479999999894
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 192.53349999999773,
+          "totalMs": 203.99599999999919
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 203.89250000000175,
+          "totalMs": 215.60660000000644
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "yrracseni",
+          "ttftMs": 186.4033000000054,
+          "totalMs": 233.02180000000226
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 199.13060000000405,
+          "totalMs": 781.3692999999985,
+          "tokensPerSec": 116.72577339407651,
+          "evalCount": 68
+        },
+        {
+          "ttftMs": 181.62260000000242,
+          "totalMs": 758.7235000000001,
+          "tokensPerSec": 117.78665026891731,
+          "evalCount": 68
+        },
+        {
+          "ttftMs": 178.18160000000353,
+          "totalMs": 754.3119000000006,
+          "tokensPerSec": 117.93741338971203,
+          "evalCount": 68
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "qwen3:4b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 237.2719999999972,
+          "totalMs": 2084.8041999999987
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 256.7549999999974,
+          "totalMs": 2087.2395999999935
+        },
+        {
+          "name": "calculate",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 240.24619999999413,
+          "totalMs": 2064.7746999999945
+        },
+        {
+          "name": "search",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 242.8853999999992,
+          "totalMs": 2089.796699999999
+        },
+        {
+          "name": "reminder",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 289.60689999999886,
+          "totalMs": 2131.1097999999984
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 267.29959999999846,
+          "totalMs": 1465.314099999996
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Hmm, the user is asking about the capital of Australia. They specifically want just the city name without any extra information. \n\nThis seems like a straightforward geography question. I recall that Canberra is the capital city of Australia. It's interesting because it's not one of the major cities like Sydney or Melbourne - it was deliberately created as a compromise between the two states. \n\nThe user seems to want a very direct answer, probably for quick reference or maybe they're testing my knowledge. I should make sure I don't add any extra words or explanations since they said \"just the city name\". \n\nI wonder if they're a student doing homework, a traveler planning a trip, or just someone curious. But since they specified the format, I'll keep it simple. \n\nBetter double-check my knowledge though... yes, definitely Canberra. Not Sydney, not Melbourne, not any other city. The capital is Canberra. \n\nOkay, I'll respond with just \"Canberra\" as requested. No fluff, no explanations - exactly what they asked for.\n</think>\n\nCanberra",
+          "ttftMs": 249.8521000000037,
+          "totalMs": 1583.9509000000035
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "Okay, let's see. The problem is asking for the average speed of a train that travels 60 miles in 1.5 hours. Hmm, average speed is usually distance divided by time, right? So I need to remember the formula: speed = distance / time. \n\nFirst, let me confirm the units. The distance is given in miles, and the time is in hours, so the speed will be in miles per hour (mph), which is what we need. \n\nThe train travels 6.0 miles? Wait, no, 60 miles. So distance is 60 miles, time is 1.5 hours. So speed = 60 miles / 1.5 hours. Let me calculate that. \n\nDividing 60 by 1.5. Let's think. 1.5 times 40 is 60, because 1.5 * 40 = 60. So 60 divided by 1.5 is 40. So the average speed is 40 mph. \n\nWait, let me check again. If the train goes 40 mph for 1.5 hours, how far does it go? 40 * 1.5 = 60 miles. Yep, that matches the problem statement. So that makes sense. \n\nSo the answer should be 40.\n</think>\n\n40",
+          "ttftMs": 200.33060000000114,
+          "totalMs": 2035.564099999996
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "First, the question is: Which is bigger: 0.9 or 0.89? I need to answer with just the number.\n\nI should compare these two decimal numbers. 0.9 and 0.89.\n\nLet me write them out:\n\n- 0.9 is the same as 0.90\n\n- 0.89 is 0.89\n\nNow, to compare decimals, I look at the digits from left to right.\n\nBoth have the same number of decimal places if I consider 0.9 as 0.90.\n\nSo, 0.90 and 0.89.\n\nThe tenths place: both have 9 and 8? No.\n\nLet's think carefully.\n\n0.9 means 9 tenths, which is 9/10.\n\n0.89 means 89 hundredths, which is 89/100.\n\nTo compare, I can convert them to the same denominator.\n\n0.9 = 9/10 = 90/100\n\n0.89 = 89/100\n\nNow, 90/100 vs 89/100\n\nSince the denominator is the same, I can compare the numerators.\n\n90 > 89, so 90/100 > 89/100\n\nTherefore, 0.9 >",
+          "ttftMs": 200.28600000000006,
+          "totalMs": 2037.9233999999997
+        },
+        {
+          "name": "word-problem",
+          "pass": true,
+          "response": "Okay, let's see. The problem says: I have 3 apples, eat one, then buy 5 more. How many apples do I have? Hmm, I need to figure this out step by step.\n\nFirst, starting with 3 apples. Then I eat one. So if I eat one, that means I subtract one from the original number. So 3 minus 1 is 2. So after eating one, I have 2 apples left.\n\nThen, the next part is buying 5 more apples. So buying 5 more would add 5 to the current number of apples. So after buying, it's 2 plus 5. Let me calculate that. 2 plus 5 equals 7.\n\nWait, let me double-check. Starting with 3, eat 1: 3 - 1 = 2. Then buy 5: 2 + 5 = 7. Yeah, that seems right. So the answer should be 7.\n\nI don't think there's any trick here. Sometimes these problems might have a twist, but in this case, it's straightforward. Eating one reduces the count, then buying more adds to it. So yeah, 7 is the number.\n</think>\n\n7",
+          "ttftMs": 221.7143999999971,
+          "totalMs": 1767.087900000006
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Hmm, the user is asking for the opposite of \"hot\" and wants just the word as the answer. \n\nOkay, this seems straightforward but I should be careful. In English, \"hot\" can mean temperature or intensity, but the most common opposite for temperature is \"cold\". Like when we say \"it's cold outside\" versus \"it's hot\". \n\nThe user specified \"just the word\" so I shouldn't overcomplicate it. No need for explanations or examples. They probably want this for a quick reference - maybe for a game, language learning, or just curiosity. \n\nI recall that in some contexts \"hot\" could mean \"popular\" or \"active\", but the temperature meaning is by far the most universal. Since they didn't specify context, I'll go with the temperature opposite. \n\nAlso, the user seems to want a very precise response - they even said \"answer with just the word\". So I'll strictly output \"cold\" without any extra text. \n\n*Double-checking*: Yep, in standard English dictionaries, the antonym for \"hot\" (as in temperature) is \"cold\". No other words fit better here. \n\nFinal decision: \"cold\"\n</think>\n\ncold",
+          "ttftMs": 204.58970000001136,
+          "totalMs": 1688.0820999999996
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "Hmm, the user is asking how many continents there are on Earth and wants just the number as the answer. \n\nThis seems like a straightforward geography question, but I know there's some debate about continent counts. The user specifically said \"just the number,\" so they probably want the most commonly accepted answer without extra details. \n\nI recall that most educational sources and standard geography teach seven continents: Africa, Antarctica, Asia, Europe, North America, South America, and Australia. But some systems group continents differently - like the six-continent model that combines Europe and Asia into Eurasia, or the three-continent model for the Americas. \n\nThe user seems to want a quick, simple answer though. Since they said \"just the number,\" I should pick the most widely taught number. In schools and most textbooks, it's seven. \n\nWait, but Australia is sometimes called Oceania, which might confuse people. Still, the standard answer for \"how many continents\" in basic education is seven. \n\nI think I'll go with 7. It's the safest answer for this context. The user didn't ask for explanations, so no need to mention the controversies. \n\n*Double-checking mentally*: Yep, UN and most geographical organizations recognize seven continents in this context. \n\nFinal decision: 7\n</think>\n\n7",
+          "ttftMs": 205.4930999999924,
+          "totalMs": 1816.972099999999
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "We are to spell the word 'necessary' backwards, without spaces and only letters.\n The word is: 'necessary'\n\n Steps:\n 1. Write the word: n e c e s s a r y\n 2. Reverse the string: y r a s s e c n\n\n But note: the word \"necessary\" has 9 letters.\n\n Let's break it down:\n   n -> index 0\n   e -> 1\n   c -> 2\n   e -> 3\n   s -> 4\n   s -> 5\n   a -> 6\n   r -> 7\n   y -> 8\n\n So the string is: \"necessary\" (length 9)\n\n Reversing: \n   Start from the last letter (index 8) to the first (index 0):\n      index 8: 'y'\n      index 7: 'r'\n      index 6: 'a'\n      index 5: 's'\n      index 4: 's'\n      index 3: 'e'\n      index 2: 'c'\n      index 1: 'e'\n      index 0: 'n'\n\n Therefore, the reversed string is: \"yrass ecn\" without spaces -> \"yrassecn\" ??? Wait, let's write without spaces.\n\n Actually, let's write the string without spaces and in reverse order:\n\n Original: \"necessary\" -> \n   n e c e s s",
+          "ttftMs": 213.37639999999374,
+          "totalMs": 2035.5469999999914
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 221.9658999999956,
+          "totalMs": 2020.9986999999965,
+          "tokensPerSec": 166.7412370532377,
+          "evalCount": 300
+        },
+        {
+          "ttftMs": 223.3173000000097,
+          "totalMs": 2029.02380000001,
+          "tokensPerSec": 166.1059667478002,
+          "evalCount": 300
+        },
+        {
+          "ttftMs": 213.38610000000335,
+          "totalMs": 2005.2329000000027,
+          "tokensPerSec": 167.41202219213764,
+          "evalCount": 300
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "qwen3:8b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\",\"unit\":\"celsius\"})",
+          "ttftMs": 468.2917999999918,
+          "totalMs": 487.590200000006
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 400.80880000001343,
+          "totalMs": 419.93410000001313
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 375.16569999999774,
+          "totalMs": 393.85689999999886
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"latest news on the Mars Perseverance rover\"})",
+          "ttftMs": 413.2363000000041,
+          "totalMs": 431.4658999999956
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"text\":\"Call mom\",\"time\":\"tomorrow at 5pm\"})",
+          "ttftMs": 463.38090000000375,
+          "totalMs": 481.7774999999965
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 163.85139999999956,
+          "totalMs": 177.29679999999644
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 215.76529999999912,
+          "totalMs": 238.82210000000487
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 161.9823000000033,
+          "totalMs": 184.61780000000726
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 165.46190000000934,
+          "totalMs": 198.62320000000182
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "10",
+          "ttftMs": 169.0356000000029,
+          "totalMs": 190.05400000000373
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 163.35779999999795,
+          "totalMs": 176.4841000000015
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 169.55339999998978,
+          "totalMs": 181.98229999998875
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "yseressan",
+          "ttftMs": 175.05019999999786,
+          "totalMs": 217.65559999999823
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 168.27460000000428,
+          "totalMs": 775.9933000000019,
+          "tokensPerSec": 103.62251141492428,
+          "evalCount": 63
+        },
+        {
+          "ttftMs": 170.6238000000012,
+          "totalMs": 761.6803999999975,
+          "tokensPerSec": 106.51769969109866,
+          "evalCount": 63
+        },
+        {
+          "ttftMs": 148.58610000000044,
+          "totalMs": 744.5481,
+          "tokensPerSec": 105.69831352468644,
+          "evalCount": 63
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "qwen3:14b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\",\"unit\":\"celsius\"})",
+          "ttftMs": 686.9651000000013,
+          "totalMs": 718.3757000000041
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 562.2832000000053,
+          "totalMs": 593.6461000000127
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 509.65989999999874,
+          "totalMs": 542.4504000000015
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"latest news on the Mars Perseverance rover\"})",
+          "ttftMs": 594.6606000000029,
+          "totalMs": 626.6003000000201
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"time\":\"tomorrow at 5pm\",\"text\":\"Call mom\"})",
+          "ttftMs": 659.5726999999897,
+          "totalMs": 692.5926999999792
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 182.33110000001034,
+          "totalMs": 201.32060000000638
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 213.25200000000768,
+          "totalMs": 251.09719999998924
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 183.30160000000615,
+          "totalMs": 219.92560000001686
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 178.3183999999892,
+          "totalMs": 230.8863999999885
+        },
+        {
+          "name": "word-problem",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 175.78759999998147,
+          "totalMs": 195.17229999997653
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold.",
+          "ttftMs": 173.32060000000638,
+          "totalMs": 210.94039999999222
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 172.05569999999716,
+          "totalMs": 190.46239999998943
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "The word \"necessary\" spelled backwards, letters only, no spaces, is:\n\n**ysseracne**",
+          "ttftMs": 175.06599999999162,
+          "totalMs": 548.6793999999936
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 176.83720000000903,
+          "totalMs": 1182.8279000000039,
+          "tokensPerSec": 62.626931369829926,
+          "evalCount": 63
+        },
+        {
+          "ttftMs": 173.91669999997248,
+          "totalMs": 1176.467799999984,
+          "tokensPerSec": 62.827851686379326,
+          "evalCount": 63
+        },
+        {
+          "ttftMs": 162.125400000019,
+          "totalMs": 1165.3554000000004,
+          "tokensPerSec": 62.768822427001346,
+          "evalCount": 63
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "summaries": [
+    {
+      "model": "llama3.2:3b",
+      "toolAccuracyPct": 83.3,
+      "generalAccuracyPct": 57.1,
+      "avgTtftMs": "180",
+      "avgTotalMs": "506",
+      "avgTokensPerSec": "202.5",
+      "errors": 0
+    },
+    {
+      "model": "llama3.1:8b",
+      "toolAccuracyPct": 83.3,
+      "generalAccuracyPct": 57.1,
+      "avgTtftMs": "201",
+      "avgTotalMs": "1010",
+      "avgTokensPerSec": "110.4",
+      "errors": 0
+    },
+    {
+      "model": "llama3-groq-tool-use:8b",
+      "toolAccuracyPct": 83.3,
+      "generalAccuracyPct": 71.4,
+      "avgTtftMs": "186",
+      "avgTotalMs": "765",
+      "avgTokensPerSec": "117.5",
+      "errors": 0
+    },
+    {
+      "model": "qwen3:4b",
+      "toolAccuracyPct": 33.3,
+      "generalAccuracyPct": 85.7,
+      "avgTtftMs": "220",
+      "avgTotalMs": "2018",
+      "avgTokensPerSec": "166.8",
+      "errors": 0
+    },
+    {
+      "model": "qwen3:8b",
+      "toolAccuracyPct": 100,
+      "generalAccuracyPct": 71.4,
+      "avgTtftMs": "162",
+      "avgTotalMs": "761",
+      "avgTokensPerSec": "105.3",
+      "errors": 0
+    },
+    {
+      "model": "qwen3:14b",
+      "toolAccuracyPct": 100,
+      "generalAccuracyPct": 85.7,
+      "avgTtftMs": "171",
+      "avgTotalMs": "1175",
+      "avgTokensPerSec": "62.7",
+      "errors": 0
+    }
+  ]
+}

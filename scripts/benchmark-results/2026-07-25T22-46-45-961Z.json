@@ -1,0 +1,135 @@
+{
+  "config": {
+    "models": [
+      "llama3.2:3b"
+    ],
+    "reps": 2,
+    "think": false
+  },
+  "results": [
+    {
+      "model": "llama3.2:3b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\",\"unit\":\"celsius\"})",
+          "ttftMs": 424.2147,
+          "totalMs": 430.4117
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 354.29370000000006,
+          "totalMs": 359.53290000000004
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 338.5154,
+          "totalMs": 342.76009999999997
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"latest news Mars Perseverance rover\"})",
+          "ttftMs": 388.63020000000006,
+          "totalMs": 393.60339999999997
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"text\":\"Call mom\",\"time\":\"tomorrow at 5pm\"})",
+          "ttftMs": 383.7666999999997,
+          "totalMs": 388.38689999999997
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": false,
+          "detail": "unexpectedly called search_web",
+          "ttftMs": 333.04190000000017,
+          "totalMs": 337.27850000000035
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 299.5455999999999,
+          "totalMs": 316.9872999999998
+        },
+        {
+          "name": "speed-math",
+          "pass": false,
+          "response": "80",
+          "ttftMs": 233.67669999999998,
+          "totalMs": 242.63889999999992
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 238.68179999999984,
+          "totalMs": 259.0450000000001
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "6",
+          "ttftMs": 247.83910000000014,
+          "totalMs": 256.61940000000004
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold.",
+          "ttftMs": 248.38850000000002,
+          "totalMs": 262.9875999999995
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 221.71150000000034,
+          "totalMs": 230.36449999999968
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "The word \"necessary\" spelled backwards is \"ylssenesen\".",
+          "ttftMs": 216.52109999999993,
+          "totalMs": 293.3683999999994
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 202.33709999999974,
+          "totalMs": 537.3476,
+          "tokensPerSec": 196.75532580893267,
+          "evalCount": 66
+        },
+        {
+          "ttftMs": 224.76569999999992,
+          "totalMs": 558.8536000000004,
+          "tokensPerSec": 197.40502126590454,
+          "evalCount": 66
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "summaries": [
+    {
+      "model": "llama3.2:3b",
+      "toolAccuracyPct": 83.3,
+      "generalAccuracyPct": 57.1,
+      "avgTtftMs": "214",
+      "avgTotalMs": "548",
+      "avgTokensPerSec": "197.1",
+      "errors": 0
+    }
+  ]
+}

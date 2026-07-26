@@ -1,0 +1,7 @@
+.env
+honcho-src/
+.chat-session-id
+secrets/google-calendar-key.json
+.claude/
+.DS_Store
+Thumbs.db
