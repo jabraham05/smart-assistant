@@ -52,7 +52,8 @@ git clone --depth 1 --branch "$REF" "$REPO_URL" /work/repo
 cd /work/repo || exit 1
 if [ -n "$PATCH_B64" ]; then
   echo "$PATCH_B64" | base64 -d > /tmp/patch.diff
-  git apply /tmp/patch.diff
+  patch -p1 --fuzz=3 --no-backup-if-mismatch < /tmp/patch.diff
+  echo "PATCH_APPLY_EXIT_CODE:$?" >&2
 fi
 eval "$TEST_COMMAND"
 `;

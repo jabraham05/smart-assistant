@@ -486,14 +486,83 @@ documented here.
   the real test output; the failing one returned `exitCode: 1` with the
   actual assertion failure (`2 !== 3`, full stack trace) in `stdout`.
 
-**Not yet built**: diff application in a real pipeline run (only proven
-manually so far, no `patch` exercised yet), the `coding_task_pipeline` n8n
-workflow (Planner → Coder → Test-writer → sandbox → Reviewer, with a
-capped retry loop), the `coding_proposals` Data Table, the `code_task`
-`skills-mcp` tool, `scripts/start-coding-task.mjs`, and a real GitHub
-remote for this repo (blocked on GitHub access — self-improvement tasks
-and PR-based review aren't usable until that exists; other-project tasks
-don't need it, since they bring their own `repoUrl`).
+**`coding_task_pipeline` (n8n workflow) — Phase 2 built and verified
+end-to-end for real**, a smaller role set than the eventual design
+(Planner → Coder → sandbox → update row; no Test-writer/Reviewer/retry
+loop yet):
+
+```
+Webhook (onReceived) -> Prepare Row -> Insert Row (coding_proposals, status=running)
+  -> Planner (Ollama, qwen3:8b, format schema) -> plan text
+  -> Fetch File Context (sandbox-runner /execute, testCommand = a `cat`-the-source-files
+     command, no patch — a read, not a test) -> real current file contents
+  -> Coder (Ollama, qwen2.5-coder:7b) -> unified diff
+  -> Parse Coder Output (Code: two defensive normalizations, see below)
+  -> Sandbox Execute (sandbox-runner /execute, now with the real patch + testCommand)
+  -> Update Row (status=proposed if exitCode 0 else needs_review_failed, diff, test_output)
+```
+
+New Data Table **`coding_proposals`** (created directly via SQL, mirroring
+n8n's own DDL exactly — see gotcha below for how): `task_description`,
+`target_repo_url`, `target_ref`, `status`, `attempt_count`, `diff`,
+`test_output`, `reviewer_verdict`, `reviewer_reason` (unused until the
+Reviewer role exists), `pr_url` (unused until real-PR mode exists).
+
+**Three real bugs found and fixed via actual end-to-end runs against a
+disposable fixture repo** (a real bug in `math.js`, a real failing test,
+served over `git://` from a throwaway daemon container — same technique as
+the sandbox-runner proof, no GitHub needed):
+
+1. **The mid-graph "Respond to Webhook" pattern doesn't work** — this was
+   flagged as unproven in the original plan, and empirically it isn't:
+   with `Insert Row` fanning out to both a `Respond to Webhook` node and
+   the rest of the pipeline in parallel, the HTTP response still took the
+   *entire* execution's wall-clock time (~22s) to arrive, not the instant
+   the response node itself ran. The actual mechanism for "ack
+   immediately, keep working in the background" is the Webhook trigger's
+   own `responseMode: "onReceived"` ("Immediately" in the UI) — it
+   responds as soon as the *trigger* fires, before any downstream node
+   runs at all, confirmed at ~0.1s response time regardless of how long
+   the rest of the workflow takes. Trade-off: the immediate response can't
+   include anything computed later (like the inserted row's generated
+   `id`) since nothing has executed yet when it's sent.
+2. **The Coder produced a plausible-looking but entirely hallucinated
+   diff** on the first real run — invented variable names and logic that
+   didn't match the actual (much simpler) bug, because nothing in the
+   pipeline ever showed it the real file contents; it only ever saw the
+   task description text. Fixed by adding the `Fetch File Context` step,
+   which cleverly needs no new `sandbox-runner` capability — it's the same
+   `/execute` endpoint, just given a `cat`-the-source-files command
+   instead of a test command, reusing the "clone → run a command → return
+   stdout" mechanism for a read instead of a test.
+3. **The Coder's diffs weren't reliably byte-perfect unified diffs**, even
+   after fixing #2 and even with a worked example (byte-verified correct,
+   including the required leading space on context lines) in the system
+   prompt — two distinct, real formatting mistakes were observed across
+   runs: the `---`/`+++` header lines run together with no newline between
+   them, and a hunk's context line missing its required leading space
+   marker. Prompt compliance alone wasn't trusted to prevent either (same
+   lesson as `skill_gap_scanner`'s kebab-case normalization) — fixed with
+   two things: (a) switched the sandbox's patch application from `git
+   apply` to `patch -p1 --fuzz=3 --no-backup-if-mismatch` (installed via
+   `apk add patch` in the base image), which tolerates imperfect diffs via
+   context-based fuzzy matching where `git apply` is strictly byte-exact;
+   (b) `Parse Coder Output` additionally repairs both specific malformations
+   deterministically before the diff is ever sent to the sandbox.
+
+**Verified end-to-end after all three fixes**: a real run against the
+fixture repo produced a diff that correctly fixed the actual bug
+(`return n + n - 1` → `return n * 2`), applied cleanly, and the
+previously-failing test passed (`exit code: 0`, `# pass 1`) — row status
+`proposed`.
+
+**Not yet built**: Test-writer, Reviewer, and the capped retry loop; the
+`code_task` `skills-mcp` tool and `scripts/start-coding-task.mjs` (no
+trigger exists yet beyond a raw webhook POST); a real GitHub remote for
+this repo (blocked on GitHub access — self-improvement tasks and PR-based
+review aren't usable until that exists; other-project tasks don't need
+it, since they bring their own `repoUrl`); base-image auto-detection
+(currently hardcoded to the Node image for every task).
 
 ## Directory layout
 
@@ -906,6 +975,26 @@ in, get reply text back.
   For CLI-testable synthetic scenarios, temporarily replace the node
   itself with a Code node that returns the fixed data literally, instead
   of trying to pin the real node.
+- **`docker exec` needs `-i` to accept piped stdin.** Without it, a
+  heredoc/pipe into `docker exec ... psql` (or any other command expecting
+  stdin) silently does nothing — no error, the command just runs against
+  empty input, which looked at first like the SQL itself had failed. Use
+  `docker exec -i`.
+- **Creating an n8n Data Table without the UI or a Public API key is
+  possible, but only safely if you replicate n8n's own DDL exactly** —
+  read `data-table-ddl.service.js` / `utils/sql-utils.js` inside the n8n
+  image (`/usr/local/lib/node_modules/n8n/dist/modules/data-table/`)
+  rather than guessing. The authoritative mapping: a `data_table` row
+  (`id`, `name`, `projectId`) plus one `data_table_column` row per column
+  (`type` is `'string'|'number'|'boolean'|'date'`), then a physical
+  `data_table_user_<id>` table with `id INTEGER GENERATED BY DEFAULT AS
+  IDENTITY PRIMARY KEY`, `createdAt`/`updatedAt`
+  `TIMESTAMP(3) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP(3)`, and user
+  columns mapped `string`→`TEXT`, `number`→`DOUBLE PRECISION`,
+  `boolean`→`BOOLEAN`, `date`→`TIMESTAMPTZ` (Postgres; other DBs differ —
+  same source file has the SQLite mapping too). Confirmed working
+  end-to-end afterward via real workflow inserts/updates against the
+  table, not just schema inspection.
 
 ## Not built yet (by design, deferred)
 
@@ -926,7 +1015,9 @@ in, get reply text back.
   full text into every turn) — only worth building once the always-inject
   approach actually causes prompt bloat with a larger skill library, not
   before.
-- Actual code generation/implementation for `tool_idea` proposals — those
-  stay human-implemented, same as `memory_recall`/`weather_get` were.
+- Actual code generation/implementation for `tool_idea` proposals via
+  `skill_propose`/`skill_gap_scanner` themselves — this is now being
+  actively worked on, just via a separate mechanism (see "Coding-agent
+  pipeline + sandbox" above), not by extending those two directly.
 - Raspberry Pi voice client (OpenWakeWord + whisper.cpp + Piper, via the
   Wyoming protocol).
