@@ -619,13 +619,58 @@ the gap **Phase 4's Reviewer + retry loop** exists to close: catch cases
 like this and give the Coder another attempt with concrete feedback,
 rather than requiring every run to succeed on the first try.
 
-**Not yet built**: Reviewer and the capped retry loop; the `code_task`
-`skills-mcp` tool and `scripts/start-coding-task.mjs` (no trigger exists
-yet beyond a raw webhook POST); a real GitHub remote for this repo
-(blocked on GitHub access — self-improvement tasks and PR-based review
-aren't usable until that exists; other-project tasks don't need it, since
-they bring their own `repoUrl`); base-image auto-detection (currently
-hardcoded to the Node image for every task).
+### Phase 4 — Reviewer and the capped retry loop
+
+Added **Reviewer** (`qwen3:8b`, separate call from both Coder and Test
+Writer — same self-grading concern) after `Sandbox Execute`: given the
+task, the combined diff, and the actual sandbox result, it decides
+`approve` / `retry` / `give_up` with a reason, and — for `retry` —
+specific feedback for the Coder. `Parse Reviewer Output` carries forward
+everything `Update Row` needs (sandbox result, combined diff, attempt
+count) from *this iteration's* direct upstream nodes, rather than having
+`Update Row` reach back across the loop itself, since how cross-iteration
+node references behave was untested.
+
+**The retry loop itself** — capped at 3 attempts — is a real in-graph
+cycle: `Should Retry?`'s TRUE branch connects back to a new node, `Build
+Coder Prompt` (extracted out of Coder's inline expression specifically so
+"is this a retry" can be a real try/catch — referencing a node via
+`$('Name')` that hasn't executed yet in the current execution needs safe
+handling, which a bare expression can't do). No workflow in this project
+had a cycle before this, so — same "verify, don't assume" approach as
+everything else here — it was proven empirically rather than trusted on
+the strength of the design alone.
+
+**Verified with real runs, both exit paths**: one run finished in a
+single attempt (`attempt_count: 1`, `reviewer_verdict: approve`, status
+`proposed`) — the early-exit path. Three separate runs reached the
+3-attempt cap (`attempt_count: 3`, `reviewer_verdict: retry` even on the
+final attempt) and correctly stopped rather than looping forever, landing
+on `needs_review_failed` — the cap-enforcement path. Cross-iteration
+state came through correctly in every case (attempt counts incremented
+properly, Reviewer's feedback on iteration N actually referenced
+iteration N's real diff/output, not a stale one) — the loop mechanism
+itself is sound.
+
+**One honest, real nuance worth noting**: the Reviewer isn't perfectly
+consistent about how strictly it weighs "the core fix works" against "the
+task also asked for test coverage and that didn't fully land." Across
+these same runs, one attempt was approved after a single try even though
+Test Writer's coverage never actually applied (only the original test
+ran) — while three others kept retrying for exactly that same shortfall
+until hitting the cap. Both are defensible readings of an ambiguous
+priority call, not a bug — but it's a real, observed source of variance
+worth knowing about rather than assuming the Reviewer applies one
+consistent bar.
+
+**Not yet built**: the `code_task` `skills-mcp` tool and
+`scripts/start-coding-task.mjs` (no trigger exists yet beyond a raw
+webhook POST); a real GitHub remote for this repo (blocked on GitHub
+access — self-improvement tasks and PR-based review aren't usable until
+that exists; other-project tasks don't need it, since they bring their
+own `repoUrl`); base-image auto-detection (currently hardcoded to the
+Node image for every task); generalizing beyond the current one-file-per-
+role scope.
 
 ## Directory layout
 
