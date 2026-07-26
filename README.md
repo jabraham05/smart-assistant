@@ -556,13 +556,76 @@ fixture repo produced a diff that correctly fixed the actual bug
 previously-failing test passed (`exit code: 0`, `# pass 1`) — row status
 `proposed`.
 
-**Not yet built**: Test-writer, Reviewer, and the capped retry loop; the
-`code_task` `skills-mcp` tool and `scripts/start-coding-task.mjs` (no
-trigger exists yet beyond a raw webhook POST); a real GitHub remote for
-this repo (blocked on GitHub access — self-improvement tasks and PR-based
-review aren't usable until that exists; other-project tasks don't need
-it, since they bring their own `repoUrl`); base-image auto-detection
-(currently hardcoded to the Node image for every task).
+### Phase 3 — Test Writer, and a full rethink of how diffs are built
+
+Added **Test Writer** (`qwen3:8b`, separate call from Coder — a model
+shouldn't grade its own tests) between `Parse Coder Output` and
+`Combine Diffs`. It sees the same file context Coder saw, plus Coder's
+diff, and writes its own diff adding test coverage; the two diffs
+concatenate into one combined patch before hitting the sandbox (`patch`
+handles a multi-file blob in one pass fine).
+
+**This surfaced a much deeper problem than Test Writer itself**: trusting
+the model to write the *entire* diff — including the `---`/`+++` header
+— turned out to fail in every distinct way a header can fail, across
+real runs: concatenated onto one line, wrong line counts, header omitted
+entirely, and (Test Writer specifically) confidently claiming an existing
+file was brand new. Patching each pattern as it appeared was chasing an
+open-ended list. **Fixed by no longer trusting the model for headers at
+all**: the schema now asks for `{file, diff}` as separate fields — `file`
+a plain path, `diff` *hunk content only*, starting at `@@`. The `---`/`+++`
+header is always built deterministically in code from `file`. The model
+is only trusted for the one thing it's actually needed for (the hunk
+body), where remaining repairs still apply: stray reasoning-token lines
+stripped, missing context-line leading spaces added, and — the
+consistently real, universal weak point — **the `@@` header's line
+*counts* recomputed from what's actually in the hunk body**, trusting only
+the model's start-line numbers. A model can get every line of a hunk
+semantically right and still miscount the total by one; `patch` rejects
+that outright, and no amount of prompting reliably fixed it, so counting
+programmatically is the fix.
+
+**Two more real bugs found via this refactor, both instructive**:
+- The count-recompute logic itself had a bug: `split('\n')` on a
+  diff ending in a real newline produces a trailing empty-string element,
+  which the counting loop's "unchanged context line" branch counted as a
+  phantom extra line — inflating an *already-correct* `3,3` count to
+  `4,4` and actively breaking output that started right. Fixed by
+  excluding a trailing empty split-artifact from the count.
+- The "Test Writer assumed a new file" repair was applied unconditionally
+  to every existing-file case, even when the model had already written a
+  perfectly valid hunk with real context/removed lines — discarding good
+  output and replacing it with a stripped-down append that only
+  coincidentally still worked sometimes. Fixed by only rebuilding when the
+  hunk body is *exclusively* additions (the actual "assumed brand new"
+  shape); a hunk that already has context/removed lines just gets the
+  standard header.
+
+**Verified across two batches of 5 real runs each** (10 total, not a
+single lucky pass): the implementation-fix path was reliable throughout.
+Test Writer's bonus test-coverage addition succeeded some of the time and
+otherwise **failed safely** — either a clean no-op (no `@@` header
+produced → treated as empty, nothing sent to the sandbox) or a patch
+`patch` itself refused to apply — never silently corrupting the repo.
+**One exception surfaced late, and it's instructive**: a run where the
+Coder's own hunk was internally inconsistent — it removed the function
+declaration line but never re-added it, producing a real syntax error
+(`Illegal return statement`). This isn't a formatting bug and no
+deterministic repair can fix it; it's a genuine reasoning error in the
+model's diff content. It was still caught correctly (non-zero exit code,
+the actual syntax error visible in `test_output`, row marked
+`needs_review_failed`) rather than silently passing — which is exactly
+the gap **Phase 4's Reviewer + retry loop** exists to close: catch cases
+like this and give the Coder another attempt with concrete feedback,
+rather than requiring every run to succeed on the first try.
+
+**Not yet built**: Reviewer and the capped retry loop; the `code_task`
+`skills-mcp` tool and `scripts/start-coding-task.mjs` (no trigger exists
+yet beyond a raw webhook POST); a real GitHub remote for this repo
+(blocked on GitHub access — self-improvement tasks and PR-based review
+aren't usable until that exists; other-project tasks don't need it, since
+they bring their own `repoUrl`); base-image auto-detection (currently
+hardcoded to the Node image for every task).
 
 ## Directory layout
 
