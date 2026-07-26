@@ -115,6 +115,9 @@ services:
       # source so `docker compose up` never fails on a missing bind-mount.
       GOOGLE_CALENDAR_ID: ${GOOGLE_CALENDAR_ID}
       GOOGLE_CALENDAR_KEY_FILE: /run/secrets/google-calendar-key.json
+      # code_task is optional too — returns a clear error at call time if
+      # unset, same pattern as the calendar tools.
+      CODING_TASK_WEBHOOK_URL: ${CODING_TASK_WEBHOOK_URL}
     volumes:
       - ./secrets/google-calendar-key.json:/run/secrets/google-calendar-key.json:ro
     networks: [assistant-net]

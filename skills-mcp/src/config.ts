@@ -8,6 +8,7 @@ export interface Config {
   skillsProposalWebhookUrl: string;
   googleCalendarKeyFile?: string;
   googleCalendarId?: string;
+  codingTaskWebhookUrl?: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -38,5 +39,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // up yet, matching how HOME_LOCATION/HOME_LATITUDE/HOME_LONGITUDE work.
     googleCalendarKeyFile: env.GOOGLE_CALENDAR_KEY_FILE || undefined,
     googleCalendarId: env.GOOGLE_CALENDAR_ID || undefined,
+    // Optional, not required at startup: code_task returns a clear
+    // config-missing error at call time rather than crashing the whole
+    // server, same pattern as the calendar tools use.
+    codingTaskWebhookUrl: env.CODING_TASK_WEBHOOK_URL || undefined,
   };
 }

@@ -66,8 +66,8 @@ HTTP Request -> Honcho /messages    Fix Postgres Memory Row
   `docker-compose.yml` service, internal-only (no published port — n8n
   reaches it at `http://skills-mcp:3001/mcp` over `assistant-net`). Hosts
   agent-callable tools — see `skills-mcp/src/tools/` for the current list
-  (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event` as of
-  this writing) — added by registering each in `server.ts` following the
+  (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
+  `code_task` as of this writing) — added by registering each in `server.ts` following the
   same `registerTool`/zod/`textResult` pattern. Names use a consistent
   `domain_verb` prefix convention (not the original `verb_noun` names some
   of these launched with — see the tool-count/naming decision below) so
@@ -220,6 +220,13 @@ four separate calendar tools) — above that range. Changes:
   tools relevant to the current turn) — that's a bigger, separate change,
   worth revisiting only once the tool count grows enough to hit this
   ceiling again.
+
+**Back up to 5 with `code_task`** (the coding-agent pipeline's reactive
+trigger — see below). A deliberate addition, not scope creep sliding back
+past the guidance above: it's a genuinely new capability with no existing
+tool to consolidate it into, and it sits right at the edge of the 3–5
+range rather than past it. Worth revisiting the dynamic-tool-filtering
+option for real if anything gets added beyond this.
 
 An `update_context` workflow also exists in n8n, inactive, and is currently
 an empty stub (no nodes) — a reserved name/slot for something not built
@@ -663,14 +670,25 @@ priority call, not a bug — but it's a real, observed source of variance
 worth knowing about rather than assuming the Reviewer applies one
 consistent bar.
 
-**Not yet built**: the `code_task` `skills-mcp` tool and
-`scripts/start-coding-task.mjs` (no trigger exists yet beyond a raw
-webhook POST); a real GitHub remote for this repo (blocked on GitHub
-access — self-improvement tasks and PR-based review aren't usable until
-that exists; other-project tasks don't need it, since they bring their
-own `repoUrl`); base-image auto-detection (currently hardcoded to the
-Node image for every task); generalizing beyond the current one-file-per-
-role scope.
+### Phase 6 — triggers: `code_task` and `scripts/start-coding-task.mjs`
+
+Both trigger paths from the original plan are built. **Explicit/manual**
+(the one to actually rely on): `scripts/start-coding-task.mjs <repoUrl>
+<task...> [--ref=<branch>] [--test-command="..."]`, mirroring
+`scripts/chat.mjs`'s role as a reference client — POSTs directly to the
+webhook, needs `N8N_CODING_TASK_WEBHOOK_URL` (host-reachable form, kept
+separate from `skills-mcp`'s internal `CODING_TASK_WEBHOOK_URL`, same
+split as `N8N_CHAT_WEBHOOK_URL` vs. `chat-ui`'s internal
+`N8N_WEBHOOK_URL`). **Reactive**: `code_task`, `skills-mcp`'s 5th tool
+(`skills-mcp/src/tools/code-task.ts` + `lib/coding-workflow.ts`, mirroring
+`skill-propose.ts`/`skills-workflow.ts` exactly) — fire-and-forget POST to
+the same webhook, immediate reply once it's confirmed sent. Both verified
+directly: called `code_task` over the raw MCP protocol and via the script,
+confirmed a real `coding_proposals` row landed each time with the right
+task/repo/ref.
+
+Optional like the calendar tools — omitting `CODING_TASK_WEBHOOK_URL`
+returns a clear "not configured" error rather than crashing the server.
 
 ## Directory layout
 
@@ -684,10 +702,16 @@ role scope.
   `:3000`). Proxies chat through the n8n webhook and reads session
   list/history from Honcho.
 - `skills-mcp/` — MCP server hosting agent-callable tools
-  (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`),
-  wired into `docker-compose.yml` (builds from `skills-mcp/Dockerfile`,
-  internal-only, no published port). n8n's `Chat` workflow reaches it via
-  an `MCP Client Tool` node.
+  (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
+  `code_task`), wired into `docker-compose.yml` (builds from
+  `skills-mcp/Dockerfile`, internal-only, no published port). n8n's `Chat`
+  workflow reaches it via an `MCP Client Tool` node.
+- `sandbox-runner/` — Docker-outside-of-Docker sandbox for the coding-agent
+  pipeline (see the "Coding-agent pipeline + sandbox" section above);
+  `base-images/node/` is the custom image its ephemeral containers run.
+- `scripts/start-coding-task.mjs` — explicit trigger for
+  `coding_task_pipeline`, mirroring `chat.mjs`'s role as a reference
+  client for the `Chat` webhook.
 - `honcho-src/` — a clone of the Honcho OSS repo from when self-hosting was
   attempted. Unused now that Honcho runs hosted. Gitignored; safe to delete,
   kept only in case self-hosting is revisited (cost/privacy reasons).
