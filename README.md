@@ -435,6 +435,66 @@ pattern as `skills`, just a different table, and currently the only
 thing that ever reads or writes `proposed_system_prompt`/`proposed_reason`/
 `proposed_at` at all.
 
+## Coding-agent pipeline + sandbox (in progress)
+
+The next step beyond `skill_propose`/`skill_gap_scanner`: those can only
+ever *describe* a gap (`tool_idea`) — a human still has to write the code.
+This is a pipeline that can plan, write, and test real code changes in an
+isolated sandbox, for both self-improvement (this project) and
+general-purpose coding help on other projects, always ending in a
+human-reviewed proposal, never an auto-applied change. Full design in
+`.claude/plans/` history; only the pieces actually built so far are
+documented here.
+
+**Built and verified so far:**
+- This project is now a git repository (local only — no remote yet, since
+  that's a manual step requiring GitHub access not yet available). Every
+  target repo the pipeline will operate on, including this one eventually,
+  is referenced uniformly as `{ repoUrl, ref }` and always cloned fresh
+  over the network inside an ephemeral container — **never** a bind-mount
+  of a host folder. This was a deliberate choice, not the original plan:
+  Docker-outside-of-Docker sibling containers are spawned by the *host*
+  Docker daemon, so a bind-mount source has to be host-resolvable, and (see
+  gotcha below) bind mounts have independently proven flaky on this exact
+  machine. Cloning over the network sidesteps that entirely.
+- **`sandbox-runner`** (new service, `sandbox-runner/`): a narrow,
+  stateless HTTP service — `POST /execute` takes `{ repoUrl, ref, patch?,
+  testCommand, timeoutSeconds? }` and returns `{ exitCode, stdout, stderr,
+  timedOut, durationMs }`. Per call it spins up a **fresh, disposable**
+  container, clones the repo inside it, applies the diff if given, runs
+  the test command under a hard timeout, captures output, and destroys
+  the container — no state persists between calls. `/var/run/docker.sock`
+  is mounted **only** into `sandbox-runner` itself (via `dockerode`),
+  never into the containers it spawns.
+- **Verified security posture on a live ephemeral container** (via
+  `docker inspect` while one was still running mid-test): `Mounts: []`
+  (no docker.sock, no bind mounts of any kind), `Privileged: false`,
+  `NetworkMode: sandbox-net` (never `assistant-net` — no route to
+  postgres/n8n/ollama/Honcho), `User: node` (non-root, baked into the
+  custom `sandbox-node-test` base image at
+  `sandbox-runner/base-images/node/Dockerfile` — `node:22-alpine` doesn't
+  include `git`, which the ephemeral container needs to clone; installing
+  it at image-build time as root means the container itself never needs
+  root or package-install capability), plus `Memory`/`PidsLimit` caps.
+  Containers are confirmed gone (`docker ps -a`) after every call,
+  including the timeout path.
+- **Verified real pass/fail detection, not a rubber stamp**: tested
+  against a disposable fixture repo (one commit with a passing test, one
+  with a deliberately failing assertion) served over the `git://` protocol
+  from a throwaway `git daemon` container on `sandbox-net` — no GitHub
+  needed for this proof. The passing commit returned `exitCode: 0` with
+  the real test output; the failing one returned `exitCode: 1` with the
+  actual assertion failure (`2 !== 3`, full stack trace) in `stdout`.
+
+**Not yet built**: diff application in a real pipeline run (only proven
+manually so far, no `patch` exercised yet), the `coding_task_pipeline` n8n
+workflow (Planner → Coder → Test-writer → sandbox → Reviewer, with a
+capped retry loop), the `coding_proposals` Data Table, the `code_task`
+`skills-mcp` tool, `scripts/start-coding-task.mjs`, and a real GitHub
+remote for this repo (blocked on GitHub access — self-improvement tasks
+and PR-based review aren't usable until that exists; other-project tasks
+don't need it, since they bring their own `repoUrl`).
+
 ## Directory layout
 
 - `docker-compose.yml` — the whole stack.
@@ -468,7 +528,16 @@ thing that ever reads or writes `proposed_system_prompt`/`proposed_reason`/
 1. `cp .env.example .env` and fill in `POSTGRES_PASSWORD` (any strong
    random string) and `N8N_ENCRYPTION_KEY` (any strong random string).
 2. `docker compose up -d`
-3. `bash scripts/pull-models.sh` — pulls `llama3.1:8b` and `nomic-embed-text`
+3. **For the coding-agent sandbox** (see below): `docker network create
+   sandbox-net` and `docker build -t sandbox-node-test:latest
+   ./sandbox-runner/base-images/node`. Neither happens automatically —
+   compose only auto-creates a network when some service's `networks:`
+   list structurally attaches to it, and `sandbox-runner` only references
+   `sandbox-net` by name (as the network its *spawned* containers join,
+   not one it joins itself), so compose never sees it as "used." The base
+   image is a plain `docker build`, not a compose service, for the same
+   reason. Skip this if you're not using the coding-agent pipeline yet.
+4. `bash scripts/pull-models.sh` — pulls `llama3.1:8b` and `nomic-embed-text`
    (`nomic-embed-text` was for a self-hosted-Honcho attempt and is optional
    now). This script is stale re: the *actual* chat model — the `Chat`
    workflow's `Ollama Chat Model` node is user-configured and has already
@@ -478,22 +547,22 @@ thing that ever reads or writes `proposed_system_prompt`/`proposed_reason`/
    (default `llama3.2:3b`) is a separate, independent setting — keep it in
    sync with whatever the Chat workflow actually uses, or the warmup step
    preloads the wrong model.
-4. Open n8n at http://localhost:5678, create an owner account, build/import
+5. Open n8n at http://localhost:5678, create an owner account, build/import
    the Chat workflow (see `n8n/workflows/` for the last exported copy — check
    its `updatedAt` against the live workflow in n8n before trusting it; see
    gotcha below).
-5. On the Chat Trigger node: **Mode must be "Webhook"**, not "Hosted Chat"
+6. On the Chat Trigger node: **Mode must be "Webhook"**, not "Hosted Chat"
    (see gotcha below). Toggle the workflow **Active**.
-6. Add a Honcho API key as an n8n credential (HTTP Bearer Auth type) — get
+7. Add a Honcho API key as an n8n credential (HTTP Bearer Auth type) — get
    a key at [app.honcho.dev](https://app.honcho.dev) ($100 free credits to
    start). Never put this key in a file; n8n's credential vault is the only
    place it should live.
-7. Optionally set `HOME_LOCATION` (a city name) or `HOME_LATITUDE`/
+8. Optionally set `HOME_LOCATION` (a city name) or `HOME_LATITUDE`/
    `HOME_LONGITUDE` in `.env` so the `weather_get` tool has a default when
    the user doesn't name a city. Without this, `weather_get` still works for
    an explicitly named location, but returns a clear error (not a crash) if
    asked for "the weather" with no location given and none configured.
-8. Optionally bootstrap the Honcho peer cards (see the peer cards section
+9. Optionally bootstrap the Honcho peer cards (see the peer cards section
    above) by editing the fact lists in `scripts/set-peer-cards.mjs` and
    running `HONCHO_API_KEY=... node scripts/set-peer-cards.mjs`. Not
    required — both cards start empty and fill in over time via Honcho's

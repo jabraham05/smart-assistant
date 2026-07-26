@@ -1,0 +1,30 @@
+export interface Config {
+  port: number;
+  dockerSocketPath: string;
+  sandboxNetwork: string;
+  nodeImage: string;
+  defaultTimeoutSeconds: number;
+  memoryLimitBytes: number;
+  nanoCpus: number;
+  pidsLimit: number;
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv): Config {
+  return {
+    port: env.PORT ? Number(env.PORT) : 3002,
+    dockerSocketPath: env.DOCKER_SOCKET_PATH || "/var/run/docker.sock",
+    // Ephemeral per-task containers join this network, never `assistant-net`
+    // — they have no legitimate reason to reach postgres/n8n/ollama/Honcho.
+    sandboxNetwork: env.SANDBOX_NETWORK || "sandbox-net",
+    // Built from base-images/node/Dockerfile: node:22-alpine + git, non-root.
+    nodeImage: env.SANDBOX_NODE_IMAGE || "sandbox-node-test:latest",
+    defaultTimeoutSeconds: env.SANDBOX_TIMEOUT_SECONDS
+      ? Number(env.SANDBOX_TIMEOUT_SECONDS)
+      : 120,
+    memoryLimitBytes: env.SANDBOX_MEMORY_MB
+      ? Number(env.SANDBOX_MEMORY_MB) * 1024 * 1024
+      : 512 * 1024 * 1024,
+    nanoCpus: env.SANDBOX_CPUS ? Number(env.SANDBOX_CPUS) * 1e9 : 1e9,
+    pidsLimit: env.SANDBOX_PIDS_LIMIT ? Number(env.SANDBOX_PIDS_LIMIT) : 256,
+  };
+}

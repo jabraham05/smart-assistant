@@ -2,6 +2,14 @@ name: assistant
 
 networks:
   assistant-net:
+  # Ephemeral per-task sandbox containers join this network only — never
+  # assistant-net. They have no legitimate reason to reach postgres/n8n/
+  # ollama/Honcho, and this keeps that structurally true rather than just
+  # a convention. Default bridge driver still NATs outbound (git clone,
+  # package installs work normally), it's just not bridged to the other
+  # services.
+  sandbox-net:
+    name: sandbox-net
 
 volumes:
   postgres-data:
@@ -82,7 +90,7 @@ services:
       OLLAMA_HOST: http://ollama:11434
     volumes:
       - n8n-data:/home/node/.n8n
-    depends_on: [postgres, ollama, skills-mcp]
+    depends_on: [postgres, ollama, skills-mcp, sandbox-runner]
     networks: [assistant-net]
 
   # MCP server hosting agent-callable tools (recall_user_memory, get_weather,
@@ -109,6 +117,24 @@ services:
       GOOGLE_CALENDAR_KEY_FILE: /run/secrets/google-calendar-key.json
     volumes:
       - ./secrets/google-calendar-key.json:/run/secrets/google-calendar-key.json:ro
+    networks: [assistant-net]
+
+  # Docker-outside-of-Docker sandbox: spins up a fresh, disposable container
+  # per coding task (clone -> apply diff -> run tests -> report -> destroy),
+  # for the coding-agent pipeline (see README's coding-agent section).
+  # docker.sock is mounted ONLY here, never into the containers this spawns.
+  # Internal-only, reached by n8n over assistant-net at
+  # http://sandbox-runner:3002.
+  sandbox-runner:
+    build:
+      context: ./sandbox-runner
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "3002"
+      SANDBOX_NETWORK: sandbox-net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     networks: [assistant-net]
 
   chat-ui:
