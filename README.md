@@ -1625,6 +1625,26 @@ above) — the prototype's shape held up unchanged.
   instead of correcting it. `Rebuild Fallback Prompt` is written
   defensively (`.filter(Boolean)` on the mapped `message` field) to handle
   the placeholder empty item this produces when there's truly no history.
+- **The same zero-items-means-downstream-never-runs rule bit `Get Active
+  Skills` too, and much harder — it took the whole Chat pipeline down.**
+  Once every row in the `skills` Data Table had `status != 'active'` (after
+  a backlog triage/cleanup left only `proposed` rows), `Get Active Skills`'
+  filter matched nothing, so `Format Skills Catalog` and — critically — the
+  `AI Agent` node itself never executed. Nothing errored (`status: success`
+  in `execution_entity`); the webhook (streaming `responseMode`) just
+  closed with a genuinely empty body, in both chat-ui and n8n's own chat
+  UI. Confirmed by decoding `execution_data` with `flatted` and seeing
+  `runData` stop dead at `Get Active Skills` with no error and no later
+  nodes present. Fixed the same way as `Fetch Recent History`:
+  `alwaysOutputData: true` on `Get Active Skills`, so it always emits at
+  least one (possibly empty) item and the rest of the chain — including
+  `AI Agent` — always runs. `Format Skills Catalog` already handled an
+  empty skills array gracefully (`skills.length ? ... : ''`), so no changes
+  needed there. Lesson: any Data Table `get`/query node feeding a chain
+  that must never go silent (especially one upstream of the actual
+  reply-generating node) needs `alwaysOutputData: true`, not just the ones
+  already known to hit this — worth auditing other pipelines for the same
+  class of node.
 - **Explicitly naming a tool by its internal identifier in a prompt (e.g.
   "use the weather_get tool") reliably produces a completely empty raw
   completion from `qwen3:8b`** — confirmed generalizable, not specific to
