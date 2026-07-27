@@ -12,6 +12,7 @@ export interface Config {
   spotifyClientId?: string;
   spotifyClientSecret?: string;
   spotifyRefreshToken?: string;
+  dashboardControlWebhookUrl?: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -53,5 +54,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     spotifyClientId: env.SPOTIFY_CLIENT_ID || undefined,
     spotifyClientSecret: env.SPOTIFY_CLIENT_SECRET || undefined,
     spotifyRefreshToken: env.SPOTIFY_REFRESH_TOKEN || undefined,
+    // Optional, not required at startup: dashboard_control returns a clear
+    // config-missing error at call time, same pattern as the calendar/
+    // Spotify tools use.
+    dashboardControlWebhookUrl: env.DASHBOARD_CONTROL_WEBHOOK_URL || undefined,
   };
 }

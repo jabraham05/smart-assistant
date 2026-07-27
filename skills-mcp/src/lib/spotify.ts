@@ -151,13 +151,21 @@ export interface CurrentlyPlaying {
   artists?: string;
   progressMs?: number;
   durationMs?: number;
+  albumArt?: string;
+  deviceName?: string;
 }
 
 export async function getCurrentlyPlaying(config: Config): Promise<CurrentlyPlaying | null> {
   const data = (await spotifyFetch(config, "/me/player/currently-playing")) as {
     is_playing?: boolean;
     progress_ms?: number;
-    item?: { name: string; duration_ms: number; artists?: Array<{ name: string }> };
+    device?: { name?: string };
+    item?: {
+      name: string;
+      duration_ms: number;
+      artists?: Array<{ name: string }>;
+      album?: { images?: Array<{ url: string }> };
+    };
   } | null;
   if (!data || !data.item) return null;
   return {
@@ -166,6 +174,8 @@ export async function getCurrentlyPlaying(config: Config): Promise<CurrentlyPlay
     artists: data.item.artists?.map((a) => a.name).join(", "),
     progressMs: data.progress_ms,
     durationMs: data.item.duration_ms,
+    albumArt: data.item.album?.images?.[0]?.url,
+    deviceName: data.device?.name,
   };
 }
 
