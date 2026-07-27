@@ -670,6 +670,85 @@ priority call, not a bug — but it's a real, observed source of variance
 worth knowing about rather than assuming the Reviewer applies one
 consistent bar.
 
+### Phase 5 — real PR-opening via `sandbox-runner`
+
+Added `sandbox-runner`'s `/propose-pr` endpoint and wired it into the
+workflow: when `Should Retry?` exits via `approve` and `Sandbox
+Execute`'s `exitCode == 0` and `target_repo_url` contains `github.com`,
+`Build PR Request` builds a branch name/commit message/PR title from the
+task, `Propose PR` calls `/propose-pr`, and `Merge PR Result`/`Update Row`
+record the resulting `pr_url` (or `prError`) on the `coding_proposals`
+row. `Should Open PR?`'s `exitCode == 0` check is a hard backstop
+independent of the Reviewer's verdict — see below for why that mattered
+in practice, not just in theory.
+
+**Security posture, deliberately**: `GITHUB_TOKEN` (a fine-grained PAT,
+scoped to `Contents` + `Pull requests` read/write on specific repos only)
+is set **only** on `sandbox-runner`, never on `n8n` — n8n persists every
+workflow execution's full node inputs/outputs in Postgres in plaintext,
+so a token flowing through a workflow's JSON body would sit there
+indefinitely. The workflow only ever asks "push and open a PR"; only
+`sandbox-runner` ever sees the token, for exactly the duration of one
+push. Both `executor.ts`'s push path and its git-clone-for-testing path
+scrub the token-embedded URL out of any stdout/stderr they return,
+since git's own error messages can echo a failing remote URL back
+verbatim.
+
+**Verified in three stages, each surfacing a real bug the previous stage
+couldn't have caught:**
+
+1. **Isolated `/propose-pr` call** (bypassing the workflow entirely):
+   pushed a branch and opened a real PR
+   (`github.com/jabraham05/smart-assistant/pull/1`), confirmed via `gh
+   api`, then closed/deleted it — proved the push+PR mechanism itself
+   works.
+2. **First full-pipeline run against the real, private
+   `smart-assistant` repo** (a trivial, safe task: add one explanatory
+   comment to `sandbox-runner/src/config.ts`) failed at the clone step:
+   `runInSandbox`'s test-execution clone had never been taught to use
+   the token, only the push path had — so it couldn't even clone a
+   private repo to test against. **Fixed**: `runInSandbox` now also
+   builds an authenticated clone URL for `github.com` http(s) targets
+   when a token is configured (`maybeAuthenticateCloneUrl`), leaving
+   non-GitHub/`git://` URLs untouched.
+3. **Second full-pipeline run**, post-fix, cloned successfully but
+   surfaced a more fundamental gap: the Coder's diff didn't match the
+   real file's actual content and `patch` silently failed to apply —
+   yet the script only *logged* `PATCH_APPLY_EXIT_CODE`, then ran the
+   test command regardless. `npm run build` then passed against the
+   **unmodified original file**, and the Reviewer approved, unable to
+   tell a vacuous pass from a real one from the exit code alone. Ground
+   truth (`git diff origin/main origin/<branch>`) confirmed the pushed
+   branch was byte-identical to `main` — GitHub's own "no commits
+   between" 422 on PR creation was the only thing that caught it, not
+   anything in this pipeline's own design. **Fixed**: both `RUN_SCRIPT`
+   and `PUSH_SCRIPT` now hard-abort (distinctive exit code `97`) the
+   moment `patch` returns non-zero, rather than falling through to
+   `eval "$TEST_COMMAND"` or `git commit`/`git push` against an
+   unchanged tree.
+4. **Third full-pipeline run**, post-fix: attempt 1 hit the new
+   hard-abort (bad patch, forced a real `retry`, not a rubber-stamped
+   pass), the Reviewer correctly sent it back, attempt 2 produced a
+   valid diff, and a real PR
+   (`github.com/jabraham05/smart-assistant/pull/2`) was opened —
+   verified via `gh pr diff`: exactly one line added, the correct
+   comment, `mergeable: true`. Closed/deleted afterward, same as stage 1.
+
+**Known remaining nuance, not yet fixed**: the Reviewer can still
+rationalize a genuine `PATCH_APPLY_EXIT_CODE` failure as "a formatting
+issue, not a problem with the code" when *some* hunk in a multi-hunk
+diff happens to apply — the hard-abort above closes the worst case (a
+fully vacuous pass) but doesn't stop the Reviewer from being talked into
+a bad excuse by its own reasoning. The `exitCode == 0` gate on PR-opening
+is the actual backstop here, by design independent of what the Reviewer
+says — this is exactly why that gate exists as a separate condition
+rather than trusting `reviewer_verdict` alone.
+
+**Not yet built** (unchanged from the original plan, still real gaps):
+base-image auto-detection (every task still assumes Node/JavaScript via
+the one hardcoded `sandbox-node-test` image) and multi-file/new-file
+support (Coder still only targets a single existing file per task).
+
 ### Phase 6 — triggers: `code_task` and `scripts/start-coding-task.mjs`
 
 Both trigger paths from the original plan are built. **Explicit/manual**

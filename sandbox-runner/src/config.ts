@@ -7,6 +7,9 @@ export interface Config {
   memoryLimitBytes: number;
   nanoCpus: number;
   pidsLimit: number;
+  githubToken?: string;
+  gitAuthorName: string;
+  gitAuthorEmail: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -26,5 +29,13 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
       : 512 * 1024 * 1024,
     nanoCpus: env.SANDBOX_CPUS ? Number(env.SANDBOX_CPUS) * 1e9 : 1e9,
     pidsLimit: env.SANDBOX_PIDS_LIMIT ? Number(env.SANDBOX_PIDS_LIMIT) : 256,
+    // Deliberately kept here, never passed through n8n workflow parameters:
+    // n8n stores full execution data (every node's inputs/outputs) in
+    // Postgres in plaintext, so a token flowing through a workflow's JSON
+    // body would sit there indefinitely. Only this service ever sees it -
+    // the workflow just asks "push and open a PR", never touches the token.
+    githubToken: env.GITHUB_TOKEN || undefined,
+    gitAuthorName: env.GIT_AUTHOR_NAME || "smart-assistant-bot",
+    gitAuthorEmail: env.GIT_AUTHOR_EMAIL || "smart-assistant-bot@users.noreply.github.com",
   };
 }

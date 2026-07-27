@@ -136,6 +136,12 @@ services:
     environment:
       PORT: "3002"
       SANDBOX_NETWORK: sandbox-net
+      # Deliberately set ONLY here, never on the n8n service — n8n stores
+      # every workflow execution's full node inputs/outputs in Postgres in
+      # plaintext, so this must never flow through a workflow's JSON body.
+      # Only sandbox-runner itself ever sees it, for pushing an approved
+      # branch and opening the resulting PR (see executor.ts).
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [assistant-net]
