@@ -1,3 +1,6 @@
+/**
+ * Interface defining configuration parameters for the sandbox runner's execution environment.
+ */
 export interface Config {
   port: number;
   dockerSocketPath: string;
