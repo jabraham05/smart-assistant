@@ -3,14 +3,12 @@ import type { Config } from "../config.js";
 export interface DashboardControlRequest {
   action: "get_layout" | "show" | "hide" | "move" | "resize";
   type?: string;
-  x?: number;
-  y?: number;
-  w?: number;
+  position?: number;
   h?: number;
 }
 
 export interface DashboardControlResult {
-  widgets: Array<{ type: string; x: number; y: number; w: number; h: number }>;
+  widgets: Array<{ type: string; h: number }>;
   reasoning?: string;
   updatedAt: string;
 }
