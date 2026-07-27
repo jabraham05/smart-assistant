@@ -537,6 +537,49 @@ pattern as `skills`, just a different table, and currently the only
 thing that ever reads or writes `proposed_system_prompt`/`proposed_reason`/
 `proposed_at` at all.
 
+**2026-07-27 — the opposite of sparsity showed up in practice: the same
+gap re-proposed under different names.** With enough real days of
+scanning, the same salary-negotiation gap got proposed four separate
+times under four different kebab-names (`salary-negotiation-workflow`,
+`negotiate-salary-offer-instruction-proposed`, then two more on later
+runs) — `Ollama Reasoning`'s system prompt already says never to
+repropose an existing/equivalent skill, and one rejected proposal's own
+`reason` field even *named* an existing proposal as related, then
+proposed anyway. The within-batch dedup (`Parse and Normalize Proposal`'s
+`seen` Set) only catches exact-name collisions in the same run — it
+never checked new candidates against the full existing `skills` list at
+all. A word-overlap heuristic was tried first and measured to fail on
+the exact real case (different phrasing/synonyms score too low on raw
+word overlap despite being the same underlying idea — "a fully
+implemented, saved skill providing a reusable workflow" vs. "a
+structured, repeatable guide" share almost no literal words). Fixed with
+a new **`Semantic Dedup Check`** step between `Parse and Normalize
+Proposal` and `If Should Propose`: a dedicated Ollama call given the full
+candidate list plus every existing skill (any status), asked to judge
+duplication by substance, not wording — this is what a real LLM judgment
+call is good at, unlike string matching. Verified against the live
+scanner (temporarily shortened schedule, same technique as elsewhere in
+this project) correctly filtering out three different re-worded
+salary-negotiation variants across separate runs, with `Submit Proposal`
+never firing for any of them.
+
+Building this surfaced a real, previously-invisible bug affecting
+already-shipped code: **global `fetch()` is not defined inside a Code
+node's sandboxed execution context** in this n8n version — confirmed by
+direct testing (`ReferenceError: fetch is not defined`, thrown from
+`js-task-runner.js`'s `vm.runInContext`). The dedup node's first draft
+used `fetch()` and failed in under 20ms every time, silently caught by
+its own error handling. Worse: `dashboard_state`'s `Catalog Ready` node
+(see "Smart-mirror dashboard" above) used the exact same pattern and had
+been hitting its catch block on *every single run* since it was built —
+never once actually reaching the Pi's `/api/widgets/catalog` endpoint —
+completely undetected because its hardcoded fallback catalog happens to
+have identical content to the real one. Fixed both nodes to use
+`this.helpers.httpRequest(...)` instead (the sanctioned way to make HTTP
+calls from inside a Code node) — confirmed genuinely fixed by real
+network round-trip timings afterward (500ms–1.1s) replacing the previous
+instant, fallback-only executions (8–15ms).
+
 ## Coding-agent pipeline + sandbox (in progress)
 
 The next step beyond `skill_propose`/`skill_gap_scanner`: those can only
@@ -1650,6 +1693,26 @@ above) — the prototype's shape held up unchanged.
   missing merge/sync point) before the real cause — this exact return-
   shape mismatch, in three different `runOnceForEachItem` Code nodes at
   once — was found.
+- **Global `fetch()` is not defined inside a Code node's sandboxed
+  execution context** in this n8n version — confirmed by direct testing
+  (`ReferenceError: fetch is not defined`, thrown from
+  `@n8n/task-runner`'s `js-task-runner.js` inside a `vm.runInContext`
+  call). A Code node that calls `fetch()` doesn't error loudly — if
+  wrapped in a try/catch with a fallback (a reasonable, even
+  recommended, defensive pattern elsewhere in this project), it silently
+  falls through to that fallback on *every single execution*, indefinitely,
+  with no visible symptom at all if the fallback happens to look
+  plausible. Found this way: `dashboard_state`'s `Catalog Ready` node had
+  been doing exactly this since it was built, never once actually
+  reaching the Pi, invisible only because its hardcoded fallback catalog
+  matches the real one's content. Use `this.helpers.httpRequest({method,
+  url, body, json: true, timeout})` instead — the sanctioned way to make
+  HTTP calls from inside a Code node — which returns the parsed response
+  body directly (no `.json()` call needed). A genuine network round trip
+  is easy to tell apart from a silent fallback afterward: check the
+  node's `executionTime` in the decoded `execution_data` (see the gotcha
+  above for how) — single-digit milliseconds means it never left the
+  sandbox; hundreds of ms to low seconds means it actually made the call.
 - **A Data Table `update` against zero matching rows fails with the same
   unhelpful "json property isn't an object" error, not a clean "0 rows
   updated"** — for a single "current state" row pattern (see the
