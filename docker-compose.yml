@@ -126,6 +126,10 @@ services:
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
       SPOTIFY_REFRESH_TOKEN: ${SPOTIFY_REFRESH_TOKEN}
+      # dashboard_control tool — also optional, clear error at call time if
+      # unset. Points at the dashboard_control n8n workflow, which applies
+      # smart-mirror widget layout changes and pushes them to the Pi.
+      DASHBOARD_CONTROL_WEBHOOK_URL: ${DASHBOARD_CONTROL_WEBHOOK_URL}
     networks: [assistant-net]
 
   # Docker-outside-of-Docker sandbox: spins up a fresh, disposable container

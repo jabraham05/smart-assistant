@@ -2,11 +2,22 @@ import express from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { loadConfig } from "./config.js";
 import { createServer } from "./server.js";
+import { registerDashboardDataRoute } from "./routes/dashboard-data.js";
+import { registerSpotifyActionRoute } from "./routes/spotify-action.js";
 
 const config = loadConfig(process.env);
 
 const app = express();
 app.use(express.json());
+
+// Plain internal REST route, no LLM/MCP involved — the dashboard_state n8n
+// workflow fetches from this directly so structured data (temperatures,
+// event times) never has to round-trip through model prose.
+registerDashboardDataRoute(app, config);
+
+// Plain internal REST route, no LLM/MCP involved — the Pi's Spotify
+// play/pause/skip buttons reach this via a dedicated n8n webhook.
+registerSpotifyActionRoute(app, config);
 
 // Stateless mode: a fresh McpServer + transport per request, no session
 // tracking. This is the simplest spec-compliant shape for an internal-only
