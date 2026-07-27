@@ -14,7 +14,8 @@ app.use(express.json());
 // affinity concerns.
 app.post("/mcp", async (req, res) => {
   try {
-    const server = createServer(config);
+    const chatSessionId = typeof req.query.chatSessionId === "string" ? req.query.chatSessionId : undefined;
+    const server = createServer(config, { chatSessionId });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });

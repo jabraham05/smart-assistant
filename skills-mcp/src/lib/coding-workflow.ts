@@ -6,6 +6,11 @@ export interface CodingTaskRequest {
   ref?: string;
   testCommand?: string;
   contextCommand?: string;
+  // The chat session this task was triggered from, if any — captured at
+  // the MCP transport layer (see server.ts's RequestContext), not
+  // supplied by the model. Lets the pipeline post a real follow-up back
+  // into the same conversation once it finishes.
+  chatSessionId?: string;
 }
 
 // POSTs to the coding_task_pipeline n8n workflow's webhook. That webhook's

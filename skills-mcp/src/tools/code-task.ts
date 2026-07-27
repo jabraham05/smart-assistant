@@ -4,7 +4,7 @@ import type { Config } from "../config.js";
 import { submitCodingTask } from "../lib/coding-workflow.js";
 import { errorResult, textResult } from "../types.js";
 
-export function registerCodeTask(server: McpServer, config: Config): void {
+export function registerCodeTask(server: McpServer, config: Config, chatSessionId?: string): void {
   server.registerTool(
     "code_task",
     {
@@ -61,10 +61,13 @@ export function registerCodeTask(server: McpServer, config: Config): void {
     },
     async ({ task, repoUrl, ref, testCommand, contextCommand }) => {
       try {
-        await submitCodingTask(config, { task, repoUrl, ref, testCommand, contextCommand });
+        await submitCodingTask(config, { task, repoUrl, ref, testCommand, contextCommand, chatSessionId });
         return textResult(
-          "Started working on this in the background — I'll have a proposed change to review " +
-            "once it's done.",
+          chatSessionId
+            ? "Started working on this in the background — I'll post an update right here in " +
+                "this conversation once it's done."
+            : "Started working on this in the background — check the coding_proposals table " +
+                "for the result once it's done.",
         );
       } catch (e) {
         return errorResult(`code_task failed: ${e instanceof Error ? e.message : String(e)}`);

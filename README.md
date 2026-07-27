@@ -790,6 +790,65 @@ call itself fired correctly and immediately on a direct, explicit
 request — the failure was entirely in what happened after, not in
 whether the tool got invoked.
 
+**2026-07-27 — session-aware follow-up, closing a false promise Amy
+made.** The same chat-triggered test above ended with Amy saying "I'll
+notify you the moment the task is complete" — untrue, since nothing
+proactive existed. Fixed by threading the originating chat session
+through the whole pipeline and posting a real result back into it:
+
+- The MCP Client Tool node's `endpointUrl` in the `Chat` workflow
+  changed from a static string to `=http://skills-mcp:3001/mcp?chatSessionId={{
+  $('When chat message received').item.json.sessionId }}` — a normal
+  n8n node parameter (not a credential), so it supports the same
+  expression access to trigger data every other node in that workflow
+  already uses. Confirmed by reading `McpClientTool.node.js` inside the
+  n8n container first: the node has no built-in way to merge extra
+  static parameters into a model-driven tool call, so this had to
+  happen at the transport layer instead. `skills-mcp/src/index.ts`'s
+  `/mcp` route was already stateless (a fresh `createServer()` per
+  request) — reads `req.query.chatSessionId` and threads it through
+  `createServer` → `registerCodeTask` → `submitCodingTask`, present only
+  when the call actually came from a chat session.
+- `coding_proposals` gets a new `origin_session_id` column, set by
+  `Prepare Row` from the incoming payload.
+- After `Update Row`, a new `Has Origin Session?` IF node gates two
+  notify calls on that column being non-empty — CLI-triggered tasks and
+  direct MCP calls have no session and take the untouched FALSE branch,
+  confirmed via a real CLI-triggered run's execution data (the notify
+  nodes genuinely didn't run, not just returned empty).
+- **`Notify Chat History`** — a direct `INSERT INTO n8n_chat_histories`
+  (session key `origin_session_id + '__Postgres_Chat_Memory'`, same
+  table/key format `Fetch Recent History`/`Fix Postgres Memory Row`
+  already use). This is what makes Amy's *own next real reply* in that
+  session actually aware of the outcome — verified end-to-end: asked
+  "hey, any update on that?" with no reference to the task, and she
+  correctly reported the real PR URL and outcome, sourced entirely from
+  this injected row, not from being told anything.
+- **`Notify Honcho`** — same call shape as the `Chat` workflow's own
+  message-store node, same Bearer Auth credential. Makes the result
+  appear as a real message bubble next time that specific chat-ui
+  conversation is reopened (chat-ui reads session history from Honcho,
+  not from n8n's internal Postgres memory table).
+- Both `onError: continueRegularOutput`, matching every existing Honcho
+  call in this codebase — a notify failure must never be mistaken for
+  the pipeline itself failing, since the real result already landed
+  safely in `Update Row` first.
+- **Real bug caught during verification, not just in theory**: the
+  first live run showed `Notify Honcho` succeeding but `Notify Chat
+  History` failing with "Node does not have any credentials set" — the
+  Postgres credential reference (`Fix Postgres Memory Row`'s exact
+  `{ postgres: { id, name } }` block) had been copied for the query but
+  not attached to the node itself. Fixed, then re-verified clean on both
+  a failure-path run and a success-path-with-PR run.
+- **What this is and isn't**: session-aware follow-up, not real push. If
+  the user isn't back in that specific conversation, nothing pops up —
+  the message just waits there, surfaced next time that conversation
+  continues (either by reopening it, or by saying anything at all, since
+  Amy's own context already includes the outcome by then). True push
+  (something appearing while the user is doing something else entirely)
+  would need new infrastructure — an SSE/websocket channel to `chat-ui`,
+  or an external channel like email/SMS — explicitly out of scope here.
+
 ## Directory layout
 
 - `docker-compose.yml` — the whole stack.
