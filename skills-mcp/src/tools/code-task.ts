@@ -46,11 +46,22 @@ export function registerCodeTask(server: McpServer, config: Config): void {
             "Command to run the test suite, e.g. 'npm test' or 'pytest'. Defaults to 'npm test' " +
               "if not given — only override this if you know the project uses something else.",
           ),
+        contextCommand: z
+          .string()
+          .optional()
+          .describe(
+            "Shell command run inside the target repo to print the file(s) the Coder needs to " +
+              "see before writing a diff — without this, the Coder only has the task description " +
+              "and can hallucinate the file's actual content. Defaults to a shallow search for " +
+              "*.js files only, which misses TypeScript/Python/deeper-nested files entirely. " +
+              "Override this whenever the target file isn't a top-level-ish .js file — e.g. " +
+              "`cat path/to/real_file.ts` or `find ./src -name '*.py' -exec cat {} +`.",
+          ),
       },
     },
-    async ({ task, repoUrl, ref, testCommand }) => {
+    async ({ task, repoUrl, ref, testCommand, contextCommand }) => {
       try {
-        await submitCodingTask(config, { task, repoUrl, ref, testCommand });
+        await submitCodingTask(config, { task, repoUrl, ref, testCommand, contextCommand });
         return textResult(
           "Started working on this in the background — I'll have a proposed change to review " +
             "once it's done.",

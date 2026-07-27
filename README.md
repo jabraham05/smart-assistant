@@ -769,6 +769,27 @@ task/repo/ref.
 Optional like the calendar tools — omitting `CODING_TASK_WEBHOOK_URL`
 returns a clear "not configured" error rather than crashing the server.
 
+**2026-07-27 — real chat-triggered run surfaced a genuine `code_task`
+gap.** Asked Amy directly to fix something in this repo's own
+`sandbox-runner/src/config.ts` (a TypeScript file). `code_task`'s
+zod schema had no `contextCommand` parameter at all — every
+chat-triggered task silently fell back to `Prepare Row`'s default
+(`find . -maxdepth 2 -name "*.js"`), which only matches `.js` files. The
+Coder got zero real content for the actual target file and fully
+hallucinated a plausible-but-wrong interface shape (wrong field names,
+an invented comment) — `patch` correctly rejected it on all 3 attempts
+(Phase 5's hard-abort working exactly as designed), landing on
+`needs_review_failed`. This was a real, root-cause bug, not model
+flakiness: confirmed by diffing the Coder's output against the actual
+file content. **Fixed**: `contextCommand` is now a 5th optional
+parameter on `code_task`, described clearly enough that a model calling
+it knows to override the default for anything beyond a shallow `.js`
+file. Positive finding from the same session, worth noting since it
+contradicts the "reactive trigger is unreliable" caveat above: the tool
+call itself fired correctly and immediately on a direct, explicit
+request — the failure was entirely in what happened after, not in
+whether the tool got invoked.
+
 ## Directory layout
 
 - `docker-compose.yml` — the whole stack.
