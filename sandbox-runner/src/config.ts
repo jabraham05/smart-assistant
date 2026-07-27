@@ -1,3 +1,4 @@
+// This file defines configuration parameters for the sandbox runner.
 export interface Config {
   port: number;
   dockerSocketPath: string;
