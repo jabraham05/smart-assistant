@@ -146,6 +146,25 @@ workflow's `Get Persona` node reads the `system_prompt` column for that row
 and feeds it to the AI Agent as its system message, alongside the two
 Honcho peer cards described above.
 
+**2026-07-27 — the model had no way to know the actual current date,
+and silently fabricated one.** Asked to schedule a calendar event
+"tomorrow at 5pm," `calendar_event` reported success with a real event
+ID and a real Google Calendar link — but the event was actually created
+for `2023-10-12`, over three years in the past. Confirmed directly by
+fetching the event from Google's API by ID (not visible via `list`'s
+default 7-day window at all, which is exactly why it looked like
+nothing happened). Root cause: nothing in the system prompt ever told
+the model what "today" actually is, so a relative date like "tomorrow"
+had no ground truth to compute from and it fell back to some
+training-era placeholder date instead of erroring or asking. **Fixed**
+by injecting the real current date/time (`$now`, formatted in Pacific
+time — n8n's expression engine, not a tool call, so no reliability
+concerns) directly into `AI Agent`'s `systemMessage`, with explicit
+instruction to use it as ground truth for relative dates and never
+guess. Verified: the identical request afterward correctly created an
+event on `2026-07-28` (genuinely tomorrow) — cleaned up both the wrong
+and the corrected test events afterward.
+
 **2026-07-26 decision**: there used to be a `propose_persona_change` tool
 (and a human-approval-gate workflow around it) that let the agent write a
 *candidate* system-prompt rewrite for a human to review and manually apply.
