@@ -43,6 +43,8 @@ interface WeatherData {
   temperature: number;
   condition: string;
   icon: string;
+  highTemp: number;
+  lowTemp: number;
 }
 
 async function fetchWeather(config: Config): Promise<WeatherData | null> {
@@ -52,17 +54,25 @@ async function fetchWeather(config: Config): Promise<WeatherData | null> {
   url.searchParams.set("latitude", String(config.homeLatitude));
   url.searchParams.set("longitude", String(config.homeLongitude));
   url.searchParams.set("current", "temperature_2m,weather_code");
+  url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min");
   url.searchParams.set("temperature_unit", "fahrenheit");
+  url.searchParams.set("timezone", "auto");
+  url.searchParams.set("forecast_days", "1");
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Open-Meteo error ${res.status}`);
-  const data = (await res.json()) as { current: { temperature_2m: number; weather_code: number } };
+  const data = (await res.json()) as {
+    current: { temperature_2m: number; weather_code: number };
+    daily: { temperature_2m_max: number[]; temperature_2m_min: number[] };
+  };
   const mapped = WEATHER_CODES[data.current.weather_code] ?? { condition: "Unknown", icon: "❓" };
 
   return {
     temperature: Math.round(data.current.temperature_2m),
     condition: mapped.condition,
     icon: mapped.icon,
+    highTemp: Math.round(data.daily.temperature_2m_max[0]),
+    lowTemp: Math.round(data.daily.temperature_2m_min[0]),
   };
 }
 
@@ -96,6 +106,8 @@ interface SpotifyNowPlayingData {
   artistName: string | null;
   albumArt: string | null;
   deviceName: string | null;
+  progressMs: number | null;
+  durationMs: number | null;
 }
 
 const SPOTIFY_IDLE: SpotifyNowPlayingData = {
@@ -104,6 +116,8 @@ const SPOTIFY_IDLE: SpotifyNowPlayingData = {
   artistName: null,
   albumArt: null,
   deviceName: null,
+  progressMs: null,
+  durationMs: null,
 };
 
 async function fetchSpotify(config: Config): Promise<SpotifyNowPlayingData | null> {
@@ -118,6 +132,8 @@ async function fetchSpotify(config: Config): Promise<SpotifyNowPlayingData | nul
     artistName: current.artists ?? null,
     albumArt: current.albumArt ?? null,
     deviceName: current.deviceName ?? null,
+    progressMs: current.progressMs ?? null,
+    durationMs: current.durationMs ?? null,
   };
 }
 
