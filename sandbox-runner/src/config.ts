@@ -1,3 +1,8 @@
+/**
+ * Config defines the structure of configuration settings for the sandbox runner.
+ * It is primarily used during sandbox initialization, configuration validation,
+ * and parameter passing between components.
+ */
 export interface Config {
   port: number;
   dockerSocketPath: string;
