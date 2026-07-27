@@ -111,8 +111,10 @@ services:
       SKILLS_PROPOSAL_WEBHOOK_URL: ${SKILLS_PROPOSAL_WEBHOOK_URL}
       # Calendar tools are optional — if GOOGLE_CALENDAR_ID is unset, they
       # return a clear error instead of the server failing to start. The key
-      # file mount below always has a valid (placeholder, until configured)
-      # source so `docker compose up` never fails on a missing bind-mount.
+      # file is baked into the image at build time (see skills-mcp/Dockerfile)
+      # rather than bind-mounted — a runtime bind mount for this single file
+      # got stuck as a directory on this machine's Docker Desktop, persisting
+      # across container recreation.
       GOOGLE_CALENDAR_ID: ${GOOGLE_CALENDAR_ID}
       GOOGLE_CALENDAR_KEY_FILE: /run/secrets/google-calendar-key.json
       # code_task is optional too — returns a clear error at call time if
@@ -124,8 +126,6 @@ services:
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
       SPOTIFY_REFRESH_TOKEN: ${SPOTIFY_REFRESH_TOKEN}
-    volumes:
-      - ./secrets/google-calendar-key.json:/run/secrets/google-calendar-key.json:ro
     networks: [assistant-net]
 
   # Docker-outside-of-Docker sandbox: spins up a fresh, disposable container

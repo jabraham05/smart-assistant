@@ -999,6 +999,20 @@ through the whole pipeline and posting a real result back into it:
    running `HONCHO_API_KEY=... node scripts/set-peer-cards.mjs`. Not
    required — both cards start empty and fill in over time via Honcho's
    automatic dreaming — but this skips the cold-start gap.
+10. Optionally set up `calendar_event` (Google Calendar). Create a Google
+    Cloud project, enable the Calendar API, create a service account
+    (IAM & Admin → Service Accounts → Create), generate a JSON key for it
+    (Keys tab → Add Key → Create new key → JSON), and save that file as
+    `skills-mcp/secrets/google-calendar-key.json` (gitignored) — **baked
+    into the image at build time, not bind-mounted** (see the gotcha
+    below), so run `docker compose up -d --build skills-mcp` after adding
+    it, a plain restart won't pick it up. Share the target calendar with
+    the service account's `client_email` (Google Calendar → calendar
+    settings → "Share with specific people" → "Make changes to events"),
+    then set `GOOGLE_CALENDAR_ID` in `.env` (your Gmail address for your
+    primary calendar, or the calendar's ID from "Integrate calendar").
+    Without this, `calendar_event` returns a clear "not configured" error
+    rather than breaking anything.
 
 ## Testing connectivity
 
@@ -1068,6 +1082,22 @@ in, get reply text back.
   fallback when a bind mount silently shows an empty directory to a
   container — verify with a plain `docker run -v ... alpine ls` test before
   assuming it's the specific tool/image's fault.
+- **A single-file bind mount can get stuck as a directory inside the
+  container, persisting across recreation.** Hit twice: once with
+  `ollama-mcp-bridge`'s config file, again with
+  `skills-mcp`'s `google-calendar-key.json` — in both cases `docker
+  compose up -d --force-recreate` (even a full `stop`/`rm -f`/`up`) still
+  showed the mount target as an empty directory inside the container,
+  same inode/timestamp as before, meaning Docker Desktop's VM was
+  caching the broken mount at a level recreation doesn't touch. `stat
+  <path>` inside the container (checking for `directory` vs. `regular
+  file`) is the fast way to confirm this is what's happening, rather
+  than assuming a code/permissions bug. **Fix that actually works**:
+  stop bind-mounting the single file at runtime — `COPY` it into the
+  image at build time instead (see `skills-mcp/Dockerfile`'s
+  `google-calendar-key.json` handling). The file stays gitignored either
+  way; only its filesystem location moves into the service's own build
+  context so it's copyable at all.
 - **A single `docker cp container:/dir/. dest/` (directory/wildcard) copy
   can silently do nothing on this machine** — exits 0, `set -e` doesn't
   catch it, destination is left untouched with no error printed. Copying
