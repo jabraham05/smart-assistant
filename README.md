@@ -1179,6 +1179,81 @@ in, get reply text back.
     the safety net (it's model-agnostic insurance), but it may mean the
     underlying reliability problem is substantially avoidable by model
     choice alone.
+  - **2026-07-27 — the real root cause, isolated by controlled testing,
+    was tool *count*, not a client bug.** Adding `spotify_control`
+    surfaced repeated empty-`AI Agent`-output failures on plain
+    commands ("pause the music," "skip to the next song," "what's
+    playing") — the model's reasoning correctly concluded the right
+    call, then the generation ended before ever emitting it. First
+    hypothesis: a bug in n8n's `@n8n/n8n-nodes-langchain.lmChatOllama`
+    losing `tool_calls` whenever a response also carries a `thinking`
+    field (independently reported elsewhere — n8n's own community
+    forum, Home Assistant's Ollama integration hitting the identical
+    `qwen3` symptom) — seemingly confirmed by a raw `curl` to Ollama
+    directly returning a clean `tool_calls` array for the same message.
+    **This hypothesis was then disproven** by a more controlled follow-
+    up test: deploying `ollama-mcp-bridge` (a purpose-built Ollama↔MCP
+    proxy) and calling it directly, bypassing n8n entirely, with the
+    *real* 6-tool `skills-mcp` catalog auto-injected — same failure,
+    0/3. The earlier "raw Ollama works" test had used a single
+    simplified tool with a short description, not the real toolset —
+    it never controlled for tool count, so it wasn't actually isolating
+    the client as the variable. Re-running with the bridge limited to
+    just `spotify_control` (`toolFilter` config) fixed it, 3/3. Re-
+    running the *exact same reduction* through n8n's own native
+    `MCP Client Tool`/`AI Agent` path (`includeTools: ["spotify_control"]`,
+    bridge removed from the picture entirely) also fixed it, 3/3 — so
+    there was never a separate n8n-specific bug at all: `qwen3:8b`'s
+    tool-calling reliability through this exact integration collapses
+    specifically as bound tool count grows, independent of client. This
+    is the same "3-5 tools" ceiling this project's tool-count guidance
+    (see the persona section above) already flagged, now measured
+    directly rather than assumed. `ollama-mcp-bridge` was removed after
+    disproving the hypothesis it was deployed to test — it provided no
+    benefit the native path doesn't already have once tool count is
+    controlled.
+  - **Fixed with dynamic, per-message tool-group filtering** — the
+    `Chat` workflow gained `Classify Relevant Tool Groups` (a raw
+    Ollama `/api/chat` call with a JSON-Schema `format`, same
+    structured-output pattern as `skill_gap_scanner`/the coding-agent
+    pipeline — deliberately not native tool-calling, since that's the
+    exact mechanism proven unreliable) → `Expand Groups To Tools` (a
+    Code node mapping a small set of named categories — `media`,
+    `scheduling`, `info`, `self-growth` — to their member tool names,
+    the same coarse-"toolset" grouping pattern GitHub's own official MCP
+    server uses to manage its 33 tools) → `MCP Client Tool`'s
+    `includeTools` now reads `={{ $('Expand Groups To Tools').item.json.relevantTools }}`
+    instead of exposing all 6 tools always. Confirmed via direct testing
+    that `includeTools` (an array-type parameter) genuinely accepts a
+    per-execution expression, not just a static design-time list — this
+    is what makes per-message dynamic narrowing possible at all.
+    Classification failure/timeout defaults to an empty list (no tools
+    bound, safe conversational fallback) rather than "all tools," so a
+    classifier hiccup can't reintroduce the exact failure mode this
+    exists to avoid.
+    **Verified end-to-end, one message per group plus edge cases, via
+    real execution data (not just reply text)**: `media` → `pause the
+    music` correctly narrowed to `spotify_control` alone and succeeded;
+    `info` → a weather question correctly narrowed to
+    `weather_get`+`memory_recall` and succeeded; `scheduling` → a
+    calendar question correctly narrowed to `calendar_event` and
+    succeeded (reported "not configured" gracefully, as expected);
+    a **two-group** message ("what's the weather and can you pause my
+    music") correctly classified both `info` and `media` at once and
+    resolved both tools correctly in a single reply; a plain greeting
+    classified zero groups, bound zero tools, and answered normally.
+    0 empty-output failures across the batch, versus 0/6 successes on
+    the same class of request before this fix.
+    **Known maintenance cost, accepted deliberately**: the group→tool
+    mapping lives only in the `Expand Groups To Tools` Code node,
+    separate from `skills-mcp/src/server.ts`'s actual tool registration
+    — adding a new tool later means also remembering to add it to a
+    group, or it's silently never exposed through chat (no error
+    either way). Also: every single chat turn now costs one extra
+    sequential model call before the real response starts, including
+    turns that never needed a tool at all — a real, accepted latency
+    cost traded for reliability, worth revisiting if it turns out to
+    matter in practice.
   - **`weather_get`'s geocoding needed a fallback strategy.** Open-Meteo's
     free geocoding endpoint does plain city-name matching and returns zero
     results for compound phrasing like "bothell washington" or "Bothell,
