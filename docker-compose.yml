@@ -118,6 +118,12 @@ services:
       # code_task is optional too — returns a clear error at call time if
       # unset, same pattern as the calendar tools.
       CODING_TASK_WEBHOOK_URL: ${CODING_TASK_WEBHOOK_URL}
+      # spotify_control tools — also optional, clear error at call time if
+      # unset. SPOTIFY_REFRESH_TOKEN comes from the one-time
+      # scripts/spotify-auth.mjs bootstrap (see .env.example).
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
+      SPOTIFY_REFRESH_TOKEN: ${SPOTIFY_REFRESH_TOKEN}
     volumes:
       - ./secrets/google-calendar-key.json:/run/secrets/google-calendar-key.json:ro
     networks: [assistant-net]

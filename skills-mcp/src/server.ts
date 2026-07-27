@@ -5,6 +5,7 @@ import { registerWeatherGet } from "./tools/weather-get.js";
 import { registerSkillPropose } from "./tools/skill-propose.js";
 import { registerCalendarEvent } from "./tools/calendar-event.js";
 import { registerCodeTask } from "./tools/code-task.js";
+import { registerSpotifyControl } from "./tools/spotify-control.js";
 
 export interface RequestContext {
   // The n8n Chat workflow's session id, threaded in via the MCP Client
@@ -23,5 +24,6 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerSkillPropose(server, config);
   registerCalendarEvent(server, config);
   registerCodeTask(server, config, context.chatSessionId);
+  registerSpotifyControl(server, config);
   return server;
 }

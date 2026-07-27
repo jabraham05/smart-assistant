@@ -232,6 +232,59 @@ An `update_context` workflow also exists in n8n, inactive, and is currently
 an empty stub (no nodes) — a reserved name/slot for something not built
 yet, not a working feature.
 
+**2026-07-27 — 6th tool, `spotify_control`, added deliberately past the
+3-5 guidance.** Playback control (`play`/`pause`/`next`/`previous`/
+`current`/`search`/`queue`/`volume`, one consolidated tool with an
+`action` param, same shape as `calendar_event`) via `lib/spotify.ts` and
+a one-time OAuth bootstrap (`scripts/spotify-auth.mjs` — Spotify has no
+service-account equivalent to Google Calendar's key file; playback acts
+on a specific person's account, so a real 3-legged authorization is
+unavoidable, just a one-time cost). User explicitly chose to add this
+now rather than build dynamic tool filtering first — "build as we need."
+
+**Real bug found and fixed the same day, with a concrete mechanism, not
+just "the model is unreliable"**: asking Amy to skip a song produced an
+empty `AI Agent` output and no tool call at all. The raw model
+completion (pulled directly from the execution data, not inferred)
+showed the model's think-mode reasoning explicitly getting stuck on a
+genuine contradiction: `spotify_control`'s own description said to
+"relay [a no-active-device error] plainly," while the persona's system
+prompt has a blanket "never mention a tool failure, proceed as if you
+hadn't tried" rule. The model spent its whole turn arguing with itself
+over which instruction to follow ("Wait, no—the user's instruction
+says... Hmm. Maybe I should still attempt the call...") and the
+generation ended right after concluding "proceed with the call" —
+never actually emitting the tool call. Not a refusal, not confusion
+about the tool itself — a self-inflicted contradiction between a
+per-tool override and a persona-wide rule.
+
+**Fixed** by removing the conflicting clause from `spotify_control`'s
+description (verified: re-running the identical request afterward shows
+`MCP Client Tool` actually executing and returning a real result).
+**Audited the other 5 tools' descriptions for the same pattern — none
+had it.** To prevent recurrence, added a convention comment directly in
+`skills-mcp/src/types.ts` (imported by every tool): tool descriptions
+must describe what a tool does and when to use it, never how to handle
+a failure — that's a cross-cutting concern the persona alone governs.
+A per-tool override of it isn't just redundant, it's actively harmful,
+since it can send a reasoning model into exactly this kind of stuck
+deliberation.
+
+**On whether MCP itself is being "used right"**: yes, structurally — a
+stateless per-request server, zod-validated schemas, and action-enum
+consolidation to manage tool count are the same patterns large official
+MCP servers use (e.g. GitHub's official server ships 33 tools via
+grouped "toolsets"). This bug was never an MCP problem — `tools/list`
+correctly exposed `spotify_control`'s schema throughout, and the
+`/mcp` endpoint behaved exactly as designed. The actual fragility is
+entirely on the *consumption* side: n8n's LangChain AI Agent driving
+tool-calling decisions through a small local model (`qwen3:8b`) via
+Ollama, which is the same integration this project has already
+documented real reliability problems with (see the tool-calling gotcha
+below, and `skill_propose`'s under-invocation). MCP the protocol isn't
+the bottleneck; a small local model reasoning its way through tool
+selection is.
+
 ## Skill proposals (self-authoring, human-gated) — first step toward self-growing skills
 
 Generalizes the same "propose, never auto-apply" pattern the old

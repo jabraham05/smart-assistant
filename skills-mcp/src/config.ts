@@ -9,6 +9,9 @@ export interface Config {
   googleCalendarKeyFile?: string;
   googleCalendarId?: string;
   codingTaskWebhookUrl?: string;
+  spotifyClientId?: string;
+  spotifyClientSecret?: string;
+  spotifyRefreshToken?: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -43,5 +46,12 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // config-missing error at call time rather than crashing the whole
     // server, same pattern as the calendar tools use.
     codingTaskWebhookUrl: env.CODING_TASK_WEBHOOK_URL || undefined,
+    // Optional, not required at startup: spotify_control returns a clear
+    // config-missing error at call time (see lib/spotify.ts), same
+    // pattern as the calendar tools. SPOTIFY_REFRESH_TOKEN is obtained
+    // via the one-time scripts/spotify-auth.mjs bootstrap.
+    spotifyClientId: env.SPOTIFY_CLIENT_ID || undefined,
+    spotifyClientSecret: env.SPOTIFY_CLIENT_SECRET || undefined,
+    spotifyRefreshToken: env.SPOTIFY_REFRESH_TOKEN || undefined,
   };
 }
