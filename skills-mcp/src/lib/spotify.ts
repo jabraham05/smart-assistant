@@ -78,7 +78,19 @@ async function spotifyFetch(config: Config, path: string, init?: RequestInit): P
     throw new Error(`Spotify API failed: ${res.status} ${body}`);
   }
   if (res.status === 204) return null;
-  return res.json();
+  const rawBody = await res.text();
+  if (!rawBody) return null;
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    // Spotify's docs say player-control endpoints (next/previous/queue/
+    // pause) return 204 No Content - observed directly that they can
+    // instead return 200 with a short opaque, non-JSON body and no
+    // content-type header (e.g. "lrWzm3vrhZeGvXLpQB62zrz09MQ"). Callers
+    // of those actions never use the body, so treat "not JSON" as "no
+    // data" rather than failing the whole tool call over it.
+    return null;
+  }
 }
 
 export interface SpotifySearchResult {

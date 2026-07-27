@@ -285,6 +285,25 @@ below, and `skill_propose`'s under-invocation). MCP the protocol isn't
 the bottleneck; a small local model reasoning its way through tool
 selection is.
 
+**2026-07-27 — real usage after all the above found a genuine Spotify
+Web API quirk, not another model/reliability issue.** After the tool-
+calling fix above, real usage surfaced `spotify_control failed:
+Unexpected token 'l', "lrWzm3vrhZ"... is not valid JSON` on `next` and
+`queue`. Root-caused with a temporary debug log (status/headers/raw
+body) rather than guessing: Spotify's docs say these player-control
+endpoints (`next`/`previous`/`queue`, and sometimes `pause`) return
+`204 No Content` on success — in practice, they can instead return
+`200` with a short opaque, non-JSON body and no `content-type` header
+(observed directly: `status=200 content-type=null body="lrWzm3vrhZ...`,
+27 characters). `lib/spotify.ts`'s `spotifyFetch` only special-cased the
+documented `204` case, so the undocumented `200`-with-garbage-body case
+fell through to a hard `JSON.parse` failure. **Fixed**: any non-JSON
+body on an otherwise-OK response is now treated as "no data" (same as
+204) rather than a failure — correct regardless of *why* Spotify
+sometimes does this, since none of the player-control callers use the
+response body anyway. Verified: `next`/`previous`/`queue` all fixed,
+`current`/`pause`/`search` (which do parse real JSON bodies) unaffected.
+
 ## Skill proposals (self-authoring, human-gated) — first step toward self-growing skills
 
 Generalizes the same "propose, never auto-apply" pattern the old
