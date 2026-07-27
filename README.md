@@ -165,6 +165,33 @@ guess. Verified: the identical request afterward correctly created an
 event on `2026-07-28` (genuinely tomorrow) — cleaned up both the wrong
 and the corrected test events afterward.
 
+**Same day, real usage hit it again — the injection fix isn't 100%
+reliable, root cause not fully pinned down.** In a real multi-turn
+conversation, the *same* deployed workflow (no restart in between)
+produced a genuine, real-calendar event dated `2023-10-18` — three
+turns after an earlier turn in the identical conversation that *had*
+correctly included the injected date. Pulled the raw execution data for
+both: the earlier turn's system message genuinely contained "Right now
+it is..."; the later one's didn't — same persona text before and after
+it, just that one line missing, not a formatting/parsing issue on my
+end. Tried to reproduce with a simple multi-turn follow-up and with a
+separate tool-calling round-trip (checking *both* of the agent's
+internal LLM calls, before and after the tool result) — neither
+reproduced it. Genuinely intermittent, cause not identified.
+
+Given a wrong calendar entry is a real-world consequence, not just an
+odd reply, this isn't something to leave resting entirely on "the LLM
+had the right context most of the time." **Added a deterministic
+safety net in `calendar_event` itself**, independent of the model's
+context: `create`/`update` now reject any `start`/`end` more than 1
+year in the past or 2 years in the future, with an error that states
+the *actual* current date so the model can self-correct on retry —
+same "give it a clear, actionable error" pattern as `spotify_control`'s
+`NO_ACTIVE_DEVICE` handling. Verified: a deliberately wrong 2023 date is
+now rejected outright; a real, correct date still succeeds normally.
+Both the original bad event and the two verification test events were
+cleaned up from the real calendar afterward.
+
 **2026-07-26 decision**: there used to be a `propose_persona_change` tool
 (and a human-approval-gate workflow around it) that let the agent write a
 *candidate* system-prompt rewrite for a human to review and manually apply.

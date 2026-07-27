@@ -8,6 +8,30 @@ const isoDateTime = z
   .string()
   .describe("ISO 8601 datetime with a timezone offset, e.g. '2026-07-27T15:00:00-07:00'.");
 
+// Deterministic safety net, independent of whether the model's context
+// actually included the real current date (observed directly: it
+// doesn't always, even with that date injected into the system prompt -
+// intermittent and not yet root-caused, but a wrong calendar entry is a
+// real-world consequence worth guarding against regardless of why the
+// model got there). Wide window (-1yr, +2yr) so legitimate retroactive
+// logging or far-out planning still works; only catches dates that are
+// wildly implausible, matching the actual observed failure (landing on
+// a ~2-3 year-old placeholder date instead of a real one).
+function implausibleDateError(iso: string, label: "start" | "end"): string | null {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return `${label} ("${iso}") is not a valid date/time.`;
+  const now = new Date();
+  const oneYearMs = 365 * 24 * 60 * 60 * 1000;
+  if (parsed.getTime() < now.getTime() - oneYearMs || parsed.getTime() > now.getTime() + 2 * oneYearMs) {
+    return (
+      `${label} ("${iso}") looks wrong — that's ` +
+      `${Math.round(Math.abs(parsed.getTime() - now.getTime()) / oneYearMs)} year(s) from now. ` +
+      `The actual current date/time is ${now.toISOString()}. Recompute the date relative to that and try again.`
+    );
+  }
+  return null;
+}
+
 function notConfiguredResult() {
   return errorResult(
     "Google Calendar is not configured (GOOGLE_CALENDAR_KEY_FILE / GOOGLE_CALENDAR_ID not set).",
@@ -87,12 +111,24 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
           if (!summary?.trim()) return errorResult("summary is required for action='create'.");
           if (!start) return errorResult("start is required for action='create'.");
           if (!end) return errorResult("end is required for action='create'.");
+          const startErr = implausibleDateError(start, "start");
+          if (startErr) return errorResult(startErr);
+          const endErr = implausibleDateError(end, "end");
+          if (endErr) return errorResult(endErr);
           const event = await createEvent(config, { summary, start, end, description, location });
           return textResult({ id: event.id, summary: event.summary, htmlLink: event.htmlLink });
         }
 
         if (action === "update") {
           if (!eventId?.trim()) return errorResult("eventId is required for action='update'.");
+          if (start) {
+            const startErr = implausibleDateError(start, "start");
+            if (startErr) return errorResult(startErr);
+          }
+          if (end) {
+            const endErr = implausibleDateError(end, "end");
+            if (endErr) return errorResult(endErr);
+          }
           const event = await updateEvent(config, eventId, { summary, start, end, description, location });
           return textResult({ id: event.id, summary: event.summary, htmlLink: event.htmlLink });
         }
