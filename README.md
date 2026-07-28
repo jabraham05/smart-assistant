@@ -580,6 +580,79 @@ calls from inside a Code node) — confirmed genuinely fixed by real
 network round-trip timings afterward (500ms–1.1s) replacing the previous
 instant, fallback-only executions (8–15ms).
 
+**2026-07-28 — Branch C: reading raw transcripts to catch corrected
+procedures, not just gaps.** Branch A's dialectic-based gap detection is
+good at surfacing *themes* ("the user keeps asking about X") but isn't
+built to faithfully reproduce a literal sequence of steps — and the user
+specifically wanted something different: catch it when they had to
+correct Amy's approach two or more times in a row before something
+finally worked ("no not that, do this... actually check this first...
+now that worked"), and turn the *actual corrected procedure* into a
+detailed, step-by-step `instruction` skill proposal. That needs the real
+message text, not Honcho's synthesized answer, so this reads raw
+transcripts directly via Honcho's `sessions/list` and
+`sessions/{id}/messages/list` endpoints (confirmed these exist via
+Honcho's own API docs — this project had never called them before, only
+ever the dialectic `peers/.../chat` endpoint and the message-insert
+endpoint used to store chat turns).
+
+Feeds into the exact same `Semantic Dedup Check` → `If Should Propose` →
+`Submit Proposal` chain Branch A already uses, completely unchanged — a
+second Code node (`Parse Correction Proposal`) simply became a second
+incoming connection into the existing `Semantic Dedup Check` node,
+alongside `Parse and Normalize Proposal`'s existing one. No new Data
+Table, no new review mechanism, same human-gated `skills` table.
+
+**A real, live-verified surprise before wiring anything in**: this
+workspace's `sessions/list` is not just real chat conversations — it's
+full of single-message, `amy`-only "sessions" from the coding-agent
+pipeline's own proactive chat notifications (e.g. `"Finished: ..."`),
+manually-named test sessions from earlier debugging (`root-cause-test-*`,
+`full-run-test-*`), and other throwaway artifacts. Simply grabbing "the
+last 5 sessions" would have reliably returned only this junk, never a
+real conversation — confirmed directly (the newest 5 by creation time,
+live, were all one-way test/notification sessions with zero real
+back-and-forth). Fixed by fetching a wider window (30) and filtering to
+sessions with at least one `user`-authored message (a real chat turn
+always inserts a user+amy pair together, per the `Chat` workflow's own
+message-insert node — a one-way notification never has a `user` message
+at all) — confirmed this filter correctly separated 9 genuine
+conversations out of 30 raw sessions in this workspace's real data.
+
+Also verified live before depending on it: `reverse=true` on
+`sessions/list` is newest-created-first, `reverse=false` on
+`messages/list` is chronological — Honcho's own docs didn't fully specify
+the underlying sort key, so this was checked directly against the real
+API rather than assumed.
+
+**A real bug found via a live end-to-end test, not just isolated
+per-node checks**: `Parse Correction Proposal`'s first version assumed
+n8n's Code node runs once per input item by default — it doesn't; the
+default is "run once for all items," with `$json` referring to a single
+item only. `Detect Correction Pattern` (an HTTP Request node, which
+*does* run once per item by default) correctly produced 8 separate
+results for 8 candidate sessions in one real test run — two of which
+were genuine `found: true` corrected procedures — but `Parse Correction
+Proposal` silently processed only one of the 8, dropping both real
+detections without any error anywhere. Exactly the kind of thing that
+only shows up under a real multi-item run, not a single hand-crafted
+test case. Fixed by iterating `$input.all()` and collecting every match,
+mirroring `Parse and Normalize Proposal`'s own already-correct pattern.
+Re-verified against a second live run afterward: both genuine corrected
+procedures (a Spotify-display capability clarification and a dashboard
+widget-layout correction, both real, from this project's own actual
+usage) correctly survived semantic dedup and landed as real `proposed`
+rows in the `skills` table, each with a detailed, literal, numbered
+procedure — not a one-line gap description.
+
+Also caught and fixed via direct testing before deploying: the
+`Detect Correction Pattern` prompt's first draft let the model bleed its
+required `'Corrected procedure:'` prefix into the `name` field too
+(intended only for `reason`), producing an ugly, needlessly-long kebab
+name. Fixed by explicitly telling the prompt the `name` field must be
+short and plain with no prefix — confirmed fixed by re-running the exact
+same test transcript before and after the wording change.
+
 ## Coding-agent pipeline + sandbox (in progress)
 
 The next step beyond `skill_propose`/`skill_gap_scanner`: those can only
