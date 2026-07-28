@@ -5,6 +5,9 @@ import { registerWeatherGet } from "./tools/weather-get.js";
 import { registerSkillPropose } from "./tools/skill-propose.js";
 import { registerCalendarEvent } from "./tools/calendar-event.js";
 import { registerCodeTask } from "./tools/code-task.js";
+import { registerCodeTaskRunCommand } from "./tools/code-task-run-command.js";
+import { registerCodeTaskGetDiff } from "./tools/code-task-get-diff.js";
+import { registerCodeTaskStatus } from "./tools/code-task-status.js";
 import { registerSpotifyControl } from "./tools/spotify-control.js";
 import { registerDashboardControl } from "./tools/dashboard-control.js";
 
@@ -16,6 +19,13 @@ export interface RequestContext {
   // CLI-triggered calls and any direct MCP client with no session to
   // report back to.
   chatSessionId?: string;
+  // The coding_task_pipeline workflow's own MCP Client Tool node templates
+  // these into its endpointUrl the same way (?taskContainerId=...&
+  // taskWorkingDir=...), fixed for the whole agent run — never a tool
+  // input-schema field, so the model can't choose or override which
+  // container it talks to.
+  taskContainerId?: string;
+  taskWorkingDir?: string;
 }
 
 export function createServer(config: Config, context: RequestContext = {}): McpServer {
@@ -25,6 +35,9 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerSkillPropose(server, config);
   registerCalendarEvent(server, config);
   registerCodeTask(server, config, context.chatSessionId);
+  registerCodeTaskRunCommand(server, config, context.taskContainerId, context.taskWorkingDir);
+  registerCodeTaskGetDiff(server, config, context.taskContainerId, context.taskWorkingDir);
+  registerCodeTaskStatus(server, config, context.chatSessionId);
   registerSpotifyControl(server, config);
   registerDashboardControl(server, config);
   return server;

@@ -336,3 +336,280 @@ export async function proposePullRequest(
     };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Persistent task containers (agentic coding pipeline).
+//
+// Unlike everything above, a task container survives across many exec calls
+// - it's created once per coding task, lives for the whole task (possibly
+// several Coder rounds), and is destroyed only once the task's retry loop
+// actually exits. Isolation is identical to the ephemeral path (same
+// HostConfig: sandboxNetwork, memory/cpu/pids caps, non-root image user,
+// Privileged:false, no docker.sock passthrough) - only lifecycle differs.
+//
+// GITHUB_TOKEN must never be read anywhere in this section. It's scoped to
+// proposePullRequest's one-shot push above, on purpose (n8n persists every
+// workflow execution's node I/O in Postgres in plaintext, so a token
+// flowing through a long-lived task container that the model has shell
+// access in would be a real credential leak risk). If a private repo ever
+// needs cloning here, embed the token in the clone URL only, the same way
+// runInSandbox already does - never let it land in the container's env or
+// process list afterward.
+
+const TASK_LABEL_KEY = "smart-assistant.task-id";
+const TASK_CREATED_AT_LABEL_KEY = "smart-assistant.created-at";
+
+// In-memory only, by design: last-exec-activity per container (drives the
+// idle reaper) and a running exec count per container (server-side
+// maxCommandsPerTask cap, independent of whatever cap n8n's AI Agent node
+// applies). Lost on a sandbox-runner restart - acceptable, since the
+// label-derived max-lifetime cap alone still bounds the worst case in that
+// rare scenario.
+const lastActivityByContainer = new Map<string, number>();
+const commandCountByContainer = new Map<string, number>();
+
+let dockerClient: Docker | undefined;
+function getDocker(config: Config): Docker {
+  if (!dockerClient) {
+    dockerClient = new Docker({ socketPath: config.dockerSocketPath });
+  }
+  return dockerClient;
+}
+
+export interface CreateTaskContainerRequest {
+  repoUrl: string;
+  ref?: string;
+  // Subfolder within the cloned repo this task is scoped to. Empty string
+  // for a normal existing-repo task (the whole clone is the working dir);
+  // a slug for a from-scratch task sharing one landing repo with other
+  // tasks, each in its own folder.
+  projectFolder?: string;
+  taskId: string;
+}
+
+export interface CreateTaskContainerResult {
+  containerId: string;
+  workingDir: string;
+}
+
+async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+// PID 1 is `git clone && mkdir -p ... && tail -f /dev/null` - if the clone
+// fails, the `&&` chain short-circuits and the container exits almost
+// immediately. A successful clone (even a slow one) leaves the container
+// running well past this grace window, so polling once after a short delay
+// distinguishes "genuinely failed to start" from "still cloning" without
+// blocking the caller on a potentially large clone.
+const TASK_CONTAINER_START_GRACE_MS = 2000;
+
+export async function createTaskContainer(
+  config: Config,
+  req: CreateTaskContainerRequest,
+): Promise<CreateTaskContainerResult> {
+  const docker = getDocker(config);
+  const cloneUrl = maybeAuthenticateCloneUrl(req.repoUrl, config.githubToken);
+  const projectFolder = req.projectFolder ?? "";
+
+  const container = await docker.createContainer({
+    Image: config.nodeImage,
+    Cmd: [
+      "sh",
+      "-c",
+      'git clone --depth 1 --branch "$REF" "$REPO_URL" /work/repo && mkdir -p "/work/repo/$PROJECT_FOLDER" && tail -f /dev/null',
+    ],
+    Env: [`REPO_URL=${cloneUrl}`, `REF=${req.ref ?? "main"}`, `PROJECT_FOLDER=${projectFolder}`],
+    Tty: false,
+    Labels: {
+      [TASK_LABEL_KEY]: req.taskId,
+      [TASK_CREATED_AT_LABEL_KEY]: String(Date.now()),
+    },
+    HostConfig: {
+      NetworkMode: config.sandboxNetwork,
+      Memory: config.memoryLimitBytes,
+      NanoCpus: config.nanoCpus,
+      PidsLimit: config.pidsLimit,
+      Privileged: false,
+      AutoRemove: false,
+    },
+  });
+
+  await container.start();
+  await new Promise((resolve) => setTimeout(resolve, TASK_CONTAINER_START_GRACE_MS));
+
+  const info = await container.inspect();
+  if (!info.State.Running) {
+    const logsBuffer = (await container.logs({ stdout: true, stderr: true, follow: false })) as unknown as Buffer;
+    const { stdout, stderr } = demuxLogs(logsBuffer);
+    await container.remove({ force: true }).catch(() => {});
+    throw new Error(
+      `Task container failed to start (likely clone failure): stdout=${stdout.slice(0, 500)} stderr=${stderr.slice(0, 500)}`,
+    );
+  }
+
+  const containerId = container.id;
+  lastActivityByContainer.set(containerId, Date.now());
+  commandCountByContainer.set(containerId, 0);
+
+  return {
+    containerId,
+    workingDir: projectFolder ? `/work/repo/${projectFolder}` : "/work/repo",
+  };
+}
+
+export interface ExecInTaskContainerRequest {
+  containerId: string;
+  workingDir: string;
+  command: string;
+  timeoutSeconds?: number;
+}
+
+export class TaskContainerNotFoundError extends Error {
+  constructor(containerId: string) {
+    super(`Task container ${containerId} was not found (it may already have been reaped or destroyed)`);
+    this.name = "TaskContainerNotFoundError";
+  }
+}
+
+export async function execInTaskContainer(
+  config: Config,
+  req: ExecInTaskContainerRequest,
+): Promise<ExecuteResult> {
+  const docker = getDocker(config);
+  const startTime = Date.now();
+
+  const requestedTimeout = req.timeoutSeconds ?? config.execDefaultTimeoutSeconds;
+  const timeoutSeconds = Math.min(requestedTimeout, config.execMaxTimeoutSeconds);
+
+  const commandCount = (commandCountByContainer.get(req.containerId) ?? 0) + 1;
+  if (commandCount > config.maxCommandsPerTask) {
+    throw new Error(
+      `This task's container has already run ${config.maxCommandsPerTask} commands - refusing to run more`,
+    );
+  }
+  commandCountByContainer.set(req.containerId, commandCount);
+  lastActivityByContainer.set(req.containerId, Date.now());
+
+  const container = docker.getContainer(req.containerId);
+
+  let exec;
+  try {
+    // CMD passed as an env var, not interpolated into the script text, so
+    // arbitrary characters in a model-issued command never need shell-
+    // escaping here - same idiom RUN_SCRIPT already uses above. `timeout`
+    // wraps the command itself because dockerode has no way to kill an
+    // individual exec process from the host side once it's running -
+    // container.kill() would take down the whole task, not just one call.
+    exec = await container.exec({
+      Cmd: ["sh", "-c", `timeout ${timeoutSeconds}s sh -c "$CMD"`],
+      Env: [`CMD=${req.command}`],
+      AttachStdout: true,
+      AttachStderr: true,
+      WorkingDir: req.workingDir,
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (message.includes("404") || message.toLowerCase().includes("no such container")) {
+      throw new TaskContainerNotFoundError(req.containerId);
+    }
+    throw e;
+  }
+
+  const stream = await exec.start({ hijack: true, stdin: false });
+  const buffer = await streamToBuffer(stream as unknown as NodeJS.ReadableStream);
+  const { stdout, stderr } = demuxLogs(buffer);
+
+  const inspectResult = await exec.inspect();
+  const exitCode = inspectResult.ExitCode;
+  // `timeout` reports 124 when it had to kill the wrapped command itself.
+  const timedOut = exitCode === 124;
+
+  return {
+    exitCode,
+    stdout,
+    stderr,
+    timedOut,
+    durationMs: Date.now() - startTime,
+  };
+}
+
+export interface DiffTaskContainerRequest {
+  containerId: string;
+  workingDir: string;
+}
+
+export async function diffTaskContainer(
+  config: Config,
+  req: DiffTaskContainerRequest,
+): Promise<{ diff: string }> {
+  // `add -A -N` (intent-to-add) is what makes brand-new files show up in
+  // `git diff` at all - plain `git diff` only ever shows changes to files
+  // git already knows about, which would silently drop any file the model
+  // created from scratch.
+  const result = await execInTaskContainer(config, {
+    containerId: req.containerId,
+    workingDir: req.workingDir,
+    command: "git add -A -N && git -c color.ui=false diff",
+    timeoutSeconds: config.execMaxTimeoutSeconds,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(`git diff failed inside task container (exit ${result.exitCode}): ${result.stderr}`);
+  }
+  return { diff: result.stdout };
+}
+
+export async function destroyTaskContainer(config: Config, containerId: string): Promise<void> {
+  const docker = getDocker(config);
+  await docker
+    .getContainer(containerId)
+    .remove({ force: true })
+    .catch(() => {});
+  lastActivityByContainer.delete(containerId);
+  commandCountByContainer.delete(containerId);
+}
+
+// Idle/lifetime reaper: catches task containers a crashed or misbehaving
+// n8n execution never explicitly destroyed. This is a real, new leak risk
+// that didn't exist in the old one-shot model, where every container's
+// entire lifetime was exactly one shell script's runtime.
+export function startTaskContainerReaper(config: Config): NodeJS.Timeout {
+  const docker = getDocker(config);
+  return setInterval(async () => {
+    let containers;
+    try {
+      containers = await docker.listContainers({ all: true, filters: { label: [TASK_LABEL_KEY] } });
+    } catch (e) {
+      console.error("task container reaper: failed to list containers:", e);
+      return;
+    }
+
+    const now = Date.now();
+    for (const info of containers) {
+      const createdAt = Number(info.Labels?.[TASK_CREATED_AT_LABEL_KEY] ?? 0);
+      const taskId = info.Labels?.[TASK_LABEL_KEY];
+      const lastActivity = lastActivityByContainer.get(info.Id) ?? createdAt;
+
+      const ageMs = now - createdAt;
+      const idleMs = now - lastActivity;
+
+      const pastMaxLifetime = createdAt > 0 && ageMs > config.taskContainerMaxLifetimeSeconds * 1000;
+      const pastIdleTimeout = idleMs > config.taskContainerIdleTimeoutSeconds * 1000;
+
+      if (pastMaxLifetime || pastIdleTimeout) {
+        console.warn(
+          `task container reaper: removing container ${info.Id} (task ${taskId}) - ` +
+            `${pastMaxLifetime ? "past max lifetime" : "idle timeout"} ` +
+            `(ageMs=${ageMs}, idleMs=${idleMs})`,
+        );
+        await destroyTaskContainer(config, info.Id).catch((e) =>
+          console.error(`task container reaper: failed to remove ${info.Id}:`, e),
+        );
+      }
+    }
+  }, config.reaperIntervalSeconds * 1000);
+}

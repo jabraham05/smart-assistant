@@ -10,6 +10,16 @@ export interface Config {
   githubToken?: string;
   gitAuthorName: string;
   gitAuthorEmail: string;
+  // Persistent task-container settings (agentic coding pipeline). Isolation
+  // (network/user/privileged/resource caps) is identical to the ephemeral
+  // path above - these only govern lifecycle/cleanup for a longer-lived
+  // container, and per-exec-call bounds within it.
+  taskContainerIdleTimeoutSeconds: number;
+  taskContainerMaxLifetimeSeconds: number;
+  reaperIntervalSeconds: number;
+  execDefaultTimeoutSeconds: number;
+  execMaxTimeoutSeconds: number;
+  maxCommandsPerTask: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -37,5 +47,17 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     githubToken: env.GITHUB_TOKEN || undefined,
     gitAuthorName: env.GIT_AUTHOR_NAME || "smart-assistant-bot",
     gitAuthorEmail: env.GIT_AUTHOR_EMAIL || "smart-assistant-bot@users.noreply.github.com",
+    taskContainerIdleTimeoutSeconds: env.TASK_CONTAINER_IDLE_TIMEOUT_SECONDS
+      ? Number(env.TASK_CONTAINER_IDLE_TIMEOUT_SECONDS)
+      : 300,
+    taskContainerMaxLifetimeSeconds: env.TASK_CONTAINER_MAX_LIFETIME_SECONDS
+      ? Number(env.TASK_CONTAINER_MAX_LIFETIME_SECONDS)
+      : 1800,
+    reaperIntervalSeconds: env.REAPER_INTERVAL_SECONDS ? Number(env.REAPER_INTERVAL_SECONDS) : 60,
+    execDefaultTimeoutSeconds: env.EXEC_DEFAULT_TIMEOUT_SECONDS
+      ? Number(env.EXEC_DEFAULT_TIMEOUT_SECONDS)
+      : 30,
+    execMaxTimeoutSeconds: env.EXEC_MAX_TIMEOUT_SECONDS ? Number(env.EXEC_MAX_TIMEOUT_SECONDS) : 120,
+    maxCommandsPerTask: env.MAX_COMMANDS_PER_TASK ? Number(env.MAX_COMMANDS_PER_TASK) : 100,
   };
 }

@@ -88,6 +88,12 @@ services:
       N8N_PORT: "5678"
       WEBHOOK_URL: http://localhost:5678/
       OLLAMA_HOST: http://ollama:11434
+      # Landing repo for coding tasks with no existing target repo (a
+      # from-scratch build) — coding_task_pipeline's "Prepare Row" node
+      # reads this via $env when the webhook body omits repoUrl. Doesn't
+      # need to be set on sandbox-runner: it's just a passthrough client,
+      # n8n is what decides which repoUrl to send it.
+      CODING_TASKS_REPO_URL: ${CODING_TASKS_REPO_URL}
     volumes:
       - n8n-data:/home/node/.n8n
     depends_on: [postgres, ollama, skills-mcp, sandbox-runner]
@@ -120,6 +126,11 @@ services:
       # code_task is optional too — returns a clear error at call time if
       # unset, same pattern as the calendar tools.
       CODING_TASK_WEBHOOK_URL: ${CODING_TASK_WEBHOOK_URL}
+      CODING_TASK_STATUS_WEBHOOK_URL: ${CODING_TASK_STATUS_WEBHOOK_URL}
+      # code_task_run_command/code_task_get_diff talk to sandbox-runner
+      # directly (not through an n8n webhook) — always-on internal infra,
+      # not a per-user optional integration, so no config-missing path.
+      SANDBOX_RUNNER_URL: http://sandbox-runner:3002
       # spotify_control tools — also optional, clear error at call time if
       # unset. SPOTIFY_REFRESH_TOKEN comes from the one-time
       # scripts/spotify-auth.mjs bootstrap (see .env.example).

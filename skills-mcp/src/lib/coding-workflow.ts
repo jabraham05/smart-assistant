@@ -2,7 +2,10 @@ import type { Config } from "../config.js";
 
 export interface CodingTaskRequest {
   task: string;
-  repoUrl: string;
+  // Omitted for a from-scratch task with no existing target repo — the
+  // pipeline lands those in a shared coding_tasks repo instead (see
+  // n8n's Create Task Container node).
+  repoUrl?: string;
   ref?: string;
   testCommand?: string;
   contextCommand?: string;
@@ -34,4 +37,34 @@ export async function submitCodingTask(config: Config, payload: CodingTaskReques
     const body = await res.text().catch(() => "");
     throw new Error(`Coding task intake failed: ${res.status} ${body}`);
   }
+}
+
+export interface CodingTaskStatus {
+  found: boolean;
+  status?: string;
+  latestStatus?: string;
+  attemptCount?: number;
+  prUrl?: string;
+  taskDescription?: string;
+}
+
+// Unlike submitCodingTask, this is a real synchronous round trip - it waits
+// for n8n's response (a Data Table lookup, not an LLM call, so this stays
+// fast) rather than firing-and-forgetting. Used by code_task_status so a
+// user can ask Amy for a progress update mid-task in normal chat.
+export async function getCodingTaskStatus(config: Config, chatSessionId: string): Promise<CodingTaskStatus> {
+  if (!config.codingTaskStatusWebhookUrl) {
+    throw new Error("CODING_TASK_STATUS_WEBHOOK_URL is not configured");
+  }
+
+  const url = new URL(config.codingTaskStatusWebhookUrl);
+  url.searchParams.set("sessionId", chatSessionId);
+
+  const res = await fetch(url.toString());
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Coding task status lookup failed: ${res.status} ${body}`);
+  }
+
+  return (await res.json()) as CodingTaskStatus;
 }

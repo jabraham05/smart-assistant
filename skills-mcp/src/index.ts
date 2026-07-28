@@ -26,7 +26,11 @@ registerSpotifyActionRoute(app, config);
 app.post("/mcp", async (req, res) => {
   try {
     const chatSessionId = typeof req.query.chatSessionId === "string" ? req.query.chatSessionId : undefined;
-    const server = createServer(config, { chatSessionId });
+    const taskContainerId =
+      typeof req.query.taskContainerId === "string" ? req.query.taskContainerId : undefined;
+    const taskWorkingDir =
+      typeof req.query.taskWorkingDir === "string" ? req.query.taskWorkingDir : undefined;
+    const server = createServer(config, { chatSessionId, taskContainerId, taskWorkingDir });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
