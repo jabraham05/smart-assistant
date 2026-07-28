@@ -997,7 +997,13 @@ Replaced the one-shot "Coder emits a blind diff" model with a genuinely agentic 
 
 **A real bug found via live testing, already fixed**: inserting `Destroy Task Container` between `Should Retry?` and `Should Open PR?` (and `Log Reviewer` between `Parse Reviewer Output` and `Should Retry?`) broke those IF nodes' bare `$json.verdict`/`$json.exitCode` references — they used to work only because the nodes were directly adjacent to `Parse Reviewer Output` and n8n's IF node passes its input through unchanged. Both were silently reading `undefined` (the new intermediate node's own unrelated output) instead of erroring, so `Should Retry?` would never actually retry and `Should Open PR?` would never actually open a PR, regardless of the real verdict. Fixed by making both reference `$('Parse Reviewer Output').item.json...` explicitly. **Lesson: inserting a node between an upstream node and something that reads a bare `$json` from it is a silent, no-error-thrown way to break a condition** — grep for bare `$json.` references before/after restructuring a graph, don't just check that the new node's own inputs/outputs are correct.
 
-**Known unresolved issue, not yet fixed**: in 5 consecutive real end-to-end runs (both `qwen2.5-coder:7b` and `qwen3:8b` as the Coder/Tester model, with `think` true/false, `enableStreaming` true/false, and shared vs. dedicated MCP Client Tool/Ollama Chat Model sub-node instances all tried), the Coder Agent produced completely empty output with zero tool calls attempted (`ai.agent.tool_calls.requested`/`iteration.count` both 0 in the node's own tracing metadata) every single time, and the target file was never actually touched. Extensively isolated via a disposable throwaway workflow (`minimal_agent_test`, since deleted): a plain single-agent version calling `weather_get` worked; a version calling `code_task_run_command` with a static `endpointUrl` worked (real `ls`, real output); a version with the *dynamic* `{{ $('Node').item.json.x }}`-style `endpointUrl` this pipeline actually uses still worked; two agents with dedicated sub-nodes in one workflow worked; even the exact real long systemMessage/task/plan text worked, in one run producing 6 genuine tool calls and a correct final answer against a container with the real fixture repo (though a repeat of that same exact test also once hit "Max iterations (15) reached" instead of completing) — while the real `coding_task_pipeline` workflow itself, unchanged, kept producing the immediate-empty-output failure on all 5 of its own attempts. This strongly suggests either non-deterministic reliability in Ollama-backed tool-calling agents under real task pressure (each isolated test differed slightly in outcome across repeats) rather than one discrete config bug, or a remaining structural difference in the real workflow's full node graph that individual-variable isolation hasn't yet caught. Every other part of the redesign — container lifecycle, the MCP proxy layer (verified directly via a raw JSON-RPC `tools/call`), the retry loop and attempt cap, the PR-safety gate (verified via a deliberate "agent lies, tests really fail" case), the status webhook, and per-phase logging — is confirmed working via direct testing. If this resurfaces: check `ai.agent.tool_calls.requested`/`iteration.count` in the failing node's run metadata first, then reproduce in an isolated single-node throwaway workflow before assuming it's the container/MCP layer, since that layer has already been proven to work correctly in isolation.
+**Root cause found and fixed: n8n's MCP Client Tool node silently breaks qwen3:8b's tool-calling once the combined tool name gets too "segmented."** The Coder Agent was producing completely empty output with zero tool calls on every real run, while the identical setup worked fine in isolated throwaway-workflow tests — the kind of discrepancy that looks like non-determinism until you find the one real variable nobody controlled for. It wasn't model choice, `think`, `enableStreaming`, shared-vs-dedicated sub-nodes, static-vs-dynamic `endpointUrl`, one-vs-two agents, prompt length, model-swap timing, or context window size — all individually tested and ruled out.
+
+The actual mechanism: n8n's `@n8n/n8n-nodes-langchain.mcpClientTool` node prefixes every tool it exposes with its own node display name before handing it to the model (e.g. a node named "Task Container Tool" turns `code_task_run_command` into `Task_Container_Tool_code_task_run_command`). Found by literally instrumenting n8n's own `runAgent.js` in the running container to log around the model-invoke call (confirmed the call genuinely resolved with empty output, no thrown error anywhere in the chain) and standing up a disposable logging reverse-proxy between n8n and Ollama (pointing the Ollama Chat Model node's credential at it) to capture the *exact* request/response bytes for a real failing call. Replaying that exact captured request verbatim, varying only the tool name, proved it deterministically: the model burns real generation tokens (`eval_count` in the 20s-30s) but the output never resolves into a `tool_calls` block once the combined, underscore-joined name crosses somewhere around 5-6 segments (`Task_Container_Tool_code_task_run_command` = 8 segments, fails every time; `code_task_run_command` bare = 4 segments, works every time) — this is a real limitation in qwen3:8b's (or Ollama/llama.cpp's) tool-calling grammar for compound function names, not an n8n or MCP bug, and it fails with zero error signal anywhere in the stack (n8n reports `execution.succeeded: true`).
+
+Fixed by shortening the actual registered MCP tool names (`code_task_run_command` → `run_command`, `code_task_get_diff` → `get_diff`, in `skills-mcp/src/tools/`) so there's headroom left for the mandatory node-name prefix — confirmed `Task_Tool_run_command` (4 segments) works reliably. Verified with two full end-to-end runs against the real fixture repo: both approved on the first attempt, both opened real PRs, with genuine non-empty output at every phase (Coder's own `STATUS:` line, Tester's real analysis, a passing `test_run`, a substantive Reviewer verdict). **If a similar "empty output, zero tool calls, no error" symptom ever resurfaces with a different tool/model combination: check the combined (node-name-prefixed) tool name length/segment count first** — it's invisible in the n8n UI and in any per-node config, only visible by capturing the actual bytes sent to the model.
+
+Also worth noting for next time: this project's own already-documented gotcha ("explicitly naming a tool by its internal identifier in a prompt reliably produces empty output from qwen3:8b") is a close cousin of this bug and was independently re-discovered mid-investigation when the Tester Agent's system prompt referenced `code_task_get_diff` by name — removed in favor of describing what to do, not which tool to call.
 
 ## Smart-mirror dashboard (Raspberry Pi)
 
@@ -1669,6 +1675,30 @@ above) — the prototype's shape held up unchanged.
   reproduces empty output: check whether the prompt named a tool by name
   before assuming it's a new regression. The safety net's fallback chain
   handles this the same as any other empty-output case.
+- **A close cousin of the above, much harder to spot: `qwen3:8b`'s tool-calling
+  silently breaks once the tool's *name* (not the prompt) has too many
+  underscore-separated segments — and n8n's MCP Client Tool node always
+  adds segments you didn't ask for.** It prefixes every tool it exposes
+  with its own node display name (e.g. a node named "Task Container Tool"
+  turns `code_task_run_command` into
+  `Task_Container_Tool_code_task_run_command`). Past roughly 5-6 combined
+  segments, the model burns real generation tokens (a nonzero `eval_count`
+  in the raw Ollama response) but the output never resolves into a
+  `tool_calls` block — no error anywhere in the chain, n8n reports
+  `execution.succeeded: true` with empty output. Confirmed by capturing the
+  exact request/response bytes (a disposable logging reverse-proxy in
+  front of Ollama) and replaying the identical request with only the tool
+  name changed: `Task_Container_Tool_code_task_run_command` (8 segments)
+  fails every time, bare `code_task_run_command` (4 segments) works every
+  time. This is invisible in any n8n node's own configuration — the
+  combined name only exists in the actual wire request. If a tool-calling
+  agent's own tracing metadata shows `tool_calls.requested`/
+  `iteration.count` stuck at 0 with no thrown error, check the *combined*
+  tool name (MCP Client Tool node name + the underlying tool name) for
+  segment count before assuming it's a config or infra bug — see the
+  coding-agent pipeline section above for the full investigation and fix
+  (`run_command`/`get_diff`, short tool names, matching this project's
+  own convention of keeping identifiers terse).
 - **`n8n execute --id=...` (CLI, one-off run) cannot exercise Data Table
   nodes** — it spins up an isolated sub-process alongside the real running
   server, and any Data Table node in it fails with `Attempted to use Data

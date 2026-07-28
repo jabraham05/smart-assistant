@@ -17,7 +17,18 @@ export function registerCodeTaskRunCommand(
   workingDir?: string,
 ): void {
   server.registerTool(
-    "code_task_run_command",
+    // Short, few-underscore-segment name on purpose: n8n's MCP Client Tool
+    // node prefixes every exposed tool with its own node name before
+    // sending it to the model (e.g. "Task_Tool_" + this name). Confirmed
+    // directly (replaying the exact request Ollama received, varying only
+    // the tool name) that qwen3:8b's tool-calling grammar silently fails
+    // to produce a real tool_calls block once the combined name crosses
+    // somewhere around 5-6 underscore-separated segments - it burns real
+    // generation tokens but the output never resolves into a parseable
+    // call, with no error anywhere in the chain (n8n, LangChain, or
+    // Ollama). "code_task_run_command" (4 segments) plus any node-name
+    // prefix reliably crossed that line; this shorter name leaves room.
+    "run_command",
     {
       title: "Run a command in this task's container",
       description:
@@ -31,13 +42,21 @@ export function registerCodeTaskRunCommand(
     },
     async ({ command }) => {
       if (!containerId || !workingDir) {
-        return errorResult("code_task_run_command has no task container in scope for this session.");
+        return errorResult("run_command has no task container in scope for this session.");
       }
       try {
         const result = await runTaskCommand(config, { containerId, workingDir, command });
-        return textResult(result);
+        // Plain readable text, not a JSON-stringified object - a model has to
+        // parse nested JSON to find real file content inside {"stdout":"..."},
+        // which is exactly the kind of thing that confuses smaller local
+        // models (observed directly: a real file's content sitting inside a
+        // stdout field got misread as "the file wasn't found").
+        const parts = [`exit code: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}`];
+        if (result.stdout) parts.push(`stdout:\n${result.stdout}`);
+        if (result.stderr) parts.push(`stderr:\n${result.stderr}`);
+        return textResult(parts.join("\n\n"));
       } catch (e) {
-        return errorResult(`code_task_run_command failed: ${e instanceof Error ? e.message : String(e)}`);
+        return errorResult(`run_command failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     },
   );

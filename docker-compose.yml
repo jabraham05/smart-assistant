@@ -41,6 +41,17 @@ services:
       - "11434:11434"
     environment:
       OLLAMA_KEEP_ALIVE: "-1"
+      # n8n's AI Agent node does not pass a bound model's own `numCtx`
+      # option through when actually invoking it for tool-calling (only a
+      # plain, non-tool chat completion honors a per-request num_ctx) -
+      # confirmed directly: /api/ps showed context_length silently
+      # falling back to Ollama's 4096 default specifically for Agent-
+      # mediated tool calls, truncating longer prompts (long system
+      # message + task/plan text + tool schemas) and producing empty,
+      # confused output with zero tool calls attempted. This sets the
+      # server-wide default so every model loads with enough context
+      # regardless of which caller (or bug) fails to request one.
+      OLLAMA_CONTEXT_LENGTH: "8192"
     volumes:
       - ollama-data:/root/.ollama
     healthcheck:
