@@ -30,6 +30,24 @@ export async function runTaskCommand(
   return (await res.json()) as RunTaskCommandResult;
 }
 
+export async function writeTaskFile(
+  config: Config,
+  params: { containerId: string; workingDir: string; filename: string; content: string },
+): Promise<RunTaskCommandResult> {
+  const res = await fetch(`${config.sandboxRunnerUrl}/task/${params.containerId}/write-file`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: params.filename, content: params.content, workingDir: params.workingDir }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Task file write failed: ${res.status} ${body}`);
+  }
+
+  return (await res.json()) as RunTaskCommandResult;
+}
+
 export async function getTaskDiff(
   config: Config,
   params: { containerId: string; workingDir: string },

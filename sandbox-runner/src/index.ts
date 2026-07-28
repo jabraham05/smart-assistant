@@ -6,6 +6,7 @@ import {
   proposePullRequest,
   createTaskContainer,
   execInTaskContainer,
+  writeFileInTaskContainer,
   diffTaskContainer,
   destroyTaskContainer,
   startTaskContainerReaper,
@@ -100,6 +101,9 @@ app.post("/task", async (req, res) => {
       ref: body.ref,
       projectFolder: body.projectFolder,
       taskId: body.taskId || randomUUID(),
+      fallbackRepoUrl: body.fallbackRepoUrl,
+      fallbackRef: body.fallbackRef,
+      fallbackProjectFolder: body.fallbackProjectFolder,
     });
     res.json(result);
   } catch (e) {
@@ -131,6 +135,36 @@ app.post("/task/:id/exec", async (req, res) => {
       return res.status(404).json({ error: e.message });
     }
     console.error("execInTaskContainer failed:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+app.post("/task/:id/write-file", async (req, res) => {
+  const body = req.body as { filename?: string; content?: string; workingDir?: string };
+
+  if (!body.filename || typeof body.filename !== "string") {
+    return res.status(400).json({ error: "filename is required" });
+  }
+  if (typeof body.content !== "string") {
+    return res.status(400).json({ error: "content is required" });
+  }
+  if (!body.workingDir || typeof body.workingDir !== "string") {
+    return res.status(400).json({ error: "workingDir is required" });
+  }
+
+  try {
+    const result = await writeFileInTaskContainer(config, {
+      containerId: req.params.id,
+      workingDir: body.workingDir,
+      filename: body.filename,
+      content: body.content,
+    });
+    res.json(result);
+  } catch (e) {
+    if (e instanceof TaskContainerNotFoundError) {
+      return res.status(404).json({ error: e.message });
+    }
+    console.error("writeFileInTaskContainer failed:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

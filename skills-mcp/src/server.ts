@@ -7,6 +7,7 @@ import { registerCalendarEvent } from "./tools/calendar-event.js";
 import { registerCodeTask } from "./tools/code-task.js";
 import { registerCodeTaskRunCommand } from "./tools/code-task-run-command.js";
 import { registerCodeTaskGetDiff } from "./tools/code-task-get-diff.js";
+import { registerCodeTaskWriteFile } from "./tools/code-task-write-file.js";
 import { registerCodeTaskStatus } from "./tools/code-task-status.js";
 import { registerSpotifyControl } from "./tools/spotify-control.js";
 import { registerDashboardControl } from "./tools/dashboard-control.js";
@@ -37,6 +38,7 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerCodeTask(server, config, context.chatSessionId);
   registerCodeTaskRunCommand(server, config, context.taskContainerId, context.taskWorkingDir);
   registerCodeTaskGetDiff(server, config, context.taskContainerId, context.taskWorkingDir);
+  registerCodeTaskWriteFile(server, config, context.taskContainerId, context.taskWorkingDir);
   registerCodeTaskStatus(server, config, context.chatSessionId);
   registerSpotifyControl(server, config);
   registerDashboardControl(server, config);

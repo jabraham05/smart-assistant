@@ -385,11 +385,29 @@ export interface CreateTaskContainerRequest {
   // tasks, each in its own folder.
   projectFolder?: string;
   taskId: string;
+  // If the primary repoUrl/ref/projectFolder fails to clone (bad/invented
+  // URL, wrong ref, repo genuinely doesn't exist), retry once against this
+  // known-good landing repo instead of throwing - callers (the coding
+  // task pipeline) can't fully trust a model-supplied repoUrl, and a
+  // clone failure used to crash the whole n8n execution with the task's
+  // row stuck at "running" forever and no failure notification ever sent,
+  // since the crash happened before the row-update/notify steps.
+  fallbackRepoUrl?: string;
+  fallbackRef?: string;
+  fallbackProjectFolder?: string;
 }
 
 export interface CreateTaskContainerResult {
   containerId: string;
   workingDir: string;
+  // True when the primary repoUrl failed and the fallback was used instead
+  // - the caller needs this to correct the task's own record of which
+  // repo/folder it's actually working against (e.g. so the eventual PR
+  // targets the repo that was really cloned, not the one that was asked
+  // for but didn't exist).
+  usedFallback: boolean;
+  actualRepoUrl: string;
+  actualProjectFolder: string;
 }
 
 async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
@@ -408,13 +426,19 @@ async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
 // blocking the caller on a potentially large clone.
 const TASK_CONTAINER_START_GRACE_MS = 2000;
 
-export async function createTaskContainer(
+interface AttemptResult {
+  ok: boolean;
+  containerId?: string;
+  workingDir?: string;
+  failureReason?: string;
+}
+
+async function attemptCreateTaskContainer(
   config: Config,
-  req: CreateTaskContainerRequest,
-): Promise<CreateTaskContainerResult> {
+  opts: { repoUrl: string; ref?: string; projectFolder: string; taskId: string },
+): Promise<AttemptResult> {
   const docker = getDocker(config);
-  const cloneUrl = maybeAuthenticateCloneUrl(req.repoUrl, config.githubToken);
-  const projectFolder = req.projectFolder ?? "";
+  const cloneUrl = maybeAuthenticateCloneUrl(opts.repoUrl, config.githubToken);
 
   const container = await docker.createContainer({
     Image: config.nodeImage,
@@ -423,10 +447,10 @@ export async function createTaskContainer(
       "-c",
       'git clone --depth 1 --branch "$REF" "$REPO_URL" /work/repo && mkdir -p "/work/repo/$PROJECT_FOLDER" && tail -f /dev/null',
     ],
-    Env: [`REPO_URL=${cloneUrl}`, `REF=${req.ref ?? "main"}`, `PROJECT_FOLDER=${projectFolder}`],
+    Env: [`REPO_URL=${cloneUrl}`, `REF=${opts.ref ?? "main"}`, `PROJECT_FOLDER=${opts.projectFolder}`],
     Tty: false,
     Labels: {
-      [TASK_LABEL_KEY]: req.taskId,
+      [TASK_LABEL_KEY]: opts.taskId,
       [TASK_CREATED_AT_LABEL_KEY]: String(Date.now()),
     },
     HostConfig: {
@@ -447,9 +471,10 @@ export async function createTaskContainer(
     const logsBuffer = (await container.logs({ stdout: true, stderr: true, follow: false })) as unknown as Buffer;
     const { stdout, stderr } = demuxLogs(logsBuffer);
     await container.remove({ force: true }).catch(() => {});
-    throw new Error(
-      `Task container failed to start (likely clone failure): stdout=${stdout.slice(0, 500)} stderr=${stderr.slice(0, 500)}`,
-    );
+    return {
+      ok: false,
+      failureReason: `stdout=${stdout.slice(0, 500)} stderr=${stderr.slice(0, 500)}`,
+    };
   }
 
   const containerId = container.id;
@@ -457,8 +482,61 @@ export async function createTaskContainer(
   commandCountByContainer.set(containerId, 0);
 
   return {
+    ok: true,
     containerId,
-    workingDir: projectFolder ? `/work/repo/${projectFolder}` : "/work/repo",
+    workingDir: opts.projectFolder ? `/work/repo/${opts.projectFolder}` : "/work/repo",
+  };
+}
+
+export async function createTaskContainer(
+  config: Config,
+  req: CreateTaskContainerRequest,
+): Promise<CreateTaskContainerResult> {
+  const primary = await attemptCreateTaskContainer(config, {
+    repoUrl: req.repoUrl,
+    ref: req.ref,
+    projectFolder: req.projectFolder ?? "",
+    taskId: req.taskId,
+  });
+
+  if (primary.ok) {
+    return {
+      containerId: primary.containerId!,
+      workingDir: primary.workingDir!,
+      usedFallback: false,
+      actualRepoUrl: req.repoUrl,
+      actualProjectFolder: req.projectFolder ?? "",
+    };
+  }
+
+  if (!req.fallbackRepoUrl) {
+    throw new Error(`Task container failed to start (likely clone failure): ${primary.failureReason}`);
+  }
+
+  const fallback = await attemptCreateTaskContainer(config, {
+    repoUrl: req.fallbackRepoUrl,
+    ref: req.fallbackRef,
+    projectFolder: req.fallbackProjectFolder ?? "",
+    taskId: req.taskId,
+  });
+
+  if (!fallback.ok) {
+    // Both the requested repo AND the known-good landing repo failed to
+    // clone - this is no longer "the model guessed a bad URL", it's a
+    // real infrastructure problem (network, GitHub, or sandbox-runner
+    // itself). Surface both failure reasons rather than masking the
+    // fallback's own error.
+    throw new Error(
+      `Task container failed for both the requested repo (${primary.failureReason}) and the fallback repo (${fallback.failureReason})`,
+    );
+  }
+
+  return {
+    containerId: fallback.containerId!,
+    workingDir: fallback.workingDir!,
+    usedFallback: true,
+    actualRepoUrl: req.fallbackRepoUrl,
+    actualProjectFolder: req.fallbackProjectFolder ?? "",
   };
 }
 
@@ -534,6 +612,82 @@ export async function execInTaskContainer(
     stdout,
     stderr,
     timedOut,
+    durationMs: Date.now() - startTime,
+  };
+}
+
+export interface WriteFileInTaskContainerRequest {
+  containerId: string;
+  workingDir: string;
+  filename: string;
+  content: string;
+}
+
+// The one prior attempt at "creating file content" went through
+// execInTaskContainer's `sh -c "$CMD"` path with a model-authored
+// `echo "..." > file` command - which breaks the moment the content itself
+// contains a double quote, since that closes the outer shell string early.
+// This writes the content as raw bytes over the exec's own stdin stream
+// instead of embedding it in a command string at all, so nothing about the
+// file content is ever parsed by a shell - there is no quoting to get wrong.
+export async function writeFileInTaskContainer(
+  config: Config,
+  req: WriteFileInTaskContainerRequest,
+): Promise<ExecuteResult> {
+  if (req.filename.startsWith("/") || req.filename.split("/").includes("..")) {
+    throw new Error(
+      `filename must be a relative path within the task's working directory, got: ${req.filename}`,
+    );
+  }
+
+  const docker = getDocker(config);
+  const startTime = Date.now();
+
+  const commandCount = (commandCountByContainer.get(req.containerId) ?? 0) + 1;
+  if (commandCount > config.maxCommandsPerTask) {
+    throw new Error(
+      `This task's container has already run ${config.maxCommandsPerTask} commands - refusing to run more`,
+    );
+  }
+  commandCountByContainer.set(req.containerId, commandCount);
+  lastActivityByContainer.set(req.containerId, Date.now());
+
+  const container = docker.getContainer(req.containerId);
+
+  let exec;
+  try {
+    // FILENAME goes through Env, same as CMD does in execInTaskContainer -
+    // the shell only ever sees the *path*, never the file's contents.
+    exec = await container.exec({
+      Cmd: ["sh", "-c", 'mkdir -p "$(dirname "$FILENAME")" && cat > "$FILENAME"'],
+      Env: [`FILENAME=${req.filename}`],
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      WorkingDir: req.workingDir,
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (message.includes("404") || message.toLowerCase().includes("no such container")) {
+      throw new TaskContainerNotFoundError(req.containerId);
+    }
+    throw e;
+  }
+
+  const stream = await exec.start({ hijack: true, stdin: true });
+  stream.write(req.content);
+  stream.end();
+  const buffer = await streamToBuffer(stream as unknown as NodeJS.ReadableStream);
+  const { stdout, stderr } = demuxLogs(buffer);
+
+  const inspectResult = await exec.inspect();
+  const exitCode = inspectResult.ExitCode;
+
+  return {
+    exitCode,
+    stdout,
+    stderr,
+    timedOut: false,
     durationMs: Date.now() - startTime,
   };
 }
