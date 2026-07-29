@@ -191,3 +191,20 @@ services:
       HONCHO_WORKSPACE_ID: smart-assistant
     depends_on: [n8n]
     networks: [assistant-net]
+
+  # Discord bridge: lets the user talk to Amy from their phone over DM,
+  # anywhere. Connects outbound to Discord's gateway (websocket) — no
+  # published port, no public tunnel needed, same "n8n reached internally
+  # over assistant-net" pattern as chat-ui, just a different client. Only
+  # relays DMs from DISCORD_ALLOWED_USER_ID; everyone else is ignored.
+  discord-bot:
+    build:
+      context: ./discord-bot
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DISCORD_ALLOWED_USER_ID: ${DISCORD_ALLOWED_USER_ID}
+      N8N_CHAT_WEBHOOK_URL: http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat
+    depends_on: [n8n]
+    networks: [assistant-net]
