@@ -1442,9 +1442,22 @@ config-missing-error-at-call-time pattern as every other integration —
 `RESEARCH_TASK_WEBHOOK_URL` / `RESEARCH_TASK_STATUS_WEBHOOK_URL` /
 `RESEARCH_SEARCH_WEBHOOK_URL` in `.env.example`.
 
-*End-to-end verification (real DB rows, real RAG recall, gap-scanner
-trigger) is still pending as of this writing — this section will be
-updated with actual results once run, not written ahead of testing.*
+**Verified live (2026-07-29):** deployed against the existing `postgres-data`
+volume (manual migration + a new "Research Postgres account" n8n credential),
+all four affected workflows imported/published, n8n restarted, `skills-mcp`
+rebuilt. Triggered `research_task` via a real chat turn ("research the health
+benefits of green tea") — the document landed with 10 real embedded chunks,
+and `research_search` returned genuinely relevant results ranked by
+similarity (top match 0.874 on "green tea and weight loss/metabolism"). With
+`TAVILY_API_KEY` still unset, the agent correctly left `source_urls` empty
+rather than fabricating citations — real graceful degradation, not a crash.
+The same deployment also fixed a second, unrelated bug discovered along the
+way: `coding_task_pipeline` defaulted every task's test command to `npm
+test` regardless of language, so non-Node tasks (e.g. a plain Python script)
+failed on tooling alone even when the code was correct — the Planner now
+infers a language-appropriate test command instead. `skill_gap_scanner`'s
+knowledge-gap-triggered research path hasn't been observed on a live nightly
+run yet (next natural run is its 3am schedule).
 
 ## Directory layout
 
