@@ -653,6 +653,43 @@ name. Fixed by explicitly telling the prompt the `name` field must be
 short and plain with no prefix — confirmed fixed by re-running the exact
 same test transcript before and after the wording change.
 
+**Same day, real user feedback on the actual generated proposal**: the
+`dashboard-layout-adjustment` proposal above looked reasonable in
+isolation, but the user immediately flagged the real problem — it was
+hardcoded to "swap Spotify and calendar," a literal transcript of one
+specific instance, not an actually reusable skill. Root cause was the
+prompt itself: `Detect Correction Pattern`'s instructions explicitly said
+to extract "the literal steps that worked, using the same terms the
+conversation actually used" — exactly the kind of instruction that
+prevents generalization. Fixed by explicitly having the prompt
+distinguish what's *specific to this one request* (which widget, which
+exact position) from the *general, reusable procedure* the correction
+actually reveals (check the real current state before changing or
+reporting anything, work out what the request implies, apply only that
+change, then verify and accurately report what happened) — while still
+keeping genuinely technical specifics (real commands, tool names, exact
+configuration) literal where THAT specificity is what makes a procedure
+useful, rather than vague-ing everything into generic advice. Verified
+directly against the same real transcript before and after: went from a
+literal "swap Spotify and calendar" instance to a general
+"verify-current-state → apply-change → report-accurately" procedure.
+
+The identical problem existed in Branch A too — it had no such
+instruction at all, and a synthetic test with the same fix applied
+confirmed it: a recalled incident about diagnosing a parasitic battery
+drain on one specific Porsche model first came back as
+`name: "Diagnose parasitic battery drain in Porsche 987"` with the model
+name baked into the proposal's identity even though the actual
+`instructions` steps (multimeter, fuse-pulling, continuity checks) were
+already genuinely generic. Extended the fix to require the `name` and
+`description` fields to generalize too, not just `instructions` — the
+same test then produced `"Diagnose Parasitic Battery Drain in Vehicles"`
+with no vehicle-specific detail anywhere in the proposal. Applied to both
+branches' prompts (`Ollama Reasoning` for Branch A, `Detect Correction
+Pattern` for Branch C) so a future proposal from either path is judged
+by whether it would genuinely help with a *different but similar* future
+situation, not just whether it accurately recorded what happened once.
+
 ## Coding-agent pipeline + sandbox (in progress)
 
 The next step beyond `skill_propose`/`skill_gap_scanner`: those can only
