@@ -55,7 +55,7 @@
       "name": "Insert Document Row",
       "credentials": {
         "postgres": {
-          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "id": "f2p7kOCLbOzi5lzZ",
           "name": "Research Postgres account"
         }
       }
@@ -195,7 +195,7 @@
       "name": "Update Document Row Failed",
       "credentials": {
         "postgres": {
-          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "id": "f2p7kOCLbOzi5lzZ",
           "name": "Research Postgres account"
         }
       }
@@ -264,7 +264,7 @@
       "name": "Update Document Row",
       "credentials": {
         "postgres": {
-          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "id": "f2p7kOCLbOzi5lzZ",
           "name": "Research Postgres account"
         }
       }
@@ -320,7 +320,7 @@
       "name": "Insert Chunk Row",
       "credentials": {
         "postgres": {
-          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "id": "f2p7kOCLbOzi5lzZ",
           "name": "Research Postgres account"
         }
       }
@@ -470,7 +470,7 @@
       "name": "Get Document Row",
       "credentials": {
         "postgres": {
-          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "id": "f2p7kOCLbOzi5lzZ",
           "name": "Research Postgres account"
         }
       }
@@ -558,7 +558,7 @@
       "name": "Vector Search",
       "credentials": {
         "postgres": {
-          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "id": "f2p7kOCLbOzi5lzZ",
           "name": "Research Postgres account"
         }
       }
