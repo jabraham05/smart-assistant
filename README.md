@@ -70,7 +70,8 @@ HTTP Request -> Honcho /messages    Fix Postgres Memory Row
   reaches it at `http://skills-mcp:3001/mcp` over `assistant-net`). Hosts
   agent-callable tools — see `skills-mcp/src/tools/` for the current list
   (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
-  `code_task`, `spotify_control`, `dashboard_control` as of this writing)
+  `code_task`, `spotify_control`, `dashboard_control`, `web_search` as of
+  this writing)
   — added by registering each in `server.ts` following the
   same `registerTool`/zod/`textResult` pattern. Names use a consistent
   `domain_verb` prefix convention (not the original `verb_noun` names some
@@ -326,6 +327,51 @@ body on an otherwise-OK response is now treated as "no data" (same as
 sometimes does this, since none of the player-control callers use the
 response body anyway. Verified: `next`/`previous`/`queue` all fixed,
 `current`/`pause`/`search` (which do parse real JSON bodies) unaffected.
+
+**2026-07-28 — 7th tool, `web_search`, added because a real gap surfaced
+directly.** A user request via `discord-bot` ("build a script that outputs
+today's headlines") triggered `code_task`, which correctly wrote a coding
+task — but the stack had no way to actually source real headlines from
+anywhere; the resulting script could only ever fabricate content. Rather
+than let the coding pipeline paper over a missing capability, added
+`web_search` (`skills-mcp/src/tools/web-search.ts` + `lib/tavily.ts`),
+backed by [Tavily](https://tavily.com)'s search API (free tier, no card
+required — the one other deliberate external-API-key exception besides
+Honcho, same "optional, clear config-missing error at call time" pattern
+Google Calendar/Spotify/dashboard use; `TAVILY_API_KEY` in `.env.example`).
+Takes `query`, an optional `topic` (`'news'` biases results toward the last
+few days, for headline-style asks specifically), and `maxResults`. Wired
+into the `Chat` workflow's `Classify Relevant Tool Groups`/`Expand Groups
+To Tools` classifier as a new `web` category — via the documented `n8n
+export:workflow --published` → edit → `import:workflow` → `publish:workflow`
+→ restart CLI cycle (no UI access in this environment; see the
+`n8n-publish-system` gotcha), since a direct DB edit wouldn't have taken
+effect. **Verified end-to-end against the real running stack, not just a
+typecheck**: pulled the raw execution data for a live test chat message
+directly from Postgres (`execution_data`) and confirmed `web_search` was
+actually invoked by the agent (not just present in `tools/list`) and
+correctly returned a "not configured" error pre-`TAVILY_API_KEY`, which the
+persona's existing "never mention tool failures" rule handled gracefully
+(the user-facing reply offered general knowledge instead, no raw error
+leaked) — same safety net every other optional tool already relies on.
+Past the 3-5 guidance discussed above, same as `spotify_control` and
+`code_task` before it — added because a concrete, just-observed gap
+justified it, not as routine growth.
+
+**Restarting n8n mid-flight has a real cost, observed directly during this
+change**: the publish cycle's required restart interrupted an in-progress
+`coding_task_pipeline` execution (the same headlines-script task that
+motivated `web_search` in the first place) — n8n's own shutdown log showed
+it waiting on 3 active executions before restarting anyway, and that
+execution's row in `coding_proposals` was left permanently stuck at
+`status: "running"` with nothing left to ever update it, since the
+execution that would have updated it was gone. Manually corrected the
+stale row to `needs_review_failed` with a `latest_status` explaining the
+interruption, rather than leaving a misleading "running" status with no
+process actually behind it. Worth knowing for next time: **a workflow
+publish that requires a restart can silently orphan any coding task that
+happens to be mid-run** — no automatic detection or recovery of this exists
+yet.
 
 ## Skill proposals (self-authoring, human-gated) — first step toward self-growing skills
 

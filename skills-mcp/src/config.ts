@@ -15,6 +15,7 @@ export interface Config {
   spotifyRefreshToken?: string;
   dashboardControlWebhookUrl?: string;
   sandboxRunnerUrl: string;
+  tavilyApiKey?: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -68,5 +69,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // optional integration — no config-missing error path needed, unlike
     // the calendar/Spotify/dashboard webhooks above.
     sandboxRunnerUrl: env.SANDBOX_RUNNER_URL || "http://sandbox-runner:3002",
+    // Optional, not required at startup: web_search returns a clear
+    // config-missing error at call time, same pattern as the calendar/
+    // Spotify/dashboard tools use. Get a free key at tavily.com.
+    tavilyApiKey: env.TAVILY_API_KEY || undefined,
   };
 }

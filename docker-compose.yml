@@ -152,6 +152,9 @@ services:
       # unset. Points at the dashboard_control n8n workflow, which applies
       # smart-mirror widget layout changes and pushes them to the Pi.
       DASHBOARD_CONTROL_WEBHOOK_URL: ${DASHBOARD_CONTROL_WEBHOOK_URL}
+      # web_search tool — also optional, clear error at call time if unset.
+      # Free key at tavily.com (no card required for the free tier).
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
     networks: [assistant-net]
 
   # Docker-outside-of-Docker sandbox: spins up a fresh, disposable container
