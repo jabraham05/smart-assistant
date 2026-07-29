@@ -19,7 +19,12 @@ export function registerWebSearch(server: McpServer, config: Config): void {
         "days); leave it as 'general' for anything else. Do NOT use this for things fully " +
         "answerable from general knowledge or casual conversation, or for anything a more " +
         "specific tool already covers (weather_get for weather, calendar_event for the user's " +
-        "own calendar).",
+        "own calendar). If the results are weak, off-topic, or don't actually answer the " +
+        "specific question — call this again right now with a more targeted or differently-worded " +
+        "query (try a different phrasing, add a specific model/product/year, or try a site- or " +
+        "forum-specific angle) before replying. Do this a couple of times if needed. Never tell " +
+        "the user you're going to refine the search and then not actually call it again in the " +
+        "same turn — either do it now or answer with what you actually found.",
       inputSchema: {
         query: z.string().describe("The search query, as specific as possible."),
         topic: z
