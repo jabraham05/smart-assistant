@@ -16,6 +16,9 @@ export interface Config {
   dashboardControlWebhookUrl?: string;
   sandboxRunnerUrl: string;
   tavilyApiKey?: string;
+  researchTaskWebhookUrl?: string;
+  researchTaskStatusWebhookUrl?: string;
+  researchSearchWebhookUrl?: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -73,5 +76,13 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // config-missing error at call time, same pattern as the calendar/
     // Spotify/dashboard tools use. Get a free key at tavily.com.
     tavilyApiKey: env.TAVILY_API_KEY || undefined,
+    // Optional, not required at startup: research_task/research_task_status/
+    // research_search each return a clear config-missing error at call time,
+    // same pattern as the coding-task webhooks. See README's Research
+    // workflow section for the one-time research DB + pgvector setup these
+    // depend on.
+    researchTaskWebhookUrl: env.RESEARCH_TASK_WEBHOOK_URL || undefined,
+    researchTaskStatusWebhookUrl: env.RESEARCH_TASK_STATUS_WEBHOOK_URL || undefined,
+    researchSearchWebhookUrl: env.RESEARCH_SEARCH_WEBHOOK_URL || undefined,
   };
 }

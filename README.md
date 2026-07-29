@@ -70,7 +70,8 @@ HTTP Request -> Honcho /messages    Fix Postgres Memory Row
   reaches it at `http://skills-mcp:3001/mcp` over `assistant-net`). Hosts
   agent-callable tools — see `skills-mcp/src/tools/` for the current list
   (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
-  `code_task`, `spotify_control`, `dashboard_control`, `web_search` as of
+  `code_task`, `spotify_control`, `dashboard_control`, `web_search`,
+  `research_task`, `research_task_status`, `research_search` as of
   this writing)
   — added by registering each in `server.ts` following the
   same `registerTool`/zod/`textResult` pattern. Names use a consistent
@@ -87,10 +88,11 @@ HTTP Request -> Honcho /messages    Fix Postgres Memory Row
   This is the one deliberate exception to "everything else is local and
   free" — it needs a real API key. Self-hosting was tried and abandoned;
   see `honcho-src/` note below.
-- **postgres** (`pgvector/pgvector:pg16`) — backs n8n itself and the
-  Postgres Chat Memory node. pgvector is enabled for future use even though
-  nothing local currently needs vectors (Honcho's vectors live in their
-  cloud, not here).
+- **postgres** (`pgvector/pgvector:pg16`) — backs n8n itself (`n8n` database)
+  and the Postgres Chat Memory node, plus a separate `research` database
+  (see "Research workflow" below) that's the first real consumer of
+  pgvector: `research_chunks.embedding` is a genuine `vector(768)` column,
+  populated by the `nomic-embed-text` Ollama model.
 - **redis** — provisioned, not yet wired into anything specific.
 
 ## Honcho peer cards (proactive memory + behavioral instructions for Amy)
@@ -1380,11 +1382,78 @@ Replies over Discord's 2000-character message cap are split on the nearest
 newline/space rather than hard-cut mid-word (`chunkForDiscord` in
 `discord-bot/src/chat-client.ts`).
 
+## Research workflow (topic research, markdown synthesis, RAG recall)
+
+**2026-07-29 — added because Amy had no way to build persistent knowledge.**
+`web_search` (above) is a one-shot lookup with no memory; Honcho only models
+the user, not arbitrary subject-matter knowledge. This closes that gap: a
+background pipeline that researches a topic across multiple web searches,
+synthesizes a detailed markdown document, and stores it so it's recallable
+later via semantic search (RAG) — from any conversation, not just the one
+that started the research.
+
+**Three trigger paths**, all wired to the same `research_pipeline` n8n
+workflow's submit webhook: an explicit ask ("research X and remember it"),
+Amy's own proactive judgment mid-conversation (the `research_task` tool's
+description doesn't restrict it to explicit requests), and fully
+autonomously from `skill_gap_scanner`'s nightly scan — its `Ollama Reasoning`
+node now tags each proposal with a structured `gap_type`
+(`capability`/`functionality`/`knowledge`), and a `knowledge`-typed gap that
+survives the existing semantic-dedup check (so it only fires once per
+genuinely new gap, never on every run) triggers `research_task` directly,
+in addition to (not instead of) the existing skill-proposal path.
+
+**Storage: a new, dedicated `research` Postgres database**
+(`postgres/init/02-create-research-db.sql`), not a schema inside n8n's own
+database — mirrors `n8n` itself being a separate `CREATE DATABASE`. n8n
+Data Tables can't hold a `vector` column (only string/number/boolean/date),
+so this needed a real SQL table reached via a dedicated n8n Postgres
+credential: `research_documents` (topic, title, markdown, source_urls,
+status, trigger_source) and `research_chunks` (`embedding VECTOR(768)`,
+`hnsw`/cosine index) plus an append-only `research_log`. Since
+`postgres-data` already existed as a live volume before this file was
+added, `docker-entrypoint-initdb.d` scripts don't auto-apply to it — this
+needs the one-time manual migration documented at the top of that SQL file
+(`CREATE DATABASE research ...` then piping the rest of the file into
+`psql -d research`), same "does not create it for you" caveat as
+`CODING_TASKS_REPO_URL`.
+
+**`research_pipeline`** (`n8n/workflows/researchpipe1x.json`) follows
+`coding_task_pipeline`'s proven three-webhook shape: `research-task`
+(POST, fire-and-forget submit — a Research Agent uses `web_search`
+repeatedly across different angles, ends its reply with a `SOURCES:` block
+that's parsed out deterministically rather than trusted from prose, then a
+separate non-agentic Ollama call synthesizes the findings into a titled
+markdown document), `research-task-status` (GET, synchronous poll, same
+pattern as `code_task_status`), and a new third one, `research-search`
+(POST, synchronous RAG query — embeds the query via `nomic-embed-text`,
+does a pgvector cosine-similarity search over `research_chunks`, returns the
+top matches with their parent document's title/URLs). A hard failure mid-run
+routes to marking the row `status: 'failed'` rather than leaving it stuck
+at `running` forever — the coding-agent pipeline hit exactly that failure
+mode once already (see its section above).
+
+**Three new skills-mcp tools**: `research_task` (submit), `research_task_status`
+(session-scoped poll, mirrors `code_task_status`), and `research_search`
+(deliberately **not** session-scoped — the whole point of RAG recall is
+that research from any past conversation, or from `skill_gap_scanner`
+itself, is findable from any other). All three optional, same
+config-missing-error-at-call-time pattern as every other integration —
+`RESEARCH_TASK_WEBHOOK_URL` / `RESEARCH_TASK_STATUS_WEBHOOK_URL` /
+`RESEARCH_SEARCH_WEBHOOK_URL` in `.env.example`.
+
+*End-to-end verification (real DB rows, real RAG recall, gap-scanner
+trigger) is still pending as of this writing — this section will be
+updated with actual results once run, not written ahead of testing.*
+
 ## Directory layout
 
 - `docker-compose.yml` — the whole stack.
-- `postgres/init/` — one-time DB init scripts (creates the `n8n` database;
-  runs once against an empty volume only).
+- `postgres/init/` — one-time DB init scripts (creates the `n8n` database
+  and, as of `02-create-research-db.sql`, the `research` database + pgvector
+  schema for the Research workflow below; runs once against an empty volume
+  only — see that section for the manual-migration command needed on an
+  already-existing volume like this project's).
 - `n8n/workflows/` — exported workflow JSON, for history/diffing. Edit
   workflows in the n8n UI, then run `scripts/export-n8n-workflows.sh`.
 - `chat-ui/` — Next.js custom web chat client, wired into
@@ -1395,7 +1464,8 @@ newline/space rather than hard-cut mid-word (`chunkForDiscord` in
   webhook (see "Discord bridge" below).
 - `skills-mcp/` — MCP server hosting agent-callable tools
   (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
-  `code_task`, `spotify_control`, `dashboard_control`), plus internal
+  `code_task`, `spotify_control`, `dashboard_control`, `web_search`,
+  `research_task`, `research_task_status`, `research_search`), plus internal
   (non-MCP) routes `/internal/dashboard-data` and `/internal/spotify-action`
   (see "Smart-mirror dashboard" above), wired into `docker-compose.yml`
   (builds from `skills-mcp/Dockerfile`, internal-only, no published port).
@@ -1433,8 +1503,10 @@ newline/space rather than hard-cut mid-word (`chunkForDiscord` in
    image is a plain `docker build`, not a compose service, for the same
    reason. Skip this if you're not using the coding-agent pipeline yet.
 4. `bash scripts/pull-models.sh` — pulls `llama3.1:8b` and `nomic-embed-text`
-   (`nomic-embed-text` was for a self-hosted-Honcho attempt and is optional
-   now). This script is stale re: the *actual* chat model — the `Chat`
+   (`nomic-embed-text` was originally pulled for an abandoned self-hosted-Honcho
+   attempt and sat unused; it's now genuinely load-bearing again, as the
+   embedding model behind the Research workflow's `research_chunks.embedding`
+   column — see that section below). This script is stale re: the *actual* chat model — the `Chat`
    workflow's `Ollama Chat Model` node is user-configured and has already
    moved on from `llama3.1:8b` (see the tool-calling gotcha below); pull
    whatever model you actually configure there yourself, e.g.

@@ -12,6 +12,9 @@ import { registerCodeTaskStatus } from "./tools/code-task-status.js";
 import { registerSpotifyControl } from "./tools/spotify-control.js";
 import { registerDashboardControl } from "./tools/dashboard-control.js";
 import { registerWebSearch } from "./tools/web-search.js";
+import { registerResearchTask } from "./tools/research-task.js";
+import { registerResearchTaskStatus } from "./tools/research-task-status.js";
+import { registerResearchSearch } from "./tools/research-search.js";
 
 export interface RequestContext {
   // The n8n Chat workflow's session id, threaded in via the MCP Client
@@ -44,5 +47,8 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerSpotifyControl(server, config);
   registerDashboardControl(server, config);
   registerWebSearch(server, config);
+  registerResearchTask(server, config, context.chatSessionId);
+  registerResearchTaskStatus(server, config, context.chatSessionId);
+  registerResearchSearch(server, config);
   return server;
 }

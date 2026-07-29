@@ -1,0 +1,899 @@
+{
+  "id": "researchpipe1x",
+  "name": "research_pipeline",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "research-task",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -160,
+        -80
+      ],
+      "id": "855e8c86-26b3-4cb6-be01-1cd152bea039",
+      "name": "Research Webhook",
+      "webhookId": "49129111-85e1-4563-923e-8bcb9a18e8e6"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const body = $json.body ?? {};\n\nreturn { json: {\n  topic: body.topic,\n  origin_session_id: body.chatSessionId || null,\n  trigger_source: body.triggerSource || 'chat',\n  status: 'running',\n  latest_status: 'Researching',\n} };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        -80
+      ],
+      "id": "1c9c4271-0605-45e3-b10e-1b68155faeaf",
+      "name": "Prepare Document Row"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO research_documents (topic, origin_session_id, trigger_source, status, latest_status)\nVALUES ($1, $2, $3, $4, $5) RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.topic, $json.origin_session_id, $json.trigger_source, $json.status, $json.latest_status] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        288,
+        -80
+      ],
+      "id": "099c86a2-d3fe-4546-af1f-e8ec027075f0",
+      "name": "Insert Document Row",
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "name": "Research Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "qwen3:8b",
+        "options": {
+          "numCtx": 8192,
+          "think": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        512,
+        80
+      ],
+      "id": "684e98bf-5516-46f9-94da-3cabe0c523b6",
+      "name": "Research Ollama Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "YLB9RLIaQiFlN2lH",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "endpointUrl": "http://skills-mcp:3001/mcp",
+        "include": "selected",
+        "includeTools": [
+          "web_search"
+        ],
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.4,
+      "position": [
+        512,
+        240
+      ],
+      "id": "91743199-96bb-4d7b-935e-9ab89913aa86",
+      "name": "Research Tool"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'Research this topic thoroughly: ' + $('Prepare Document Row').item.json.topic }}",
+        "options": {
+          "systemMessage": "You are a researcher. Given a topic, use the web_search tool repeatedly across multiple different angles and specific sub-questions to gather real, current, well-sourced findings - don't rely on a single search. Write up what you found in clear prose covering the important facts, context, and any nuance or disagreement between sources. When you are done, end your reply with a line starting with 'SOURCES:' followed by every distinct source URL you actually used, one per line - never invent or guess a URL, only list ones a web_search result actually returned.",
+          "maxIterations": 12,
+          "enableStreaming": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        512,
+        -80
+      ],
+      "id": "684cb0cc-2c17-419c-883a-d4e8ae3e88f8",
+      "name": "Research Agent",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b310f03c-0505-424f-90d2-008038b2ea53",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "a3093a39-598b-48dd-8316-e5d0c29e4471",
+              "leftValue": "={{ $json.output }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        736,
+        -80
+      ],
+      "id": "5e343f96-8b93-4911-8bc1-39f6fe4a7ea8",
+      "name": "Agent Succeeded?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const errorMessage = $json.error || 'Unknown error during research.';\nreturn [{ json: { status: 'failed', latest_status: ('Failed: ' + errorMessage).slice(0, 500) } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        160
+      ],
+      "id": "49dba1f6-13f6-46f6-9d96-e4ff91f2d110",
+      "name": "Build Research Failure Record"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE research_documents SET status=$1, latest_status=$2, updated_at=now() WHERE id=$3 RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.status, $json.latest_status, $('Insert Document Row').item.json.id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1184,
+        160
+      ],
+      "id": "b764a26c-bef6-4726-9dfd-49d8e49ce642",
+      "name": "Update Document Row Failed",
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "name": "Research Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = $json.output || '';\nconst idx = output.indexOf('SOURCES:');\nlet urls = [];\nlet findings = output;\nif (idx !== -1) {\n  const block = output.slice(idx + 'SOURCES:'.length);\n  urls = block.match(/https?:\\/\\/[^\\s)\\]]+/g) || [];\n  findings = output.slice(0, idx);\n}\nurls = [...new Set(urls)];\nreturn [{ json: { findings: findings.trim(), sourceUrls: urls } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -80
+      ],
+      "id": "2100b2e6-b053-4d1e-844a-fda2e49acb69",
+      "name": "Extract Source URLs"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: \"qwen3:14b\",\n  stream: false,\n  think: true,\n  messages: [\n    { role: \"system\", content: \"You are a technical writer. Given research findings and a list of source URLs on a topic, produce a detailed, well-structured markdown document: a clear title, several headed sections covering the material in depth, and a final '## Sources' section listing every URL given, one per line. Do not invent facts or sources beyond what's given.\" },\n    { role: \"user\", content: \"Topic: \" + $('Prepare Document Row').item.json.topic + \"\\n\\nFindings:\\n\" + $json.findings + \"\\n\\nSource URLs:\\n\" + $json.sourceUrls.join(\"\\n\") }\n  ],\n  format: {\n    type: \"object\",\n    properties: { title: { type: \"string\" }, markdown: { type: \"string\" } },\n    required: [\"title\", \"markdown\"]\n  }\n}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1184,
+        -80
+      ],
+      "id": "40255b52-f725-4c8a-9e92-64260c188cba",
+      "name": "Synthesize Markdown"
+    },
+    {
+      "parameters": {
+        "jsCode": "let parsed;\ntry {\n  parsed = JSON.parse($json.message?.content ?? '{}');\n} catch (e) {\n  parsed = {};\n}\nreturn [{ json: { title: parsed.title || '', markdown: parsed.markdown || '' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        -80
+      ],
+      "id": "8e4f825a-2cff-4ad5-b8f3-87cbee352b52",
+      "name": "Parse Synthesis"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE research_documents\nSET title=$1, markdown=$2, source_urls=$3::jsonb, status='complete', latest_status='Done', updated_at=now()\nWHERE id=$4 RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.title, $json.markdown, JSON.stringify($('Extract Source URLs').item.json.sourceUrls), $('Insert Document Row').item.json.id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1632,
+        -80
+      ],
+      "id": "8a020783-9b92-4f46-b891-e559023f5b0e",
+      "name": "Update Document Row",
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "name": "Research Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const documentId = $('Insert Document Row').item.json.id;\nconst markdown = $('Parse Synthesis').item.json.markdown || '';\nconst lines = markdown.split('\\n');\nconst sections = [];\nlet current = { heading: null, lines: [] };\nfor (const line of lines) {\n  if (/^#{1,6}\\s+.+/.test(line)) {\n    if (current.lines.length) sections.push(current);\n    current = { heading: line.replace(/^#{1,6}\\s+/, '').trim(), lines: [] };\n  } else {\n    current.lines.push(line);\n  }\n}\nif (current.lines.length) sections.push(current);\n\nconst TARGET_SIZE = 1000;\nconst chunks = [];\nfor (const section of sections) {\n  const text = section.lines.join('\\n').trim();\n  if (!text) continue;\n  if (text.length <= TARGET_SIZE * 1.2) {\n    chunks.push({ heading: section.heading, content: text });\n    continue;\n  }\n  const paragraphs = text.split(/\\n\\s*\\n/);\n  let buf = '';\n  for (const p of paragraphs) {\n    if (buf && (buf.length + p.length) > TARGET_SIZE) {\n      chunks.push({ heading: section.heading, content: buf.trim() });\n      buf = p;\n    } else {\n      buf = buf ? buf + '\\n\\n' + p : p;\n    }\n  }\n  if (buf.trim()) chunks.push({ heading: section.heading, content: buf.trim() });\n}\n\nif (chunks.length === 0) chunks.push({ heading: null, content: markdown.trim() || $('Prepare Document Row').item.json.topic });\n\nreturn chunks.map((c, i) => ({ json: { documentId, chunkIndex: i, heading: c.heading, content: c.content } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1856,
+        -80
+      ],
+      "id": "7b5778ce-107a-46c4-b73a-ecac449c0919",
+      "name": "Chunk Document"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/embeddings",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"nomic-embed-text\", prompt: $json.content }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2080,
+        -80
+      ],
+      "id": "20ce0364-5404-42be-8991-d9f4421a8b6d",
+      "name": "Embed Chunk"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO research_chunks (document_id, chunk_index, heading, content, embedding)\nVALUES ($1, $2, $3, $4, $5::vector) RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$('Chunk Document').item.json.documentId, $('Chunk Document').item.json.chunkIndex, $('Chunk Document').item.json.heading, $('Chunk Document').item.json.content, '[' + $json.embedding.join(',') + ']'] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2304,
+        -80
+      ],
+      "id": "d412c70f-653e-4374-9456-51df1322c682",
+      "name": "Insert Chunk Row",
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "name": "Research Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { chunkCount: $input.all().length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2528,
+        -80
+      ],
+      "id": "e107e777-2638-48bb-963f-4704ae73d2b2",
+      "name": "Finalize Chunks"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "690e267b-678e-467e-bf29-fa50257d7db2",
+              "leftValue": "={{ $('Prepare Document Row').item.json.origin_session_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2752,
+        -80
+      ],
+      "id": "c4ff3df9-9801-4ba5-8da3-0f42f331bbff",
+      "name": "Has Origin Session?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const originSessionId = $('Prepare Document Row').item.json.origin_session_id;\nconst topic = $('Prepare Document Row').item.json.topic;\nconst title = $('Parse Synthesis').item.json.title || topic;\nconst summary = 'Finished researching \"' + topic + '\". Saved as \"' + title + '\" - ask me about it any time.';\nreturn [{ json: { origin_session_id: originSessionId, summary } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2976,
+        -160
+      ],
+      "id": "d9ac0e8d-cd2a-4533-84ee-ebad71ed0510",
+      "name": "Build Notify Message"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO n8n_chat_histories (session_id, message) VALUES ($1, $2::jsonb)",
+        "options": {
+          "queryReplacement": "={{ [$json.origin_session_id + '__Postgres_Chat_Memory', JSON.stringify({ type: 'ai', content: $json.summary, tool_calls: [], additional_kwargs: {}, response_metadata: {}, invalid_tool_calls: [] })] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3200,
+        -160
+      ],
+      "id": "9d2518c4-09dd-4f6c-aa2e-d255702df5bf",
+      "name": "Notify Chat History",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "postgres": {
+          "id": "Pf1jZARER97RcV61",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.honcho.dev/v3/workspaces/smart-assistant/sessions/' + $json.origin_session_id + '/messages' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messages: [ { content: $json.summary, peer_id: 'amy' } ] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3424,
+        -160
+      ],
+      "id": "34a7c28b-139a-49f9-baed-57aacff8ca7d",
+      "name": "Notify Honcho",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "RL13MZPwXH0LAlSz",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "research-task-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -160,
+        320
+      ],
+      "id": "563b47c8-fa01-480f-aab4-393734ef93b4",
+      "name": "Research Status Webhook",
+      "webhookId": "11de1d42-d25b-47e3-acd6-f2676a5fb5c5"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM research_documents WHERE origin_session_id = $1 ORDER BY id DESC LIMIT 1",
+        "options": {
+          "queryReplacement": "={{ [$json.query.sessionId] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        64,
+        320
+      ],
+      "id": "086043ff-7f63-4652-aeef-d957d4e0a749",
+      "name": "Get Document Row",
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "name": "Research Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map((i) => i.json);\nif (rows.length === 0) {\n  return [{ json: { found: false } }];\n}\nconst row = rows[0];\nreturn [{ json: {\n  found: true,\n  status: row.status,\n  latestStatus: row.latest_status,\n  title: row.title || undefined,\n  topic: row.topic,\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        320
+      ],
+      "id": "5271d991-fda0-43fb-a9a9-3dc7fb301410",
+      "name": "Build Status Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        512,
+        320
+      ],
+      "id": "54eb5d39-7d3b-4d83-b3fc-403fcc8124a1",
+      "name": "Respond Status"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "research-search",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -160,
+        560
+      ],
+      "id": "f9e5067d-2b48-4e3d-859f-90d13a9af7bb",
+      "name": "Research Search Webhook",
+      "webhookId": "3473a6b4-4944-4931-91bb-4c3fcaa51737"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/embeddings",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"nomic-embed-text\", prompt: $json.body.query }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        64,
+        560
+      ],
+      "id": "41bc9d75-c256-45b6-9f91-175008effc1c",
+      "name": "Embed Query"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.content, c.heading, d.id AS document_id, d.title, d.topic, d.source_urls,\n       1 - (c.embedding <=> $1::vector) AS similarity\nFROM research_chunks c JOIN research_documents d ON d.id = c.document_id\nWHERE d.status = 'complete'\nORDER BY c.embedding <=> $1::vector\nLIMIT $2",
+        "options": {
+          "queryReplacement": "={{ ['[' + $json.embedding.join(',') + ']', $('Research Search Webhook').item.json.body.topK || 5] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        288,
+        560
+      ],
+      "id": "5d3b224c-fe9f-416e-9738-7dd7b0c39234",
+      "name": "Vector Search",
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_RESEARCH_PG_CRED_ID",
+          "name": "Research Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map((i) => i.json);\nconst results = rows.map((r) => ({\n  content: r.content,\n  heading: r.heading || undefined,\n  similarity: r.similarity,\n  document: {\n    title: r.title,\n    topic: r.topic,\n    sourceUrls: (typeof r.source_urls === 'string') ? JSON.parse(r.source_urls) : (r.source_urls || []),\n  },\n}));\nreturn [{ json: { results } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        560
+      ],
+      "id": "a2cca04c-dc98-4278-a742-b4197443cb26",
+      "name": "Build Search Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        736,
+        560
+      ],
+      "id": "4b13d7b4-b344-47c1-9d48-fcef29bb0dc3",
+      "name": "Respond Search"
+    }
+  ],
+  "connections": {
+    "Research Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Document Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Document Row": {
+      "main": [
+        [
+          {
+            "node": "Insert Document Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Document Row": {
+      "main": [
+        [
+          {
+            "node": "Research Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research Ollama Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Research Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Research Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research Agent": {
+      "main": [
+        [
+          {
+            "node": "Agent Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Extract Source URLs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Research Failure Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Research Failure Record": {
+      "main": [
+        [
+          {
+            "node": "Update Document Row Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Source URLs": {
+      "main": [
+        [
+          {
+            "node": "Synthesize Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Synthesize Markdown": {
+      "main": [
+        [
+          {
+            "node": "Parse Synthesis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Synthesis": {
+      "main": [
+        [
+          {
+            "node": "Update Document Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Document Row": {
+      "main": [
+        [
+          {
+            "node": "Chunk Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk Document": {
+      "main": [
+        [
+          {
+            "node": "Embed Chunk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed Chunk": {
+      "main": [
+        [
+          {
+            "node": "Insert Chunk Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Chunk Row": {
+      "main": [
+        [
+          {
+            "node": "Finalize Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Chunks": {
+      "main": [
+        [
+          {
+            "node": "Has Origin Session?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Origin Session?": {
+      "main": [
+        [
+          {
+            "node": "Build Notify Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Build Notify Message": {
+      "main": [
+        [
+          {
+            "node": "Notify Chat History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Chat History": {
+      "main": [
+        [
+          {
+            "node": "Notify Honcho",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research Status Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Document Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Document Row": {
+      "main": [
+        [
+          {
+            "node": "Build Status Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Status Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research Search Webhook": {
+      "main": [
+        [
+          {
+            "node": "Embed Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed Query": {
+      "main": [
+        [
+          {
+            "node": "Vector Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Search": {
+      "main": [
+        [
+          {
+            "node": "Build Search Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Search Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "tags": []
+}
