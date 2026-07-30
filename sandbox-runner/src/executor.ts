@@ -554,6 +554,17 @@ export class TaskContainerNotFoundError extends Error {
   }
 }
 
+// Distinguishable from a generic execution failure: callers (the coding
+// orchestrator) can treat this as an expected "ran out of budget" outcome
+// rather than a crash, matched on a real error type/HTTP status instead of
+// string-matching the message text.
+export class CommandLimitExceededError extends Error {
+  constructor(limit: number) {
+    super(`This task's container has already run ${limit} commands - refusing to run more`);
+    this.name = "CommandLimitExceededError";
+  }
+}
+
 export async function execInTaskContainer(
   config: Config,
   req: ExecInTaskContainerRequest,
@@ -566,9 +577,7 @@ export async function execInTaskContainer(
 
   const commandCount = (commandCountByContainer.get(req.containerId) ?? 0) + 1;
   if (commandCount > config.maxCommandsPerTask) {
-    throw new Error(
-      `This task's container has already run ${config.maxCommandsPerTask} commands - refusing to run more`,
-    );
+    throw new CommandLimitExceededError(config.maxCommandsPerTask);
   }
   commandCountByContainer.set(req.containerId, commandCount);
   lastActivityByContainer.set(req.containerId, Date.now());
@@ -645,9 +654,7 @@ export async function writeFileInTaskContainer(
 
   const commandCount = (commandCountByContainer.get(req.containerId) ?? 0) + 1;
   if (commandCount > config.maxCommandsPerTask) {
-    throw new Error(
-      `This task's container has already run ${config.maxCommandsPerTask} commands - refusing to run more`,
-    );
+    throw new CommandLimitExceededError(config.maxCommandsPerTask);
   }
   commandCountByContainer.set(req.containerId, commandCount);
   lastActivityByContainer.set(req.containerId, Date.now());

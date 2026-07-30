@@ -107,7 +107,7 @@ services:
       CODING_TASKS_REPO_URL: ${CODING_TASKS_REPO_URL}
     volumes:
       - n8n-data:/home/node/.n8n
-    depends_on: [postgres, ollama, skills-mcp, sandbox-runner]
+    depends_on: [postgres, ollama, skills-mcp, sandbox-runner, coding-orchestrator]
     networks: [assistant-net]
 
   # MCP server hosting agent-callable tools (recall_user_memory, get_weather,
@@ -189,6 +189,36 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    networks: [assistant-net]
+
+  # Owns the coding-agent pipeline's actual Planner->Coder->Tester->Reviewer->
+  # retry state machine as real TypeScript (real try/catch/finally, one real
+  # attempt loop) instead of an n8n node graph - replaces what
+  # coding_task_pipeline used to do end-to-end. n8n keeps only a thin
+  # submit/status webhook shim that proxies to this service; skills-mcp's
+  # code_task/code_task_status tools are unchanged, since they still talk to
+  # the same n8n webhook URLs as before. See README's "coding-orchestrator"
+  # section for why this moved out of n8n.
+  coding-orchestrator:
+    build:
+      context: ./coding-orchestrator
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "3003"
+      OLLAMA_HOST: http://ollama:11434
+      SANDBOX_RUNNER_URL: http://sandbox-runner:3002
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Dedicated database (see postgres/init/03-create-coding-tasks-db.sql),
+      # not the old codingproposals1/codingtasklog01 n8n Data Tables.
+      CODING_TASKS_DB_NAME: coding_tasks
+      HONCHO_API_KEY: ${HONCHO_API_KEY}
+      HONCHO_WORKSPACE_ID: smart-assistant
+      CODING_TASKS_REPO_URL: ${CODING_TASKS_REPO_URL}
+      # Deliberately absent: GITHUB_TOKEN. PR proposal still goes entirely
+      # through sandbox-runner's own /propose-pr endpoint, same as before -
+      # this service never receives or handles the token itself.
+    depends_on: [postgres, ollama, sandbox-runner]
     networks: [assistant-net]
 
   chat-ui:

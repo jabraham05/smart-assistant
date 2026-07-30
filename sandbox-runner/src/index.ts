@@ -11,6 +11,7 @@ import {
   destroyTaskContainer,
   startTaskContainerReaper,
   TaskContainerNotFoundError,
+  CommandLimitExceededError,
   type ExecuteRequest,
   type ProposePrRequest,
   type CreateTaskContainerRequest,
@@ -134,6 +135,9 @@ app.post("/task/:id/exec", async (req, res) => {
     if (e instanceof TaskContainerNotFoundError) {
       return res.status(404).json({ error: e.message });
     }
+    if (e instanceof CommandLimitExceededError) {
+      return res.status(429).json({ error: e.message });
+    }
     console.error("execInTaskContainer failed:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
@@ -164,6 +168,9 @@ app.post("/task/:id/write-file", async (req, res) => {
     if (e instanceof TaskContainerNotFoundError) {
       return res.status(404).json({ error: e.message });
     }
+    if (e instanceof CommandLimitExceededError) {
+      return res.status(429).json({ error: e.message });
+    }
     console.error("writeFileInTaskContainer failed:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
@@ -181,6 +188,9 @@ app.get("/task/:id/diff", async (req, res) => {
   } catch (e) {
     if (e instanceof TaskContainerNotFoundError) {
       return res.status(404).json({ error: e.message });
+    }
+    if (e instanceof CommandLimitExceededError) {
+      return res.status(429).json({ error: e.message });
     }
     console.error("diffTaskContainer failed:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
