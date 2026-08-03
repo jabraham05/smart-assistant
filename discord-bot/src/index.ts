@@ -18,6 +18,19 @@ const client = new Client({
 // it stays visible for the whole time a reply is being generated.
 const TYPING_REFRESH_MS = 8000;
 
+// One stable session per Discord user by default, so conversation memory
+// persists across app restarts and separate phone sessions the same way the
+// CLI client's .chat-session-id file does. `!new` overrides that in memory
+// with a fresh, timestamped sessionId so old history stops being loaded —
+// this override doesn't survive a container restart, which just falls back
+// to the original stable session.
+const sessionOverrides = new Map<string, string>();
+const NEW_SESSION_COMMANDS = new Set(["!new", "/new"]);
+
+function currentSessionId(userId: string): string {
+  return sessionOverrides.get(userId) ?? `discord-${userId}`;
+}
+
 client.once(Events.ClientReady, (c) => {
   console.log(`discord-bot logged in as ${c.user.tag}, forwarding DMs from user ${config.allowedUserId}`);
 });
@@ -29,7 +42,14 @@ client.on(Events.MessageCreate, async (message) => {
     console.warn(`Ignoring DM from non-allowlisted user ${message.author.id}`);
     return;
   }
-  if (!message.content.trim()) return;
+  const trimmed = message.content.trim();
+  if (!trimmed) return;
+
+  if (NEW_SESSION_COMMANDS.has(trimmed.toLowerCase())) {
+    sessionOverrides.set(message.author.id, `discord-${message.author.id}-${Date.now()}`);
+    await message.channel.send("Started a new session — previous conversation won't carry over.").catch(() => {});
+    return;
+  }
 
   const typingTimer = setInterval(() => {
     message.channel.sendTyping().catch(() => {});
@@ -37,10 +57,7 @@ client.on(Events.MessageCreate, async (message) => {
   message.channel.sendTyping().catch(() => {});
 
   try {
-    // One stable session per Discord user, so conversation memory persists
-    // across app restarts and separate phone sessions the same way the CLI
-    // client's .chat-session-id file does.
-    const sessionId = `discord-${message.author.id}`;
+    const sessionId = currentSessionId(message.author.id);
     const reply = await sendChatMessage(config.chatWebhookUrl, message.content, sessionId);
     const text = reply.trim() || "(no response)";
     for (const chunk of chunkForDiscord(text)) {
