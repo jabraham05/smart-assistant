@@ -10,16 +10,15 @@ export function registerCodeTask(server: McpServer, config: Config, chatSessionI
     {
       title: "Start a coding task",
       description:
-        "Start an autonomous coding task: plans the change, writes a diff, adds test " +
-        "coverage, runs the tests in an isolated sandbox, and reviews the result — " +
-        "repeating up to a few attempts if needed. Runs in the background; this call " +
-        "returns immediately, well before the work finishes. Nothing is ever applied to " +
-        "the real repository automatically — the result always lands as a human-reviewed " +
-        "proposal (a diff, or a pull request if the target repo has one configured), never " +
-        "an automatic change. Only call this for a genuine, concrete coding task (fix a " +
-        "specific bug, add a specific feature) that you have a real repoUrl for — never " +
-        "guess or invent a repository URL. If you don't know the target repo, ask the user " +
-        "for it rather than calling this.",
+        "Start an autonomous coding task: a planner lays out the approach, a coder implements " +
+        "it with real shell access to its own isolated container, a tester adds coverage, and " +
+        "a reviewer judges the result — repeating up to a few attempts if needed. Runs in the " +
+        "background; this call returns immediately, well before the work finishes. Nothing is " +
+        "ever applied to the real repository automatically — the result always lands as a " +
+        "human-reviewed pull request, never an automatic change. Give a real repoUrl when the " +
+        "task is about an existing project (fix a bug, add a feature to it) — never guess or " +
+        "invent one, ask the user if you don't know it. Omit repoUrl entirely when the task is " +
+        "building something new from scratch with no existing project to target.",
       inputSchema: {
         task: z
           .string()
@@ -31,9 +30,12 @@ export function registerCodeTask(server: McpServer, config: Config, chatSessionI
         repoUrl: z
           .string()
           .min(1, "repoUrl must not be empty")
+          .optional()
           .describe(
-            "Git URL the task's target repo can be cloned from (e.g. a GitHub URL). Must be " +
-              "a real URL the user gave you or that's already known — never invented.",
+            "Git URL the task's target repo can be cloned from (e.g. a GitHub URL), when this " +
+              "task is about an existing project. Must be a real URL the user gave you or " +
+              "that's already known — never invented. Omit entirely for a from-scratch task " +
+              "with no existing project.",
           ),
         ref: z
           .string()

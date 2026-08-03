@@ -5,12 +5,15 @@ Ollama model as the "brain," Honcho (hosted cloud) provides long-term memory
 of who you are, and postgres/redis back everything. Long-term goal: an
 ever-growing library of skills (n8n workflows), a background job that
 proposes new skills on its own (with a human approval gate before anything
-goes live), and a Raspberry Pi voice interface.
+goes live), and a Raspberry Pi voice interface. A Raspberry Pi smart-mirror
+dashboard is already live — Amy is its data source and controller (see
+"Smart-mirror dashboard" below); voice control works end-to-end except the
+actual microphone/wake-word leg, still unbuilt hardware-wise.
 
 ## Architecture
 
 ```
-Chat client (n8n test chat / scripts/chat.mjs / chat-ui / future Pi)
+Chat client (n8n test chat / scripts/chat.mjs / chat-ui / discord-bot / future Pi)
         |
         v
 n8n Chat Trigger (webhook, streaming response)
@@ -67,7 +70,10 @@ HTTP Request -> Honcho /messages    Fix Postgres Memory Row
   reaches it at `http://skills-mcp:3001/mcp` over `assistant-net`). Hosts
   agent-callable tools — see `skills-mcp/src/tools/` for the current list
   (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
-  `code_task` as of this writing) — added by registering each in `server.ts` following the
+  `code_task`, `spotify_control`, `dashboard_control`, `web_search`,
+  `research_task`, `research_task_status`, `research_search` as of
+  this writing)
+  — added by registering each in `server.ts` following the
   same `registerTool`/zod/`textResult` pattern. Names use a consistent
   `domain_verb` prefix convention (not the original `verb_noun` names some
   of these launched with — see the tool-count/naming decision below) so
@@ -82,10 +88,11 @@ HTTP Request -> Honcho /messages    Fix Postgres Memory Row
   This is the one deliberate exception to "everything else is local and
   free" — it needs a real API key. Self-hosting was tried and abandoned;
   see `honcho-src/` note below.
-- **postgres** (`pgvector/pgvector:pg16`) — backs n8n itself and the
-  Postgres Chat Memory node. pgvector is enabled for future use even though
-  nothing local currently needs vectors (Honcho's vectors live in their
-  cloud, not here).
+- **postgres** (`pgvector/pgvector:pg16`) — backs n8n itself (`n8n` database)
+  and the Postgres Chat Memory node, plus a separate `research` database
+  (see "Research workflow" below) that's the first real consumer of
+  pgvector: `research_chunks.embedding` is a genuine `vector(768)` column,
+  populated by the `nomic-embed-text` Ollama model.
 - **redis** — provisioned, not yet wired into anything specific.
 
 ## Honcho peer cards (proactive memory + behavioral instructions for Amy)
@@ -350,6 +357,51 @@ sometimes does this, since none of the player-control callers use the
 response body anyway. Verified: `next`/`previous`/`queue` all fixed,
 `current`/`pause`/`search` (which do parse real JSON bodies) unaffected.
 
+**2026-07-28 — 7th tool, `web_search`, added because a real gap surfaced
+directly.** A user request via `discord-bot` ("build a script that outputs
+today's headlines") triggered `code_task`, which correctly wrote a coding
+task — but the stack had no way to actually source real headlines from
+anywhere; the resulting script could only ever fabricate content. Rather
+than let the coding pipeline paper over a missing capability, added
+`web_search` (`skills-mcp/src/tools/web-search.ts` + `lib/tavily.ts`),
+backed by [Tavily](https://tavily.com)'s search API (free tier, no card
+required — the one other deliberate external-API-key exception besides
+Honcho, same "optional, clear config-missing error at call time" pattern
+Google Calendar/Spotify/dashboard use; `TAVILY_API_KEY` in `.env.example`).
+Takes `query`, an optional `topic` (`'news'` biases results toward the last
+few days, for headline-style asks specifically), and `maxResults`. Wired
+into the `Chat` workflow's `Classify Relevant Tool Groups`/`Expand Groups
+To Tools` classifier as a new `web` category — via the documented `n8n
+export:workflow --published` → edit → `import:workflow` → `publish:workflow`
+→ restart CLI cycle (no UI access in this environment; see the
+`n8n-publish-system` gotcha), since a direct DB edit wouldn't have taken
+effect. **Verified end-to-end against the real running stack, not just a
+typecheck**: pulled the raw execution data for a live test chat message
+directly from Postgres (`execution_data`) and confirmed `web_search` was
+actually invoked by the agent (not just present in `tools/list`) and
+correctly returned a "not configured" error pre-`TAVILY_API_KEY`, which the
+persona's existing "never mention tool failures" rule handled gracefully
+(the user-facing reply offered general knowledge instead, no raw error
+leaked) — same safety net every other optional tool already relies on.
+Past the 3-5 guidance discussed above, same as `spotify_control` and
+`code_task` before it — added because a concrete, just-observed gap
+justified it, not as routine growth.
+
+**Restarting n8n mid-flight has a real cost, observed directly during this
+change**: the publish cycle's required restart interrupted an in-progress
+`coding_task_pipeline` execution (the same headlines-script task that
+motivated `web_search` in the first place) — n8n's own shutdown log showed
+it waiting on 3 active executions before restarting anyway, and that
+execution's row in `coding_proposals` was left permanently stuck at
+`status: "running"` with nothing left to ever update it, since the
+execution that would have updated it was gone. Manually corrected the
+stale row to `needs_review_failed` with a `latest_status` explaining the
+interruption, rather than leaving a misleading "running" status with no
+process actually behind it. Worth knowing for next time: **a workflow
+publish that requires a restart can silently orphan any coding task that
+happens to be mid-run** — no automatic detection or recovery of this exists
+yet.
+
 ## Skill proposals (self-authoring, human-gated) — first step toward self-growing skills
 
 Generalizes the same "propose, never auto-apply" pattern the old
@@ -559,6 +611,159 @@ consumer beyond a human manually copying it over — same manual-approval
 pattern as `skills`, just a different table, and currently the only
 thing that ever reads or writes `proposed_system_prompt`/`proposed_reason`/
 `proposed_at` at all.
+
+**2026-07-27 — the opposite of sparsity showed up in practice: the same
+gap re-proposed under different names.** With enough real days of
+scanning, the same salary-negotiation gap got proposed four separate
+times under four different kebab-names (`salary-negotiation-workflow`,
+`negotiate-salary-offer-instruction-proposed`, then two more on later
+runs) — `Ollama Reasoning`'s system prompt already says never to
+repropose an existing/equivalent skill, and one rejected proposal's own
+`reason` field even *named* an existing proposal as related, then
+proposed anyway. The within-batch dedup (`Parse and Normalize Proposal`'s
+`seen` Set) only catches exact-name collisions in the same run — it
+never checked new candidates against the full existing `skills` list at
+all. A word-overlap heuristic was tried first and measured to fail on
+the exact real case (different phrasing/synonyms score too low on raw
+word overlap despite being the same underlying idea — "a fully
+implemented, saved skill providing a reusable workflow" vs. "a
+structured, repeatable guide" share almost no literal words). Fixed with
+a new **`Semantic Dedup Check`** step between `Parse and Normalize
+Proposal` and `If Should Propose`: a dedicated Ollama call given the full
+candidate list plus every existing skill (any status), asked to judge
+duplication by substance, not wording — this is what a real LLM judgment
+call is good at, unlike string matching. Verified against the live
+scanner (temporarily shortened schedule, same technique as elsewhere in
+this project) correctly filtering out three different re-worded
+salary-negotiation variants across separate runs, with `Submit Proposal`
+never firing for any of them.
+
+Building this surfaced a real, previously-invisible bug affecting
+already-shipped code: **global `fetch()` is not defined inside a Code
+node's sandboxed execution context** in this n8n version — confirmed by
+direct testing (`ReferenceError: fetch is not defined`, thrown from
+`js-task-runner.js`'s `vm.runInContext`). The dedup node's first draft
+used `fetch()` and failed in under 20ms every time, silently caught by
+its own error handling. Worse: `dashboard_state`'s `Catalog Ready` node
+(see "Smart-mirror dashboard" above) used the exact same pattern and had
+been hitting its catch block on *every single run* since it was built —
+never once actually reaching the Pi's `/api/widgets/catalog` endpoint —
+completely undetected because its hardcoded fallback catalog happens to
+have identical content to the real one. Fixed both nodes to use
+`this.helpers.httpRequest(...)` instead (the sanctioned way to make HTTP
+calls from inside a Code node) — confirmed genuinely fixed by real
+network round-trip timings afterward (500ms–1.1s) replacing the previous
+instant, fallback-only executions (8–15ms).
+
+**2026-07-28 — Branch C: reading raw transcripts to catch corrected
+procedures, not just gaps.** Branch A's dialectic-based gap detection is
+good at surfacing *themes* ("the user keeps asking about X") but isn't
+built to faithfully reproduce a literal sequence of steps — and the user
+specifically wanted something different: catch it when they had to
+correct Amy's approach two or more times in a row before something
+finally worked ("no not that, do this... actually check this first...
+now that worked"), and turn the *actual corrected procedure* into a
+detailed, step-by-step `instruction` skill proposal. That needs the real
+message text, not Honcho's synthesized answer, so this reads raw
+transcripts directly via Honcho's `sessions/list` and
+`sessions/{id}/messages/list` endpoints (confirmed these exist via
+Honcho's own API docs — this project had never called them before, only
+ever the dialectic `peers/.../chat` endpoint and the message-insert
+endpoint used to store chat turns).
+
+Feeds into the exact same `Semantic Dedup Check` → `If Should Propose` →
+`Submit Proposal` chain Branch A already uses, completely unchanged — a
+second Code node (`Parse Correction Proposal`) simply became a second
+incoming connection into the existing `Semantic Dedup Check` node,
+alongside `Parse and Normalize Proposal`'s existing one. No new Data
+Table, no new review mechanism, same human-gated `skills` table.
+
+**A real, live-verified surprise before wiring anything in**: this
+workspace's `sessions/list` is not just real chat conversations — it's
+full of single-message, `amy`-only "sessions" from the coding-agent
+pipeline's own proactive chat notifications (e.g. `"Finished: ..."`),
+manually-named test sessions from earlier debugging (`root-cause-test-*`,
+`full-run-test-*`), and other throwaway artifacts. Simply grabbing "the
+last 5 sessions" would have reliably returned only this junk, never a
+real conversation — confirmed directly (the newest 5 by creation time,
+live, were all one-way test/notification sessions with zero real
+back-and-forth). Fixed by fetching a wider window (30) and filtering to
+sessions with at least one `user`-authored message (a real chat turn
+always inserts a user+amy pair together, per the `Chat` workflow's own
+message-insert node — a one-way notification never has a `user` message
+at all) — confirmed this filter correctly separated 9 genuine
+conversations out of 30 raw sessions in this workspace's real data.
+
+Also verified live before depending on it: `reverse=true` on
+`sessions/list` is newest-created-first, `reverse=false` on
+`messages/list` is chronological — Honcho's own docs didn't fully specify
+the underlying sort key, so this was checked directly against the real
+API rather than assumed.
+
+**A real bug found via a live end-to-end test, not just isolated
+per-node checks**: `Parse Correction Proposal`'s first version assumed
+n8n's Code node runs once per input item by default — it doesn't; the
+default is "run once for all items," with `$json` referring to a single
+item only. `Detect Correction Pattern` (an HTTP Request node, which
+*does* run once per item by default) correctly produced 8 separate
+results for 8 candidate sessions in one real test run — two of which
+were genuine `found: true` corrected procedures — but `Parse Correction
+Proposal` silently processed only one of the 8, dropping both real
+detections without any error anywhere. Exactly the kind of thing that
+only shows up under a real multi-item run, not a single hand-crafted
+test case. Fixed by iterating `$input.all()` and collecting every match,
+mirroring `Parse and Normalize Proposal`'s own already-correct pattern.
+Re-verified against a second live run afterward: both genuine corrected
+procedures (a Spotify-display capability clarification and a dashboard
+widget-layout correction, both real, from this project's own actual
+usage) correctly survived semantic dedup and landed as real `proposed`
+rows in the `skills` table, each with a detailed, literal, numbered
+procedure — not a one-line gap description.
+
+Also caught and fixed via direct testing before deploying: the
+`Detect Correction Pattern` prompt's first draft let the model bleed its
+required `'Corrected procedure:'` prefix into the `name` field too
+(intended only for `reason`), producing an ugly, needlessly-long kebab
+name. Fixed by explicitly telling the prompt the `name` field must be
+short and plain with no prefix — confirmed fixed by re-running the exact
+same test transcript before and after the wording change.
+
+**Same day, real user feedback on the actual generated proposal**: the
+`dashboard-layout-adjustment` proposal above looked reasonable in
+isolation, but the user immediately flagged the real problem — it was
+hardcoded to "swap Spotify and calendar," a literal transcript of one
+specific instance, not an actually reusable skill. Root cause was the
+prompt itself: `Detect Correction Pattern`'s instructions explicitly said
+to extract "the literal steps that worked, using the same terms the
+conversation actually used" — exactly the kind of instruction that
+prevents generalization. Fixed by explicitly having the prompt
+distinguish what's *specific to this one request* (which widget, which
+exact position) from the *general, reusable procedure* the correction
+actually reveals (check the real current state before changing or
+reporting anything, work out what the request implies, apply only that
+change, then verify and accurately report what happened) — while still
+keeping genuinely technical specifics (real commands, tool names, exact
+configuration) literal where THAT specificity is what makes a procedure
+useful, rather than vague-ing everything into generic advice. Verified
+directly against the same real transcript before and after: went from a
+literal "swap Spotify and calendar" instance to a general
+"verify-current-state → apply-change → report-accurately" procedure.
+
+The identical problem existed in Branch A too — it had no such
+instruction at all, and a synthetic test with the same fix applied
+confirmed it: a recalled incident about diagnosing a parasitic battery
+drain on one specific Porsche model first came back as
+`name: "Diagnose parasitic battery drain in Porsche 987"` with the model
+name baked into the proposal's identity even though the actual
+`instructions` steps (multimeter, fuse-pulling, continuity checks) were
+already genuinely generic. Extended the fix to require the `name` and
+`description` fields to generalize too, not just `instructions` — the
+same test then produced `"Diagnose Parasitic Battery Drain in Vehicles"`
+with no vehicle-specific detail anywhere in the proposal. Applied to both
+branches' prompts (`Ollama Reasoning` for Branch A, `Detect Correction
+Pattern` for Branch C) so a future proposal from either path is judged
+by whether it would genuinely help with a *different but similar* future
+situation, not just whether it accurately recorded what happened once.
 
 ## Coding-agent pipeline + sandbox (in progress)
 
@@ -967,28 +1172,370 @@ through the whole pipeline and posting a real result back into it:
   would need new infrastructure — an SSE/websocket channel to `chat-ui`,
   or an external channel like email/SMS — explicitly out of scope here.
 
+### 2026-07-27 — persistent-container redesign: Planner/Coder/Tester/Reviewer (partially working)
+
+Replaced the one-shot "Coder emits a blind diff" model with a genuinely agentic one: each task gets its own **persistent** container (not destroyed until the task's retry loop actually exits), and a **Coder Agent** and **Tester Agent** — separate `@n8n/n8n-nodes-langchain.agent` nodes — get real shell access to it via two new MCP tools, `code_task_run_command` and `code_task_get_diff`, instead of hallucinating a diff from one pre-fetched file snippet. `Planner` stays a single non-tool-calling Ollama call (deliberately — the container is empty at that point, nothing to explore yet); `Reviewer` now also breaks its verdict down into a structured per-test pass/fail/reasoning array. Retry re-invokes only the Coder Agent in the *same* container (Tester's tests aren't regenerated) — the container is destroyed only once the loop actually exits (approved, gave up, or the attempt cap is hit).
+
+**New in `sandbox-runner`**: `POST /task` (create a long-lived container, clone the repo, return `{containerId, workingDir}`), `POST /task/:id/exec` (run one command, `timeout Ns` wrapping it since dockerode can't kill an individual exec from the host side), `GET /task/:id/diff` (`git add -A -N && git diff` — the `-N`/intent-to-add is what makes brand-new files show up at all), `DELETE /task/:id`. A `setInterval` reaper force-removes any container past an idle timeout (300s default) or hard max lifetime (1800s default) via an in-memory last-activity map — this is a genuinely new resource-leak risk the old one-shot model never had, since every container's entire lifetime used to be exactly one shell script's runtime. `GITHUB_TOKEN` is never read anywhere in this new code path — only the existing `proposePullRequest` (a separate, still-ephemeral, non-agentic container) ever sees it, since the persistent container the model has arbitrary shell access in must never be able to reach it.
+
+**Also added**: `code_task`'s `repoUrl` is now optional — omit it for a from-scratch task with no existing target, which lands in a shared `coding_tasks` repo (one folder per task, named via the same slug+timestamp scheme as branch names) instead of a named project. `code_task_status` (a normal chat-facing tool, unlike the two container-exec tools which are pipeline-internal only) lets a user ask Amy for a progress update mid-task — backed by a new `latest_status` column updated after every phase, and a new `GET /webhook/coding-task-status?sessionId=...` trigger in the same workflow. A new append-only `coding_task_log` Data Table records the plan, each Coder/Tester round's output, the real test run, and the Reviewer's structured verdict — one row per phase per attempt.
+
+**A real bug found via live testing, already fixed**: inserting `Destroy Task Container` between `Should Retry?` and `Should Open PR?` (and `Log Reviewer` between `Parse Reviewer Output` and `Should Retry?`) broke those IF nodes' bare `$json.verdict`/`$json.exitCode` references — they used to work only because the nodes were directly adjacent to `Parse Reviewer Output` and n8n's IF node passes its input through unchanged. Both were silently reading `undefined` (the new intermediate node's own unrelated output) instead of erroring, so `Should Retry?` would never actually retry and `Should Open PR?` would never actually open a PR, regardless of the real verdict. Fixed by making both reference `$('Parse Reviewer Output').item.json...` explicitly. **Lesson: inserting a node between an upstream node and something that reads a bare `$json` from it is a silent, no-error-thrown way to break a condition** — grep for bare `$json.` references before/after restructuring a graph, don't just check that the new node's own inputs/outputs are correct.
+
+**Root cause found and fixed: n8n's MCP Client Tool node silently breaks qwen3:8b's tool-calling once the combined tool name gets too "segmented."** The Coder Agent was producing completely empty output with zero tool calls on every real run, while the identical setup worked fine in isolated throwaway-workflow tests — the kind of discrepancy that looks like non-determinism until you find the one real variable nobody controlled for. It wasn't model choice, `think`, `enableStreaming`, shared-vs-dedicated sub-nodes, static-vs-dynamic `endpointUrl`, one-vs-two agents, prompt length, model-swap timing, or context window size — all individually tested and ruled out.
+
+The actual mechanism: n8n's `@n8n/n8n-nodes-langchain.mcpClientTool` node prefixes every tool it exposes with its own node display name before handing it to the model (e.g. a node named "Task Container Tool" turns `code_task_run_command` into `Task_Container_Tool_code_task_run_command`). Found by literally instrumenting n8n's own `runAgent.js` in the running container to log around the model-invoke call (confirmed the call genuinely resolved with empty output, no thrown error anywhere in the chain) and standing up a disposable logging reverse-proxy between n8n and Ollama (pointing the Ollama Chat Model node's credential at it) to capture the *exact* request/response bytes for a real failing call. Replaying that exact captured request verbatim, varying only the tool name, proved it deterministically: the model burns real generation tokens (`eval_count` in the 20s-30s) but the output never resolves into a `tool_calls` block once the combined, underscore-joined name crosses somewhere around 5-6 segments (`Task_Container_Tool_code_task_run_command` = 8 segments, fails every time; `code_task_run_command` bare = 4 segments, works every time) — this is a real limitation in qwen3:8b's (or Ollama/llama.cpp's) tool-calling grammar for compound function names, not an n8n or MCP bug, and it fails with zero error signal anywhere in the stack (n8n reports `execution.succeeded: true`).
+
+Fixed by shortening the actual registered MCP tool names (`code_task_run_command` → `run_command`, `code_task_get_diff` → `get_diff`, in `skills-mcp/src/tools/`) so there's headroom left for the mandatory node-name prefix — confirmed `Task_Tool_run_command` (4 segments) works reliably. Verified with two full end-to-end runs against the real fixture repo: both approved on the first attempt, both opened real PRs, with genuine non-empty output at every phase (Coder's own `STATUS:` line, Tester's real analysis, a passing `test_run`, a substantive Reviewer verdict). **If a similar "empty output, zero tool calls, no error" symptom ever resurfaces with a different tool/model combination: check the combined (node-name-prefixed) tool name length/segment count first** — it's invisible in the n8n UI and in any per-node config, only visible by capturing the actual bytes sent to the model.
+
+Also worth noting for next time: this project's own already-documented gotcha ("explicitly naming a tool by its internal identifier in a prompt reliably produces empty output from qwen3:8b") is a close cousin of this bug and was independently re-discovered mid-investigation when the Tester Agent's system prompt referenced `code_task_get_diff` by name — removed in favor of describing what to do, not which tool to call.
+
+### 2026-07-28 — deterministic repo fallback, two silent-crash fixes, and a `write_file` tool
+
+A real user report ("it said it started it but I don't see it and now it can't find it") traced back to the Coder Agent hallucinating a fake repo URL (`https://github.com/your-username/simple-guessing-game`) for a from-scratch task instead of correctly omitting `repoUrl`. The deeper problem: `Create Task Container` had no fallback at all — a bad or invented `repoUrl` threw, and that error crashed the *entire n8n execution* before it ever reached `Update Row`/`Has Origin Session?`, leaving the row stuck at `status: running` forever with **no failure ever surfaced to chat**. Decided (per explicit user direction) that the workflow itself, not the model's judgment, should own where a task lands: `repoUrl` is still honored when genuinely given, but `sandbox-runner`'s `createTaskContainer` now tries the primary repo first and falls back to the shared `coding_tasks` landing repo on failure (`attemptCreateTaskContainer` in `sandbox-runner/src/executor.ts`, returning a failure reason instead of throwing; only throws if *both* the requested repo and the fallback fail). The n8n side gained `Container Created?` (IF) → `Build Infra Failure Record` on the failure branch, producing the exact same JSON shape `Merge PR Result`/`No PR` already produce so it plugs straight into the existing `Update Row` node — no changes needed to anything downstream.
+
+Testing the fallback against a genuinely larger task (a full CLI game, not a one-line fixture fix) surfaced the same crash class a second time: the Coder Agent hitting its `maxIterations` cap also throws and kills the whole execution, same stuck-row-no-notification symptom. Fixed with the identical pattern at both agent nodes — `onError: "continueRegularOutput"`, a `Coder Succeeded?`/`Tester Succeeded?` IF node checking `$json.error`, and `Build Coder/Tester Failure Record` nodes matching the same established output shape. Iteration caps also raised (Coder 15→25, Tester 10→15) since the original caps were only ever exercised against tiny fixture tasks.
+
+Also hit: `Prepare Row`'s Code node read `$env.CODING_TASKS_REPO_URL` — n8n blocks `$env` access in Code nodes by default (`N8N_BLOCK_ENV_ACCESS_IN_NODE`), and this was the first real test where that branch actually executed (every prior test supplied a real `repoUrl`, short-circuiting past it). Fixed by hardcoding the (non-sensitive) landing-repo URL directly rather than loosening the instance-wide setting.
+
+With the crash fixed, the actual code-generation failure underneath it became visible: the Coder Agent's only way to write file content was `run_command` (`echo "..." > file`), which breaks the instant the content itself contains a double quote (e.g. `input("Enter your guess (1-100): ")`) — the embedded quote closes the outer `echo "..."` string early and silently produces an empty or truncated file, with no error anywhere. Added a dedicated `write_file` MCP tool (`skills-mcp/src/tools/code-task-write-file.ts`) that takes `filename`/`content` as separate parameters and writes the content as raw bytes over the container exec's own stdin stream (`writeFileInTaskContainer` in `sandbox-runner/src/executor.ts`, new `POST /task/:id/write-file` route) — the content never touches shell parsing at all, so there's nothing to quote. Verified directly against a file containing the exact failing Python snippet: byte-for-byte round-trip, including the embedded quotes. Wired into both `Task Tool`/`Tester Tool`'s `includeTools` (kept short — `write_file`, one segment, well under the node-name-prefix budget documented above) and both agents' system prompts, describing the capability rather than naming the tool identifier (per the gotcha above).
+
+Re-running the same from-scratch task with the fixes above (row 64) surfaced one more real gap: the Coder wrote a correct `guess_game.py` on the first try (confirming `write_file` works end-to-end, not just in isolation), but the Tester Agent then hit its own iteration cap trying to run/verify it — because the shared `sandbox-node-test` base image (`sandbox-runner/base-images/node/Dockerfile`) has no Python interpreter at all, only Node. `Should Open PR?`'s `exitCode == 0` gate correctly kept this from ever reaching a PR, and the failsafe fix correctly surfaced it as a clean `give_up` instead of a crash — but the task genuinely couldn't succeed. Fixed by adding `python3 py3-pip` to the one shared base image (still one image for every task regardless of language — real per-task/per-language image selection is still the "not yet built" gap noted above, this just makes the single shared image cover the common case instead of Node-only).
+
+**A second, more interesting root cause found the same way (row 66):** after Python was available, a re-run again ended in `give_up` on the Tester's iteration cap — but decoding the actual execution data (n8n's execution-data blob is `flatted`-encoded; parsed directly with the `flatted` npm package rather than guessing) showed the Coder Agent's first turn returned completely empty output with **zero tool calls**, confirmed via n8n's own agent tracing (`tool_calls.requested: 0, tool_calls.completed: 0, output: ""`) and cross-checked against n8n's logs — the call genuinely ran for the full 11.6 seconds (not a fast-fail) and happened to land exactly as Ollama was evicting/reloading the qwen3:8b weights for GPU VRAM pressure freed up by the prior Planner call finishing. `Coder Succeeded?` only checked that `$json.error` was empty — a no-op, zero-tool-call response has no `error` field either, so it silently passed through as "success," and the entire implementation burden fell on the Tester (confirmed in its own tool-call trace: it ended up writing *both* `guess_game.py` and `test_guess_game.py` itself, on top of its actual job, and predictably ran out of its 15-iteration budget mid-way through fighting an unrelated pip/PATH issue).
+
+Fixed two ways: (1) `Coder Succeeded?` now also requires non-empty `$json.output`, so a no-op turn is caught as a real failure instead of silently passing through; (2) added a one-shot `Coder Agent Retry` node (same model/tools/system-prompt as `Coder Agent`, plus one sentence noting it's a retry) wired off the failure branch, with its own `Coder Retry Succeeded?` check before falling through to the existing `Build Coder Failure Record`. Deliberately *not* a loop-back-with-counter — an AI Agent node's output completely replaces whatever fields rode in on its input, so a retry counter can't just ride along in `$json`, and n8n's cross-run self-reference semantics for a genuinely looped node weren't worth gambling on without extensive live verification. A dedicated second node guarantees exactly one extra attempt with none of that risk. `Update Status After Coder` also had to change: it hardcoded `$('Coder Agent').item.json.output` to pull the `STATUS:` line, which would keep reading the *original* (empty) Coder Agent's output even when the retry succeeded — switched to `$json.content` (from `Log Coder Round`'s own insert result, confirmed live that a Data Table insert echoes back the exact column values it just wrote) so it correctly reflects whichever agent actually produced the real output.
+
+### 2026-07-30 — architectural rethink: `coding-orchestrator` replaces `coding_task_pipeline`'s state machine
+
+After the fixes above, the pipeline kept hitting *new* failure modes at roughly the same rate fixes landed: n8n's implicit pairedItem lineage silently breaking through an AI Agent node's error branch (`$('Node').item.json` resolving fine on a happy path, then throwing "prompt could not be resolved" the moment the same reference is read after a Coder/Tester retry), a node emitting zero items silently skipping every downstream node (the same class of bug already hit once in the Chat workflow's `Get Active Skills`), and two `httpRequest` nodes (`Coder Agent Retry`, and separately the Chat workflow's own `AI Agent`) missing the `onError: continueRegularOutput` every sibling node had — the exact gap that turned an ordinary max-iterations error into a hard crash with no recovery. Asked directly to rethink the architecture rather than patch the next spot, a full audit of the live workflow (54 nodes, 62 edges) turned up further real gaps: `Tester Succeeded?` only checked for an absent error, not non-empty output (unlike `Coder Succeeded?`); the Tester never received retry feedback the Coder did; give-up paths skipped `Destroy Task Container` entirely (masked only by `sandbox-runner`'s own independent idle-container reaper); and — found live, mid-review — `sandbox-runner`'s per-container 100-command cap colliding with the *new* retry mechanism, since more attempts means far more cumulative tool calls than before.
+
+The pattern across every single one of these: the actual Planner/Coder/Tester/Reviewer logic worked correctly every time it got the chance to run; every failure traced back to n8n's own execution model. `sandbox-runner` already is this project's precedent for "write real code where n8n doesn't fit" — so the pipeline's actual state machine moved there too.
+
+**`coding-orchestrator`** (new service, `coding-orchestrator/`, mirrors `sandbox-runner`'s structure): owns Planner→Coder→Tester→Reviewer→retry as real TypeScript — one real `for` loop instead of three near-duplicate retry branches (`Should Retry?`/`Tester Retry Eligible?`/`Coder Retry Eligible?` all converging on `Build Agent Prompt`'s own recency-picking merge), real `try/catch/finally` guaranteeing container cleanup and origin notification run *every* time regardless of which path failed, and a new `coding_task_log` table recording phase/status/error on every attempt — the direct fix for the biggest cost of today's whole rethink: every bug above required manually decoding n8n's `flatted`-serialized `execution_data` by hand; one `SELECT` should suffice from now on. `agent-loop.ts` reimplements the Coder/Tester tool-calling loop directly against Ollama's native `/api/chat` `tools` API (validated first as a standalone spike — confirmed `qwen3:8b` returns proper `tool_calls` via raw HTTP, not just through n8n's LangChain integration — before committing to the rewrite). New dedicated `coding_tasks` Postgres database (`postgres/init/03-create-coding-tasks-db.sql`, same "won't auto-apply to the existing volume" caveat as `research`'s own init script) replaces the old `codingproposals1`/`codingtasklog01` n8n Data Tables, which are left alone as historical records, not migrated.
+
+`sandbox-runner` gained one real fix along the way: the command-limit cap now throws a typed `CommandLimitExceededError` mapped to HTTP 429 (`sandbox-runner/src/executor.ts`, `index.ts`), so `coding-orchestrator` can treat "ran out of budget" as a distinguishable `resource_limit_reached` outcome instead of string-matching an error message.
+
+n8n's role shrank to a thin proxy (`n8n/workflows/codingorch0001.json`, `coding_task_orchestrator_proxy`): `Webhook (coding-task) -> HTTP Request (proxy to coding-orchestrator:3003/task)` and the equivalent for status. `codingtaskpipe1x` is kept deactivated as a rollback reference rather than deleted. `skills-mcp`'s `code_task`/`code_task_status` tools needed **zero changes** — same webhook URLs, same request/response shapes.
+
+One real n8n internals gotcha hit during cutover: `n8n unpublish:workflow` deactivates a workflow but does **not** clean up its rows in `webhook_entity` — the old workflow's `coding-task`/`coding-task-status` paths stayed registered and blocked the new proxy workflow from claiming them ("The URL path that the 'Webhook' node uses is already taken"), reproducibly across multiple restarts, until those two rows were deleted directly (`DELETE FROM webhook_entity WHERE "workflowId"='codingtaskpipe1x'`).
+
+**Verified live end-to-end**, in order: a standalone spike confirmed Ollama tool-calling works via raw HTTP; a task run directly against `coding-orchestrator` (bypassing n8n) completed successfully first try with a clean structured log and no leaked container; a second run exercised *both* the Reviewer-rejection retry and a genuine Coder-round failure retry in the same run (unified through the one shared loop), still correctly cleaned up its container and notified the origin session on the eventual honest give-up; the full webhook path (`skills-mcp` → n8n proxy → `coding-orchestrator`) round-tripped correctly for both submit and status; and a final clean run went all the way through two real attempts to `approve` and opened a genuine PR (`github.com/jabraham05/coding_tasks/pull/4`), with the origin-session notify message landing correctly. One tuning fix along the way: the default Ollama call timeout (120s) turned out too tight for real GPU contention when testing several tasks concurrently (a `qwen3:8b`/`qwen3:14b` model swap under load can plausibly exceed that) — raised to 240s; even while that was mistuned, the resulting abort was caught cleanly by the outer `try/catch/finally` and reported honestly rather than crashing silently, which was the entire point of the rewrite.
+
+## Smart-mirror dashboard (Raspberry Pi)
+
+A second physical client: a Raspberry Pi with a display, running its own
+separate app (`smartmirror-app`, its own git repo on the Pi itself at
+`/home/johna/smartmirror-app`, not part of this repo — reached via SSH,
+not checked in here). Amy is now that dashboard's actual data source and
+controller, not just a chat backend — she decides what widgets show, what
+data they display, and can rearrange them on request.
+
+```
+dashboard_state (n8n workflow, webhook + Schedule Trigger)
+  Webhook: POST /dashboard-state, called by the Pi at server startup
+  Schedule Trigger: every 3 hours, pushes to the Pi instead of responding
+        |
+        v
+  Get Persona -> Catalog Ready (Code: GET Pi's /api/widgets/catalog,
+        falls back to a hardcoded default catalog if the Pi is briefly
+        unreachable) -> Fetch Dashboard Data (skills-mcp
+        /internal/dashboard-data, no LLM) -> Decide Widgets (Ollama,
+        format-constrained JSON: which catalog types to show, in what
+        order, height 1 or 2) -> Parse Decision (deterministic clamp) ->
+        Build Row -> Update Dashboard State (Data Table, upsert) ->
+        [Webhook path: Respond to Webhook] / [Schedule path: POST
+        Pi's /api/assistant/apply]
+
+dashboard_control (n8n workflow, webhook only)
+  POST /dashboard-control {action, type?, position?, h?}
+        |
+        v
+  Get Current State (Data Table) -> Apply Change (Code: deterministic,
+        no LLM — get_layout/show/hide/move/resize) -> Fetch Fresh Data
+        (skills-mcp, for a 'show' bringing back a type with stale data) ->
+        Merge Fresh Data -> Save State (Data Table upsert) -> Push To Pi
+        (POST /api/assistant/apply, onError continue — a briefly
+        unreachable Pi shouldn't fail the tool call) -> Respond to Webhook
+```
+
+- **Widgets are a self-describing catalog Amy chooses from, not a
+  hardcoded fixed set.** The Pi exposes `GET /api/widgets/catalog`
+  (`server/src/core/widgetCatalog.ts`, duplicated from
+  `src/widgets/registry.ts`'s `description` field — separate frontend/
+  server builds, no shared package) listing the widget types it knows how
+  to render and what each is for. `dashboard_state` fetches this and
+  decides which types are worth showing right now — a type simply absent
+  from the decision doesn't render, no separate visibility flag. The
+  `assistant` widget itself is deliberately **not** in the catalog — it's
+  always pinned (or, as of the styling cleanup below, removed from the
+  layout entirely), not something Amy chooses to show/hide.
+- **Layout is a centered row, not a 2D grid — this was a real design
+  change mid-build.** The first version used a 4-column grid with `x/y/w/h`
+  per widget. The user asked for the widgets centered as a group with
+  "enlarge just makes it taller" — which meant dropping 2D positioning
+  entirely: widgets are now always the same fixed width, array order is
+  left-to-right display order, and only `h` (1 or 2) varies. This
+  simplified the schema end-to-end (n8n's decision prompt, the
+  `dashboard_control` tool's `move`/`resize` actions, the Pi's CSS) from
+  `{type, x, y, w, h}` down to just `{type, h}`. `mirror.css`'s `.modules`
+  is `display: flex; flex-wrap: wrap; justify-content: center` instead of
+  a CSS grid; each widget's wrapper gets an inline `minHeight` (not a
+  fixed `height` — see the gotcha below) computed from `h`.
+- **New skills-mcp routes, no LLM involved**: `GET /internal/dashboard-data`
+  (`skills-mcp/src/routes/dashboard-data.ts`) normalizes weather (incl.
+  today's high/low)/calendar/Spotify (incl. progress/duration) into the
+  Pi's exact existing types, each source fetched/caught independently so
+  one failing never blanks the others; `POST /internal/spotify-action`
+  (`skills-mcp/src/routes/spotify-action.ts`) does play/pause/next/
+  previous for the Pi's transport buttons without a model round-trip. Both
+  reuse the same `lib/open-meteo.ts`/`lib/google-calendar.ts`/
+  `lib/spotify.ts` the MCP tools already call.
+- **New MCP tool `dashboard_control`** (`skills-mcp/src/tools/dashboard-control.ts` +
+  `lib/dashboard-control.ts`) — `get_layout`/`show`/`hide`/`move`/`resize`,
+  wired into the Chat workflow's classifier (`dashboard` category added to
+  `Classify Relevant Tool Groups` + `Expand Groups To Tools`'s `GROUPS`
+  map). `move` takes a `position` (index in display order); `resize` takes
+  only `h` (1 or 2) — no `x`/`y`/`w` params exist anymore, matching the
+  centered-row layout above.
+- **The Pi can only reach n8n, never skills-mcp directly** — skills-mcp
+  has no published port by design (see architecture section above), and
+  the Pi is a separate physical machine on the LAN, not on `assistant-net`.
+  This is why `dashboard_state`/`dashboard_control` exist as n8n workflows
+  at all rather than the Pi calling skills-mcp's routes directly, and why
+  Spotify's play/pause/skip buttons route through a new `spotify_action`
+  n8n webhook (`POST /webhook/spotify-action`) forwarding to skills-mcp's
+  `/internal/spotify-action`, instead of hitting it directly.
+- **Voice**: `POST /api/assistant/voice-command` on the Pi
+  (`server/src/integrations/assistant/service.ts`'s `sendVoiceCommandToAmy`)
+  reuses the *existing* Chat webhook (same one `chat-ui` talks to) with a
+  fixed `sessionId: "pi-voice"`, rather than a separate assistant pipeline
+  — the physical device gets its own continuous multi-turn Honcho/Postgres
+  memory, distinct from any browser session. Parses the same NDJSON stream
+  `chat-ui`'s `useChat.ts` does (ported to Node), then speaks the reply via
+  the already-working TTS path (`synthesizeWav` + `tts:speak` WS event,
+  called directly in-process rather than looping back through HTTP to
+  `/tts/announce`). **The actual wake-word/STT daemon
+  (`voice-daemon/listener.py`, openWakeWord + a vendored whisper.cpp) is
+  staged but untested** — no microphone is attached to the Pi yet. Text-in
+  → Chat webhook → TTS-out is fully verified end-to-end; only the
+  mic-to-text leg is unbuilt hardware-wise.
+- **Deliberately not using the Wyoming protocol** (unlike the originally
+  considered Home Assistant Voice pattern) — Wyoming's value is
+  standardizing a network protocol across *separate* satellite devices,
+  which doesn't apply to a single Pi where TTS-out already works via a
+  simpler "vendor a binary, spawn it directly from Node" pattern
+  (`server/src/integrations/tts/service.ts`). `voice-daemon/listener.py`
+  mirrors that same approach for STT instead. Revisit only if multi-room
+  satellites are ever wanted.
+- **Widget styling cleanup** (user feedback after first seeing it running):
+  weather now leads with a large hero temperature + condition + high/low
+  (data that was already being fetched but not surfaced); calendar caps at
+  2 events with truncated titles on their own line; Spotify became an
+  actual mini player (album art thumbnail, progress bar, transport
+  controls) instead of plain text; the `assistant` widget was dropped from
+  the layout entirely — it only ever showed Amy's internal reasoning text
+  ("Weather is relevant because..."), not anything meant for a user to
+  read.
+- **Latency investigation** (user-reported, both chat/voice response time
+  and dashboard updates felt slow):
+  - **qwen3:8b defaults to thinking-mode ON even when a call never
+    requests it** — confirmed by direct testing: an identical call's
+    generation time dropped from ~2.9s to ~0.09s with `think: false` set
+    explicitly. Fixed on `Classify Relevant Tool Groups`, the main `AI
+    Agent`'s `Ollama Chat Model` node (which had `think: true` set
+    *explicitly*, forcing the cost), and `Ollama Direct Fallback`.
+  - **The GPU idles down to its lowest power state (P8) between requests**
+    on this machine (a consumer GeForce card, not a datacenter GPU) —
+    `nvidia-smi --query-gpu=pstate,clocks.sm` showed P8 / 315MHz vs. a
+    3090MHz max. The first request after any idle period pays a 3-10s
+    "wake up" tax; subsequent requests are fast (~0.3s) until it idles
+    down again. `OLLAMA_KEEP_ALIVE=-1` keeps the *model* resident in VRAM
+    but doesn't stop the GPU itself from clocking down — a separate
+    concern. Fix (user's choice, not yet applied by default): lock a
+    higher minimum clock, e.g. `nvidia-smi -lgc 1500,3090` (needs an
+    Administrator shell on Windows; doesn't persist across reboots without
+    a scheduled task) — trades constant higher power draw/heat for
+    eliminating the wake-up delay.
+  - **Tried and reverted: parallelizing the Chat workflow's independent
+    Honcho/Data Table lookups** (`Ensure Session Exists`/
+    `Set User Observe Config`, `Get User Card`, `Get User Card For Amy`,
+    `Get Active Skills`/`Format Skills Catalog` — none actually depend on
+    each other's output, only on the trigger). Restructured into parallel
+    branches synchronized by a chain of `Merge` nodes (`chooseBranch`
+    mode), deployed, and measured via actual node start/end timestamps in
+    the execution data: **zero overlap, zero speedup**. n8n runs every
+    node in a single execution one at a time regardless of branch
+    topology in the graph — "parallel" branches don't run concurrently in
+    wall-clock time unless you hand-roll real concurrency (e.g. a Code
+    node doing `Promise.all()` over raw `fetch()` calls, which runs into
+    Honcho's API key living in an n8n credential rather than something a
+    Code node can read directly — not pursued given the modest ~500ms
+    upside). Reverted the restructuring to avoid the added complexity for
+    no benefit.
+  - **Real, low-risk win applied**: the Pi's voice-command handler now
+    stops reading the Chat webhook's NDJSON stream as soon as the `AI
+    Agent` node's own `"end"` event arrives, instead of waiting for the
+    whole HTTP connection to close. The workflow keeps running after the
+    visible reply (garbage-output check, then the Honcho/Postgres memory
+    write) — confirmed via execution timing to add ~900ms that a voice
+    reply has no reason to wait on before speaking.
+
+## Discord bridge
+
+Lets the user talk to Amy from their phone over Discord DM, from anywhere —
+not just on the LAN like `chat-ui`. `discord-bot/` (Node/TS, `discord.js`)
+is a fourth thin client of the same `Chat` webhook `chat-ui`/`scripts/chat.mjs`
+talk to, following the exact NDJSON-streaming parse `chat.mjs` already uses
+(only `"item"` events from the `AI Agent` node carry reply text).
+
+**Deliberately not the "expose n8n's webhook publicly + n8n's Discord
+Trigger node" approach.** That path (Discord's Interactions Endpoint) needs
+a real internet-reachable HTTPS URL Discord can POST to, with Ed25519
+signature verification — the stack's `WEBHOOK_URL` is `http://localhost:5678/`
+by design, and standing up a tunnel/reverse-proxy just for this would be new
+attack surface for a project whose default is "zero external exposure"
+(Honcho is the one deliberate exception, and even that's an outbound HTTPS
+call, never inbound). Discord bots instead connect *outbound* to Discord's
+gateway over a websocket (the same way `discord.js` clients normally work),
+so `discord-bot` needs no published port and no public URL at all — it's a
+`docker-compose` service on `assistant-net` only, reaching `n8n` internally
+exactly like `chat-ui` does.
+
+**Scoped to DMs from one allowlisted user, nothing else.** `discord-bot`
+ignores every message that isn't a DM, and every DM from a user ID other
+than `DISCORD_ALLOWED_USER_ID` — there's no reason for this bot to ever
+respond in a server channel or to a stranger who finds it. Session
+continuity uses a fixed `discord-<userId>` sessionId (same pattern as the
+CLI client's `.chat-session-id` file and the Pi's fixed `"pi-voice"`
+session), so Honcho/Postgres memory persists across app restarts and
+separate phone sessions.
+
+Setup requires a one-time Discord Developer Portal app + bot (token into
+`DISCORD_BOT_TOKEN`, "Message Content Intent" enabled under Privileged
+Gateway Intents, invited to any one server the user is also in — Discord
+only allows DMing a bot you share a server with, the actual conversation
+still happens in the DM afterward) and the user's own Discord user ID
+(`DISCORD_ALLOWED_USER_ID`, via Developer Mode > right-click > Copy User
+ID) — full steps in `.env.example`.
+
+Typing indicator is kept alive by re-sending `sendTyping()` every 8s while
+waiting on a reply (Discord's own indicator only lasts ~10s server-side).
+Replies over Discord's 2000-character message cap are split on the nearest
+newline/space rather than hard-cut mid-word (`chunkForDiscord` in
+`discord-bot/src/chat-client.ts`).
+
+## Research workflow (topic research, markdown synthesis, RAG recall)
+
+**2026-07-29 — added because Amy had no way to build persistent knowledge.**
+`web_search` (above) is a one-shot lookup with no memory; Honcho only models
+the user, not arbitrary subject-matter knowledge. This closes that gap: a
+background pipeline that researches a topic across multiple web searches,
+synthesizes a detailed markdown document, and stores it so it's recallable
+later via semantic search (RAG) — from any conversation, not just the one
+that started the research.
+
+**Three trigger paths**, all wired to the same `research_pipeline` n8n
+workflow's submit webhook: an explicit ask ("research X and remember it"),
+Amy's own proactive judgment mid-conversation (the `research_task` tool's
+description doesn't restrict it to explicit requests), and fully
+autonomously from `skill_gap_scanner`'s nightly scan — its `Ollama Reasoning`
+node now tags each proposal with a structured `gap_type`
+(`capability`/`functionality`/`knowledge`), and a `knowledge`-typed gap that
+survives the existing semantic-dedup check (so it only fires once per
+genuinely new gap, never on every run) triggers `research_task` directly,
+in addition to (not instead of) the existing skill-proposal path.
+
+**Storage: a new, dedicated `research` Postgres database**
+(`postgres/init/02-create-research-db.sql`), not a schema inside n8n's own
+database — mirrors `n8n` itself being a separate `CREATE DATABASE`. n8n
+Data Tables can't hold a `vector` column (only string/number/boolean/date),
+so this needed a real SQL table reached via a dedicated n8n Postgres
+credential: `research_documents` (topic, title, markdown, source_urls,
+status, trigger_source) and `research_chunks` (`embedding VECTOR(768)`,
+`hnsw`/cosine index) plus an append-only `research_log`. Since
+`postgres-data` already existed as a live volume before this file was
+added, `docker-entrypoint-initdb.d` scripts don't auto-apply to it — this
+needs the one-time manual migration documented at the top of that SQL file
+(`CREATE DATABASE research ...` then piping the rest of the file into
+`psql -d research`), same "does not create it for you" caveat as
+`CODING_TASKS_REPO_URL`.
+
+**`research_pipeline`** (`n8n/workflows/researchpipe1x.json`) follows
+`coding_task_pipeline`'s proven three-webhook shape: `research-task`
+(POST, fire-and-forget submit — a Research Agent uses `web_search`
+repeatedly across different angles, ends its reply with a `SOURCES:` block
+that's parsed out deterministically rather than trusted from prose, then a
+separate non-agentic Ollama call synthesizes the findings into a titled
+markdown document), `research-task-status` (GET, synchronous poll, same
+pattern as `code_task_status`), and a new third one, `research-search`
+(POST, synchronous RAG query — embeds the query via `nomic-embed-text`,
+does a pgvector cosine-similarity search over `research_chunks`, returns the
+top matches with their parent document's title/URLs). A hard failure mid-run
+routes to marking the row `status: 'failed'` rather than leaving it stuck
+at `running` forever — the coding-agent pipeline hit exactly that failure
+mode once already (see its section above).
+
+**Three new skills-mcp tools**: `research_task` (submit), `research_task_status`
+(session-scoped poll, mirrors `code_task_status`), and `research_search`
+(deliberately **not** session-scoped — the whole point of RAG recall is
+that research from any past conversation, or from `skill_gap_scanner`
+itself, is findable from any other). All three optional, same
+config-missing-error-at-call-time pattern as every other integration —
+`RESEARCH_TASK_WEBHOOK_URL` / `RESEARCH_TASK_STATUS_WEBHOOK_URL` /
+`RESEARCH_SEARCH_WEBHOOK_URL` in `.env.example`.
+
+**Verified live (2026-07-29):** deployed against the existing `postgres-data`
+volume (manual migration + a new "Research Postgres account" n8n credential),
+all four affected workflows imported/published, n8n restarted, `skills-mcp`
+rebuilt. Triggered `research_task` via a real chat turn ("research the health
+benefits of green tea") — the document landed with 10 real embedded chunks,
+and `research_search` returned genuinely relevant results ranked by
+similarity (top match 0.874 on "green tea and weight loss/metabolism"). With
+`TAVILY_API_KEY` still unset, the agent correctly left `source_urls` empty
+rather than fabricating citations — real graceful degradation, not a crash.
+The same deployment also fixed a second, unrelated bug discovered along the
+way: `coding_task_pipeline` defaulted every task's test command to `npm
+test` regardless of language, so non-Node tasks (e.g. a plain Python script)
+failed on tooling alone even when the code was correct — the Planner now
+infers a language-appropriate test command instead. `skill_gap_scanner`'s
+knowledge-gap-triggered research path hasn't been observed on a live nightly
+run yet (next natural run is its 3am schedule).
+
 ## Directory layout
 
 - `docker-compose.yml` — the whole stack.
-- `postgres/init/` — one-time DB init scripts (creates the `n8n` database;
-  runs once against an empty volume only).
+- `postgres/init/` — one-time DB init scripts (creates the `n8n` database
+  and, as of `02-create-research-db.sql`, the `research` database + pgvector
+  schema for the Research workflow below; runs once against an empty volume
+  only — see that section for the manual-migration command needed on an
+  already-existing volume like this project's).
 - `n8n/workflows/` — exported workflow JSON, for history/diffing. Edit
   workflows in the n8n UI, then run `scripts/export-n8n-workflows.sh`.
 - `chat-ui/` — Next.js custom web chat client, wired into
   `docker-compose.yml` (builds from `chat-ui/Dockerfile`, serves on
   `:3000`). Proxies chat through the n8n webhook and reads session
   list/history from Honcho.
+- `discord-bot/` — Discord DM bridge, another thin client of the same Chat
+  webhook (see "Discord bridge" below).
 - `skills-mcp/` — MCP server hosting agent-callable tools
   (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
-  `code_task`), wired into `docker-compose.yml` (builds from
-  `skills-mcp/Dockerfile`, internal-only, no published port). n8n's `Chat`
-  workflow reaches it via an `MCP Client Tool` node.
+  `code_task`, `spotify_control`, `dashboard_control`, `web_search`,
+  `research_task`, `research_task_status`, `research_search`), plus internal
+  (non-MCP) routes `/internal/dashboard-data` and `/internal/spotify-action`
+  (see "Smart-mirror dashboard" above), wired into `docker-compose.yml`
+  (builds from `skills-mcp/Dockerfile`, internal-only, no published port).
+  n8n's `Chat` workflow reaches it via an `MCP Client Tool` node.
 - `sandbox-runner/` — Docker-outside-of-Docker sandbox for the coding-agent
   pipeline (see the "Coding-agent pipeline + sandbox" section above);
   `base-images/node/` is the custom image its ephemeral containers run.
-- `scripts/start-coding-task.mjs` — explicit trigger for
-  `coding_task_pipeline`, mirroring `chat.mjs`'s role as a reference
-  client for the `Chat` webhook.
+- `coding-orchestrator/` — owns the coding-agent pipeline's actual
+  Planner→Coder→Tester→Reviewer→retry state machine as real TypeScript
+  (see the "architectural rethink" dated entry above); n8n keeps only a
+  thin submit/status webhook proxy in front of it.
+- `scripts/start-coding-task.mjs` — explicit trigger for the coding-agent
+  pipeline, mirroring `chat.mjs`'s role as a reference client for the
+  `Chat` webhook.
 - `honcho-src/` — a clone of the Honcho OSS repo from when self-hosting was
   attempted. Unused now that Honcho runs hosted. Gitignored; safe to delete,
   kept only in case self-hosting is revisited (cost/privacy reasons).
@@ -1016,8 +1563,10 @@ through the whole pipeline and posting a real result back into it:
    image is a plain `docker build`, not a compose service, for the same
    reason. Skip this if you're not using the coding-agent pipeline yet.
 4. `bash scripts/pull-models.sh` — pulls `llama3.1:8b` and `nomic-embed-text`
-   (`nomic-embed-text` was for a self-hosted-Honcho attempt and is optional
-   now). This script is stale re: the *actual* chat model — the `Chat`
+   (`nomic-embed-text` was originally pulled for an abandoned self-hosted-Honcho
+   attempt and sat unused; it's now genuinely load-bearing again, as the
+   embedding model behind the Research workflow's `research_chunks.embedding`
+   column — see that section below). This script is stale re: the *actual* chat model — the `Chat`
    workflow's `Ollama Chat Model` node is user-configured and has already
    moved on from `llama3.1:8b` (see the tool-calling gotcha below); pull
    whatever model you actually configure there yourself, e.g.
@@ -1068,9 +1617,10 @@ node scripts/chat.mjs "hey, are you there?"
 ```
 
 Persists a session id locally (`.chat-session-id`, gitignored) so follow-up
-messages stay in the same conversation. This CLI is also a rough prototype
-of what the future Raspberry Pi voice client will do: POST transcribed text
-in, get reply text back.
+messages stay in the same conversation. This CLI was also a rough
+prototype of what the Pi's voice-command route now actually does: POST
+transcribed text in, get reply text back (see "Smart-mirror dashboard"
+above) — the prototype's shape held up unchanged.
 
 ## Known gotchas (learned the hard way)
 
@@ -1443,6 +1993,26 @@ in, get reply text back.
   instead of correcting it. `Rebuild Fallback Prompt` is written
   defensively (`.filter(Boolean)` on the mapped `message` field) to handle
   the placeholder empty item this produces when there's truly no history.
+- **The same zero-items-means-downstream-never-runs rule bit `Get Active
+  Skills` too, and much harder — it took the whole Chat pipeline down.**
+  Once every row in the `skills` Data Table had `status != 'active'` (after
+  a backlog triage/cleanup left only `proposed` rows), `Get Active Skills`'
+  filter matched nothing, so `Format Skills Catalog` and — critically — the
+  `AI Agent` node itself never executed. Nothing errored (`status: success`
+  in `execution_entity`); the webhook (streaming `responseMode`) just
+  closed with a genuinely empty body, in both chat-ui and n8n's own chat
+  UI. Confirmed by decoding `execution_data` with `flatted` and seeing
+  `runData` stop dead at `Get Active Skills` with no error and no later
+  nodes present. Fixed the same way as `Fetch Recent History`:
+  `alwaysOutputData: true` on `Get Active Skills`, so it always emits at
+  least one (possibly empty) item and the rest of the chain — including
+  `AI Agent` — always runs. `Format Skills Catalog` already handled an
+  empty skills array gracefully (`skills.length ? ... : ''`), so no changes
+  needed there. Lesson: any Data Table `get`/query node feeding a chain
+  that must never go silent (especially one upstream of the actual
+  reply-generating node) needs `alwaysOutputData: true`, not just the ones
+  already known to hit this — worth auditing other pipelines for the same
+  class of node.
 - **Explicitly naming a tool by its internal identifier in a prompt (e.g.
   "use the weather_get tool") reliably produces a completely empty raw
   completion from `qwen3:8b`** — confirmed generalizable, not specific to
@@ -1455,6 +2025,30 @@ in, get reply text back.
   reproduces empty output: check whether the prompt named a tool by name
   before assuming it's a new regression. The safety net's fallback chain
   handles this the same as any other empty-output case.
+- **A close cousin of the above, much harder to spot: `qwen3:8b`'s tool-calling
+  silently breaks once the tool's *name* (not the prompt) has too many
+  underscore-separated segments — and n8n's MCP Client Tool node always
+  adds segments you didn't ask for.** It prefixes every tool it exposes
+  with its own node display name (e.g. a node named "Task Container Tool"
+  turns `code_task_run_command` into
+  `Task_Container_Tool_code_task_run_command`). Past roughly 5-6 combined
+  segments, the model burns real generation tokens (a nonzero `eval_count`
+  in the raw Ollama response) but the output never resolves into a
+  `tool_calls` block — no error anywhere in the chain, n8n reports
+  `execution.succeeded: true` with empty output. Confirmed by capturing the
+  exact request/response bytes (a disposable logging reverse-proxy in
+  front of Ollama) and replaying the identical request with only the tool
+  name changed: `Task_Container_Tool_code_task_run_command` (8 segments)
+  fails every time, bare `code_task_run_command` (4 segments) works every
+  time. This is invisible in any n8n node's own configuration — the
+  combined name only exists in the actual wire request. If a tool-calling
+  agent's own tracing metadata shows `tool_calls.requested`/
+  `iteration.count` stuck at 0 with no thrown error, check the *combined*
+  tool name (MCP Client Tool node name + the underlying tool name) for
+  segment count before assuming it's a config or infra bug — see the
+  coding-agent pipeline section above for the full investigation and fix
+  (`run_command`/`get_diff`, short tool names, matching this project's
+  own convention of keeping identifiers terse).
 - **`n8n execute --id=...` (CLI, one-off run) cannot exercise Data Table
   nodes** — it spins up an isolated sub-process alongside the real running
   server, and any Data Table node in it fails with `Attempted to use Data
@@ -1494,6 +2088,52 @@ in, get reply text back.
   stdin) silently does nothing — no error, the command just runs against
   empty input, which looked at first like the SQL itself had failed. Use
   `docker exec -i`.
+- **A Code node in `runOnceForEachItem` mode must return a plain `{ json:
+  {...} }` object, not an array-wrapped `[{ json: {...} }]`** — the latter
+  is only correct for `runOnceForAllItems` mode. Getting this backwards
+  produces a generic, unhelpful internal validation error ("A 'json'
+  property isn't an object [item 0]") that doesn't name the offending
+  node, thrown from `result-validation.ts` deep in n8n's Code node
+  implementation — found by decoding the raw `execution_data` Postgres
+  column (n8n uses the `flatted` npm package's serialization format, not
+  plain JSON; `flatted.parse()` from inside the n8n container, requiring
+  its full `.pnpm` path since it's not on the container's own `node`
+  resolution path) to get the actual `lastNodeExecuted` and stack trace,
+  since the workflow-level error message alone didn't identify which node
+  was wrong. Cost real debugging time across three other hypotheses first
+  (a suspected HTTP-node `onError` quirk on total connection failures, a
+  missing merge/sync point) before the real cause — this exact return-
+  shape mismatch, in three different `runOnceForEachItem` Code nodes at
+  once — was found.
+- **Global `fetch()` is not defined inside a Code node's sandboxed
+  execution context** in this n8n version — confirmed by direct testing
+  (`ReferenceError: fetch is not defined`, thrown from
+  `@n8n/task-runner`'s `js-task-runner.js` inside a `vm.runInContext`
+  call). A Code node that calls `fetch()` doesn't error loudly — if
+  wrapped in a try/catch with a fallback (a reasonable, even
+  recommended, defensive pattern elsewhere in this project), it silently
+  falls through to that fallback on *every single execution*, indefinitely,
+  with no visible symptom at all if the fallback happens to look
+  plausible. Found this way: `dashboard_state`'s `Catalog Ready` node had
+  been doing exactly this since it was built, never once actually
+  reaching the Pi, invisible only because its hardcoded fallback catalog
+  matches the real one's content. Use `this.helpers.httpRequest({method,
+  url, body, json: true, timeout})` instead — the sanctioned way to make
+  HTTP calls from inside a Code node — which returns the parsed response
+  body directly (no `.json()` call needed). A genuine network round trip
+  is easy to tell apart from a silent fallback afterward: check the
+  node's `executionTime` in the decoded `execution_data` (see the gotcha
+  above for how) — single-digit milliseconds means it never left the
+  sandbox; hundreds of ms to low seconds means it actually made the call.
+- **A Data Table `update` against zero matching rows fails with the same
+  unhelpful "json property isn't an object" error, not a clean "0 rows
+  updated"** — for a single "current state" row pattern (see the
+  `personas`/`dashboard_state` tables), this bites when the seed row was
+  never actually created (a UI setup step silently skipped). Use `upsert`
+  instead of `update` for any table meant to always have exactly one
+  current-state row — it's a drop-in replacement (identical
+  `filters`/`columns` parameter shape) and makes the workflow self-healing
+  if the row is ever missing.
 - **Creating an n8n Data Table without the UI or a Public API key is
   possible, but only safely if you replicate n8n's own DDL exactly** —
   read `data-table-ddl.service.js` / `utils/sql-utils.js` inside the n8n
@@ -1533,5 +2173,8 @@ in, get reply text back.
   `skill_propose`/`skill_gap_scanner` themselves — this is now being
   actively worked on, just via a separate mechanism (see "Coding-agent
   pipeline + sandbox" above), not by extending those two directly.
-- Raspberry Pi voice client (OpenWakeWord + whisper.cpp + Piper, via the
-  Wyoming protocol).
+- Raspberry Pi voice client's mic-to-text leg — see "Smart-mirror
+  dashboard" above. Text-in → Chat webhook → TTS-out is fully working;
+  `voice-daemon/listener.py` (openWakeWord + whisper.cpp, no Wyoming — see
+  that section for why) is staged but untested, blocked on a microphone
+  actually being attached to the Pi.

@@ -1,0 +1,488 @@
+import type { Config } from "./config.js";
+import * as db from "./db.js";
+import * as sandbox from "./sandbox-client.js";
+import { ollamaChat, parseJsonContent } from "./ollama.js";
+import { runAgentLoop, type AgentTool } from "./agent-loop.js";
+import { notifyOrigin } from "./notify.js";
+
+const CODER_SYSTEM_PROMPT =
+  "You are the Coder for this task. You have a shell in your own container, with the target " +
+  "repository already checked out - use it to look at real files before changing them, make the " +
+  "actual code edits (creating, editing, or deleting files as needed), and run the project's test " +
+  "command as you go, one command at a time. When you need to write a whole file's exact content " +
+  "from scratch or replace it entirely, write it directly rather than building it inside a shell " +
+  "command - it's more reliable for content with quotes or special characters. Only make the " +
+  "implementation change described in the task and plan; never add test code yourself, a separate " +
+  "Tester handles that. When you believe the work is genuinely done, end your final reply with a " +
+  "line starting with 'STATUS:' giving a short one-sentence summary of what you just did.";
+
+const TESTER_SYSTEM_PROMPT =
+  "You are the Tester for this task, separate from the Coder. The Coder has already made its " +
+  "changes in the same container you have shell access to - check what changed, then write test " +
+  "coverage for it (new tests, or extending existing ones) by running commands in the container, " +
+  "one at a time. When you need to write a whole test file's exact content from scratch or replace " +
+  "it entirely, write it directly rather than building it inside a shell command - it's more " +
+  "reliable for content with quotes or special characters. When you believe test coverage is " +
+  "genuinely adequate, end your final reply with a line starting with 'STATUS:' giving a short " +
+  "one-sentence summary of what you just did.";
+
+const RETRY_SUFFIX =
+  " This is a retry: your previous attempt ended without making any real changes. Try again now, " +
+  "actually looking at files and making the edits described.";
+
+interface RetryFeedback {
+  source: "coder" | "tester" | "reviewer";
+  message: string;
+}
+
+interface TaskContext {
+  taskId: number;
+  task: string;
+  containerId: string;
+  workingDir: string;
+  testCommand: string;
+}
+
+function agentTools(sandboxRunnerUrl: string, containerId: string, workingDir: string): AgentTool[] {
+  return [
+    {
+      name: "run_command",
+      description: "Run a shell command in the working directory and return its output.",
+      parameters: {
+        type: "object",
+        properties: { command: { type: "string", description: "The shell command to run." } },
+        required: ["command"],
+      },
+      execute: async (args) => {
+        const result = await sandbox.execInContainer(sandboxRunnerUrl, containerId, {
+          command: String(args.command),
+          workingDir,
+        });
+        return `exit code: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}\n\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`;
+      },
+    },
+    {
+      name: "write_file",
+      description:
+        "Write a file's exact content, given a filename and the full content. Use this instead of " +
+        "a shell command when writing a whole file from scratch or replacing it entirely.",
+      parameters: {
+        type: "object",
+        properties: {
+          filename: { type: "string" },
+          content: { type: "string" },
+        },
+        required: ["filename", "content"],
+      },
+      execute: async (args) => {
+        await sandbox.writeFileInContainer(sandboxRunnerUrl, containerId, {
+          filename: String(args.filename),
+          content: String(args.content),
+          workingDir,
+        });
+        return `Wrote ${String(args.filename)} successfully.`;
+      },
+    },
+  ];
+}
+
+async function callPlanner(config: Config, task: string): Promise<{ plan: string; testCommand: string }> {
+  const { message } = await ollamaChat(config.ollamaHost, {
+    model: config.plannerModel,
+    think: true,
+    timeoutMs: 240_000,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are the Planner for a coding task. Given a task description, dive deep: lay out the " +
+          "real architecture of the change (what files/modules are likely involved, what approach to " +
+          "take and why, what could go wrong, what needs to be researched or double-checked once the " +
+          "Coder can actually look at the repo). You are not writing code yet, only planning - but " +
+          "the plan should be concrete enough that a Coder working from it alone, with real shell " +
+          "access to the repository, could execute it without having to re-derive the approach from " +
+          "scratch. Also decide the exact shell command that should run this project's test suite (a " +
+          "Tester will add test coverage using whatever is idiomatic for the task's actual " +
+          "language/tooling - e.g. 'node --test' for a plain Node.js project, 'python3 -m pytest' for " +
+          "Python, 'go test ./...' for Go, 'cargo test' for Rust). Never default to npm test for a " +
+          "non-Node.js task - that fails immediately with no package.json, unrelated to whether the " +
+          "code is correct.",
+      },
+      { role: "user", content: `Task: ${task}` },
+    ],
+    format: {
+      type: "object",
+      properties: { plan: { type: "string" }, testCommand: { type: "string" } },
+      required: ["plan", "testCommand"],
+    },
+  });
+
+  const parsed = parseJsonContent(message.content, { plan: "", testCommand: "" });
+  return { plan: parsed.plan ?? "", testCommand: parsed.testCommand ?? "npm test" };
+}
+
+function buildAgentUserPrompt(ctx: TaskContext, plan: string, feedback: RetryFeedback | null): string {
+  let prompt = `Task: ${ctx.task}\n\nPlan:\n${plan}\n\nTest command for this project: ${ctx.testCommand}`;
+  if (feedback) {
+    prompt += `\n\nThis is a retry, in the same container as before - your previous edits are still there. ${feedback.message}`;
+  }
+  return prompt;
+}
+
+// Runs the Coder round, including its own one-shot inline retry if the
+// first call comes back empty - replaces "Coder Agent" + "Coder Agent
+// Retry" as one real function instead of two n8n agent nodes plus the
+// wiring between them.
+async function runCoderRound(
+  config: Config,
+  ctx: TaskContext,
+  plan: string,
+  feedback: RetryFeedback | null,
+): Promise<{ output: string; succeeded: boolean }> {
+  const tools = agentTools(config.sandboxRunnerUrl, ctx.containerId, ctx.workingDir);
+  const userPrompt = buildAgentUserPrompt(ctx, plan, feedback);
+
+  const first = await runAgentLoop({
+    ollamaHost: config.ollamaHost,
+    model: config.coderModel,
+    systemPrompt: CODER_SYSTEM_PROMPT,
+    userPrompt,
+    tools,
+    maxIterations: config.coderMaxIterations,
+  });
+  if (first.output.trim()) {
+    return { output: first.output, succeeded: true };
+  }
+
+  // Empty output, first attempt - one immediate inline retry with the same
+  // "you made no real changes, try again" nudge the old Coder Agent Retry
+  // node used, before this counts as a real attempt-level failure.
+  const retry = await runAgentLoop({
+    ollamaHost: config.ollamaHost,
+    model: config.coderModel,
+    systemPrompt: CODER_SYSTEM_PROMPT + RETRY_SUFFIX,
+    userPrompt,
+    tools,
+    maxIterations: config.coderMaxIterations,
+  });
+  return { output: retry.output, succeeded: Boolean(retry.output.trim()) };
+}
+
+// Tester round - now checks the SAME "genuinely non-empty output" condition
+// the Coder round does (fixes weak point #4: the old Tester Succeeded? only
+// checked for the absence of an error, not for empty output), and now
+// receives the same retry feedback the Coder gets (fixes weak point #5).
+async function runTesterRound(
+  config: Config,
+  ctx: TaskContext,
+  plan: string,
+  feedback: RetryFeedback | null,
+): Promise<{ output: string; succeeded: boolean }> {
+  const tools = agentTools(config.sandboxRunnerUrl, ctx.containerId, ctx.workingDir);
+  const result = await runAgentLoop({
+    ollamaHost: config.ollamaHost,
+    model: config.testerModel,
+    systemPrompt: TESTER_SYSTEM_PROMPT,
+    userPrompt: buildAgentUserPrompt(ctx, plan, feedback),
+    tools,
+    maxIterations: config.testerMaxIterations,
+  });
+  return { output: result.output, succeeded: Boolean(result.output.trim()) };
+}
+
+interface ReviewerVerdict {
+  verdict: "approve" | "retry" | "give_up";
+  reason: string;
+  feedbackForCoder: string;
+}
+
+async function callReviewer(
+  config: Config,
+  task: string,
+  diff: string,
+  testResult: sandbox.ExecResult,
+): Promise<ReviewerVerdict> {
+  const { message } = await ollamaChat(config.ollamaHost, {
+    model: config.reviewerModel,
+    timeoutMs: 240_000,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are the Reviewer for a coding task. Given the original task, the diff the Coder " +
+          "produced, and the result of running the project's test command, judge whether the task is " +
+          "genuinely, correctly done. Approve only if the diff actually implements what was asked and " +
+          "the tests genuinely pass (exit code 0, no timeout). If the tests fail for a reason that " +
+          "looks fixable (a real bug in the diff), verdict 'retry' with specific, actionable feedback " +
+          "for the Coder about what's wrong. If the test failure is clearly unrelated to the actual " +
+          "code (e.g. a missing test runner for the project's language, not the diff itself), say so " +
+          "plainly in your reason rather than blaming the implementation. Give up only when further " +
+          "attempts are unlikely to help.",
+      },
+      {
+        role: "user",
+        content:
+          `Task: ${task}\n\nDiff:\n${diff}\n\n` +
+          `Test result: exit code ${testResult.exitCode}${testResult.timedOut ? " (timed out)" : ""}\n` +
+          `stdout:\n${testResult.stdout}\n\nstderr:\n${testResult.stderr}`,
+      },
+    ],
+    format: {
+      type: "object",
+      properties: {
+        verdict: { type: "string", enum: ["approve", "retry", "give_up"] },
+        reason: { type: "string" },
+        feedback_for_coder: { type: "string" },
+      },
+      required: ["verdict", "reason", "feedback_for_coder"],
+    },
+  });
+
+  const parsed = parseJsonContent<{ verdict: string; reason: string; feedback_for_coder: string }>(
+    message.content,
+    { verdict: "give_up", reason: "Reviewer response was not valid JSON", feedback_for_coder: "" },
+  );
+  return {
+    verdict: parsed.verdict === "approve" || parsed.verdict === "retry" ? parsed.verdict : "give_up",
+    reason: parsed.reason ?? "",
+    feedbackForCoder: parsed.feedback_for_coder ?? "",
+  };
+}
+
+interface AttemptResult {
+  diff: string;
+  testResult: sandbox.ExecResult;
+  reviewerVerdict: ReviewerVerdict;
+}
+
+async function runAttempt(
+  config: Config,
+  ctx: TaskContext,
+  plan: string,
+  attemptNumber: number,
+  feedback: RetryFeedback | null,
+): Promise<AttemptResult | { failed: true; feedback: RetryFeedback }> {
+  const coderResult = await runCoderRound(config, ctx, plan, feedback);
+  await db.logPhase(
+    config,
+    ctx.taskId,
+    attemptNumber,
+    "coder",
+    coderResult.succeeded ? "success" : "error",
+    coderResult.output,
+    coderResult.succeeded ? undefined : "Coder produced no output after an inline retry",
+  );
+  if (!coderResult.succeeded) {
+    return {
+      failed: true,
+      feedback: {
+        source: "coder",
+        message:
+          "The Coder ran out of iterations or produced no changes last time. Check the current " +
+          "state of the repository and continue from there with a different, more targeted approach.",
+      },
+    };
+  }
+
+  const testerResult = await runTesterRound(config, ctx, plan, feedback);
+  await db.logPhase(
+    config,
+    ctx.taskId,
+    attemptNumber,
+    "tester",
+    testerResult.succeeded ? "success" : "error",
+    testerResult.output,
+    testerResult.succeeded ? undefined : "Tester produced no output",
+  );
+  if (!testerResult.succeeded) {
+    return {
+      failed: true,
+      feedback: {
+        source: "tester",
+        message:
+          "The Tester ran out of iterations last time before finishing test coverage. Check the " +
+          "current state of the test files and continue from there with a different approach.",
+      },
+    };
+  }
+
+  const { diff } = await sandbox.getDiff(config.sandboxRunnerUrl, ctx.containerId, ctx.workingDir);
+  const testResult = await sandbox.runTests(config.sandboxRunnerUrl, ctx.containerId, {
+    command: ctx.testCommand,
+    workingDir: ctx.workingDir,
+    timeoutSeconds: 120,
+  });
+  await db.logPhase(
+    config,
+    ctx.taskId,
+    attemptNumber,
+    "test_run",
+    "success",
+    `exit code: ${testResult.exitCode}\n\nstdout:\n${testResult.stdout}\n\nstderr:\n${testResult.stderr}`,
+  );
+
+  const reviewerVerdict = await callReviewer(config, ctx.task, diff, testResult);
+  await db.logPhase(config, ctx.taskId, attemptNumber, "reviewer", "success", JSON.stringify(reviewerVerdict));
+
+  return { diff, testResult, reviewerVerdict };
+}
+
+async function finalizeTask(
+  config: Config,
+  ctx: TaskContext,
+  attemptNumber: number,
+  result: AttemptResult | { failed: true; feedback: RetryFeedback },
+): Promise<void> {
+  if ("failed" in result) {
+    await db.updateTask(config, ctx.taskId, {
+      status: "needs_review_failed",
+      latest_status: "Needs human review",
+      attempt_count: attemptNumber,
+      reviewer_verdict: "give_up",
+      reviewer_reason: result.feedback.message,
+    });
+    return;
+  }
+
+  const approved = result.reviewerVerdict.verdict === "approve" && result.testResult.exitCode === 0;
+
+  await db.updateTask(config, ctx.taskId, {
+    status: approved ? "proposed" : "needs_review_failed",
+    latest_status: approved ? "Done" : "Needs human review",
+    attempt_count: attemptNumber,
+    diff: result.diff,
+    test_output: `exit code: ${result.testResult.exitCode}\n\nstdout:\n${result.testResult.stdout}\n\nstderr:\n${result.testResult.stderr}`,
+    reviewer_verdict: result.reviewerVerdict.verdict,
+    reviewer_reason: result.reviewerVerdict.reason,
+  });
+
+  if (!approved) return;
+
+  const row = await db.getTask(config, ctx.taskId);
+  if (!row.target_repo_url || !row.target_repo_url.includes("github.com")) return;
+
+  const branchName = `coding-agent/${row.project_folder}`;
+  const prResult = await sandbox.proposePr(config.sandboxRunnerUrl, {
+    repoUrl: row.target_repo_url,
+    baseRef: row.target_ref,
+    patch: result.diff,
+    branchName,
+    commitMessage: row.task_description.slice(0, 72),
+    prTitle: row.task_description.slice(0, 72),
+    prBody: result.reviewerVerdict.reason,
+  });
+  if (prResult.pushed && prResult.prUrl) {
+    await db.updateTask(config, ctx.taskId, { pr_url: prResult.prUrl });
+  }
+}
+
+// The state machine. Replaces the 54-node graph's Coder/Tester/Reviewer/
+// retry section: a single real loop (fixes weak point #9's triplicated
+// retry branches), guaranteed cleanup and notify via try/finally (fixes
+// weak point #6), and a thrown exception anywhere here is caught by one
+// real catch block (fixes weak point #1/#7 - no per-node onError to
+// individually remember, no pairedItem lineage to break).
+export async function runTaskPipeline(config: Config, taskId: number): Promise<void> {
+  const task = await db.getTask(config, taskId);
+  let containerId: string | undefined;
+
+  try {
+    // sandbox-runner's own /task route requires `repoUrl` unconditionally
+    // (it has no notion of "from scratch, use the fallback as primary") -
+    // so for a from-scratch task (no target_repo_url), the fallback repo
+    // must be sent AS repoUrl directly, with no separate fallback fields at
+    // all. Mirrors exactly the ternary the old n8n "Create Task Container"
+    // node used.
+    const container = task.target_repo_url
+      ? await sandbox.createContainer(config.sandboxRunnerUrl, {
+          repoUrl: task.target_repo_url,
+          ref: task.target_ref,
+          projectFolder: "",
+          taskId: String(taskId),
+          fallbackRepoUrl: task.fallback_repo_url || undefined,
+          fallbackRef: "main",
+          fallbackProjectFolder: task.project_folder,
+        })
+      : await sandbox.createContainer(config.sandboxRunnerUrl, {
+          repoUrl: task.fallback_repo_url || undefined,
+          ref: "main",
+          projectFolder: task.project_folder,
+          taskId: String(taskId),
+        });
+    containerId = container.containerId;
+    await db.updateTask(config, taskId, {
+      container_id: container.containerId,
+      target_repo_url: container.actualRepoUrl,
+      project_folder: container.actualProjectFolder,
+      latest_status: "Planning the approach",
+    });
+
+    try {
+      const { plan, testCommand } = await callPlanner(config, task.task_description);
+      await db.logPhase(config, taskId, null, "plan", "success", plan);
+
+      const ctx: TaskContext = {
+        taskId,
+        task: task.task_description,
+        containerId: container.containerId,
+        workingDir: container.workingDir,
+        testCommand: task.test_command || testCommand,
+      };
+
+      let feedback: RetryFeedback | null = null;
+      let result: AttemptResult | { failed: true; feedback: RetryFeedback } | undefined;
+      let attempt = 1;
+
+      for (; attempt <= config.maxAttempts; attempt++) {
+        await db.updateTask(config, taskId, { latest_status: `Attempt ${attempt}: coding in progress`, attempt_count: attempt });
+        result = await runAttempt(config, ctx, plan, attempt, feedback);
+
+        if ("failed" in result) {
+          if (attempt === config.maxAttempts) break;
+          feedback = result.feedback;
+          continue;
+        }
+        if (result.reviewerVerdict.verdict === "approve") break;
+        if (result.reviewerVerdict.verdict !== "retry" || attempt === config.maxAttempts) break;
+        feedback = {
+          source: "reviewer",
+          message:
+            `The Reviewer rejected the last attempt because: ${result.reviewerVerdict.reason}\n\n` +
+            `Specific feedback: ${result.reviewerVerdict.feedbackForCoder}\n\nFix this issue. Do not redo work that was already correct.`,
+        };
+      }
+
+      if (result) {
+        await finalizeTask(config, ctx, attempt, result);
+      }
+    } catch (e) {
+      if (e instanceof sandbox.CommandLimitExceededError) {
+        // A distinguishable, expected outcome (weak point #2) rather than a
+        // generic crash - the retry mechanism can legitimately use up the
+        // sandbox's per-container command budget across several attempts.
+        await db.updateTask(config, taskId, {
+          status: "resource_limit_reached",
+          latest_status: "Stopped: hit the sandbox's command limit",
+        });
+        await db.logPhase(config, taskId, null, "error", "error", "", e.message);
+      } else {
+        throw e;
+      }
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`coding task ${taskId} failed:`, e);
+    await db.updateTask(config, taskId, { status: "needs_review_failed", latest_status: `Failed: ${message}` });
+    await db.logPhase(config, taskId, null, "error", "error", "", message);
+  } finally {
+    if (containerId) {
+      // ALWAYS runs, no matter which path above returned or threw - fixes
+      // weak point #6, where give-up paths used to skip this entirely.
+      await sandbox.destroyContainer(config.sandboxRunnerUrl, containerId).catch((e) => {
+        console.error(`coding task ${taskId}: failed to destroy container ${containerId}:`, e);
+      });
+    }
+    const finalRow = await db.getTask(config, taskId);
+    await notifyOrigin(config, finalRow);
+  }
+}
