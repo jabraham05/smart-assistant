@@ -221,6 +221,27 @@ services:
     depends_on: [postgres, ollama, sandbox-runner]
     networks: [assistant-net]
 
+  # Owns the events/goals subsystem: event ingestion, deterministic
+  # classification, deterministic keyword-based goal matching, and the
+  # stale-goal proactive nudge - see event-bus/ and README's "Event bus +
+  # goals" section. Deliberately no Ollama dependency: no LLM call anywhere
+  # in this service's hot path, by design.
+  event-bus:
+    build:
+      context: ./event-bus
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "3004"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Dedicated database (see postgres/init/04-create-events-db.sql).
+      EVENT_BUS_DB_NAME: events
+      HONCHO_API_KEY: ${HONCHO_API_KEY}
+      HONCHO_WORKSPACE_ID: smart-assistant
+      GOAL_STALE_DAYS: ${GOAL_STALE_DAYS:-7}
+    depends_on: [postgres]
+    networks: [assistant-net]
+
   chat-ui:
     build:
       context: ./chat-ui

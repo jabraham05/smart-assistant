@@ -15,6 +15,7 @@ export interface Config {
   spotifyRefreshToken?: string;
   dashboardControlWebhookUrl?: string;
   sandboxRunnerUrl: string;
+  eventBusUrl: string;
   tavilyApiKey?: string;
   researchTaskWebhookUrl?: string;
   researchTaskStatusWebhookUrl?: string;
@@ -72,6 +73,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // optional integration — no config-missing error path needed, unlike
     // the calendar/Spotify/dashboard webhooks above.
     sandboxRunnerUrl: env.SANDBOX_RUNNER_URL || "http://sandbox-runner:3002",
+    // Always-on internal infra, same tier as sandboxRunnerUrl above -
+    // goal_manage has no config-missing error path, it just uses this.
+    eventBusUrl: env.EVENT_BUS_URL || "http://event-bus:3004",
     // Optional, not required at startup: web_search returns a clear
     // config-missing error at call time, same pattern as the calendar/
     // Spotify/dashboard tools use. Get a free key at tavily.com.

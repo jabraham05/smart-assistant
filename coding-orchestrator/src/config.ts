@@ -21,6 +21,10 @@ export interface Config {
   n8nDatabase: string;
   honchoApiKey?: string;
   honchoWorkspaceId: string;
+  // Always-on internal infra, same tier as sandboxRunnerUrl - not a
+  // per-user optional integration, so it gets a real default rather than
+  // `|| undefined`.
+  eventBusUrl: string;
   codingTasksRepoUrl?: string;
   gitAuthorName: string;
   gitAuthorEmail: string;
@@ -61,6 +65,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // same "clear degradation, not a crash" pattern used everywhere else.
     honchoApiKey: env.HONCHO_API_KEY || undefined,
     honchoWorkspaceId: env.HONCHO_WORKSPACE_ID || "smart-assistant",
+    eventBusUrl: env.EVENT_BUS_URL || "http://event-bus:3004",
     // Landing repo for from-scratch tasks with no existing target repo.
     // Optional - a from-scratch task with no configured fallback simply
     // can't run (createTaskContainer requires the primary or a fallback).

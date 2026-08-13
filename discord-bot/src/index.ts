@@ -31,6 +31,16 @@ function currentSessionId(userId: string): string {
   return sessionOverrides.get(userId) ?? `discord-${userId}`;
 }
 
+// Fire-and-forget - never blocks or delays the actual reply, and a down/
+// unreachable event-bus must never affect the real DM flow.
+function publishDmReceivedEvent(preview: string): void {
+  fetch(`${config.eventBusUrl}/events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source: "discord", type: "dm_received", payload: { preview } }),
+  }).catch((e) => console.error("failed to publish dm_received event:", e));
+}
+
 client.once(Events.ClientReady, (c) => {
   console.log(`discord-bot logged in as ${c.user.tag}, forwarding DMs from user ${config.allowedUserId}`);
 });
@@ -44,6 +54,8 @@ client.on(Events.MessageCreate, async (message) => {
   }
   const trimmed = message.content.trim();
   if (!trimmed) return;
+
+  publishDmReceivedEvent(trimmed.slice(0, 200));
 
   if (NEW_SESSION_COMMANDS.has(trimmed.toLowerCase())) {
     sessionOverrides.set(message.author.id, `discord-${message.author.id}-${Date.now()}`);

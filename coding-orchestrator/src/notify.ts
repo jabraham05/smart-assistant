@@ -43,47 +43,81 @@ function buildSummary(row: CodingTaskRow): string {
 // (success or failure) whenever there's an origin session, instead of only
 // on paths that happened to be wired through it.
 export async function notifyOrigin(config: Config, row: CodingTaskRow): Promise<void> {
-  if (!row.origin_session_id) return;
-
   const summary = buildSummary(row);
 
-  try {
-    await getN8nPool(config).query(
-      `INSERT INTO n8n_chat_histories (session_id, message) VALUES ($1, $2::jsonb)`,
-      [
-        `${row.origin_session_id}__Postgres_Chat_Memory`,
-        JSON.stringify({
-          type: "ai",
-          content: summary,
-          tool_calls: [],
-          additional_kwargs: {},
-          response_metadata: {},
-          invalid_tool_calls: [],
-        }),
-      ],
-    );
-  } catch (e) {
-    console.error(`notifyOrigin: failed to write n8n_chat_histories for task ${row.id}:`, e);
+  // The two writes below genuinely need a session to write into - skip
+  // both (but not the event-bus publish further down, which doesn't) when
+  // this task has none, e.g. a CLI-triggered run via start-coding-task.mjs.
+  if (row.origin_session_id) {
+    try {
+      await getN8nPool(config).query(
+        `INSERT INTO n8n_chat_histories (session_id, message) VALUES ($1, $2::jsonb)`,
+        [
+          `${row.origin_session_id}__Postgres_Chat_Memory`,
+          JSON.stringify({
+            type: "ai",
+            content: summary,
+            tool_calls: [],
+            additional_kwargs: {},
+            response_metadata: {},
+            invalid_tool_calls: [],
+          }),
+        ],
+      );
+    } catch (e) {
+      console.error(`notifyOrigin: failed to write n8n_chat_histories for task ${row.id}:`, e);
+    }
+
+    if (config.honchoApiKey) {
+      try {
+        const res = await fetch(
+          `https://api.honcho.dev/v3/workspaces/${config.honchoWorkspaceId}/sessions/${row.origin_session_id}/messages`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${config.honchoApiKey}`,
+            },
+            body: JSON.stringify({ messages: [{ content: summary, peer_id: "amy" }] }),
+          },
+        );
+        if (!res.ok) {
+          console.error(`notifyOrigin: Honcho notify failed for task ${row.id}: ${res.status}`);
+        }
+      } catch (e) {
+        console.error(`notifyOrigin: failed to notify Honcho for task ${row.id}:`, e);
+      }
+    }
   }
 
-  if (!config.honchoApiKey) return;
-
+  // Publish a task-completion event to event-bus regardless of whether
+  // there's a session - unlike the two writes above, this has real value
+  // (audit trail, goal-matching) even for a CLI-triggered task with no
+  // origin_session_id to notify into. Own try/catch, since this must never
+  // break the proven notify path above even if event-bus is down.
+  // classify.ts's rule table currently defaults every coding_orchestrator
+  // event to notify:false (the two writes above already cover the
+  // user-facing notification when a session exists), so this is purely for
+  // the audit trail and goal-matching, not a second copy of the same
+  // message.
   try {
-    const res = await fetch(
-      `https://api.honcho.dev/v3/workspaces/${config.honchoWorkspaceId}/sessions/${row.origin_session_id}/messages`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${config.honchoApiKey}`,
-        },
-        body: JSON.stringify({ messages: [{ content: summary, peer_id: "amy" }] }),
-      },
-    );
-    if (!res.ok) {
-      console.error(`notifyOrigin: Honcho notify failed for task ${row.id}: ${res.status}`);
-    }
+    const type =
+      row.status === "resource_limit_reached"
+        ? "task_resource_limit"
+        : row.status === "proposed"
+          ? "task_completed"
+          : "task_needs_review";
+    await fetch(`${config.eventBusUrl}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source: "coding_orchestrator",
+        type,
+        payload: { taskId: row.id, taskDescription: row.task_description, prUrl: row.pr_url || undefined },
+        originSessionId: row.origin_session_id,
+      }),
+    });
   } catch (e) {
-    console.error(`notifyOrigin: failed to notify Honcho for task ${row.id}:`, e);
+    console.error(`notifyOrigin: failed to publish event for task ${row.id}:`, e);
   }
 }
