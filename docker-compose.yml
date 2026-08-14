@@ -50,8 +50,17 @@ services:
       # message + task/plan text + tool schemas) and producing empty,
       # confused output with zero tool calls attempted. This sets the
       # server-wide default so every model loads with enough context
-      # regardless of which caller (or bug) fails to request one.
-      OLLAMA_CONTEXT_LENGTH: "8192"
+      # regardless of which caller (or bug) fails to request one. Bumped
+      # 8192 -> 16384 (not higher: checked actual GPU headroom via
+      # nvidia-smi on this machine - a 12GB RTX 5070 with only ~4.3GB free
+      # once qwen3:8b is resident under OLLAMA_KEEP_ALIVE=-1 - so this is a
+      # real, evidence-sized step, not a guess). coding-orchestrator's
+      # agent-loop.ts accumulates every tool call/result into the message
+      # history across up to 25 iterations, which can plausibly exceed 8192
+      # tokens well before a Coder/Tester round naturally finishes -
+      # coding-orchestrator/src/ollama.ts now also sets this explicitly per
+      # request (numCtx) rather than depending on this default implicitly.
+      OLLAMA_CONTEXT_LENGTH: "16384"
     volumes:
       - ollama-data:/root/.ollama
     healthcheck:
@@ -181,6 +190,7 @@ services:
     environment:
       PORT: "3002"
       SANDBOX_NETWORK: sandbox-net
+      MAX_COMMANDS_PER_TASK: ${MAX_COMMANDS_PER_TASK:-250}
       # Deliberately set ONLY here, never on the n8n service — n8n stores
       # every workflow execution's full node inputs/outputs in Postgres in
       # plaintext, so this must never flow through a workflow's JSON body.

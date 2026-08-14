@@ -27,7 +27,17 @@ export interface OllamaChatOptions {
   think?: boolean;
   format?: Record<string, unknown>;
   timeoutMs?: number;
+  numCtx?: number;
 }
+
+// Matches the ollama service's OLLAMA_CONTEXT_LENGTH in docker-compose.yml
+// (16384, bumped from 8192 after checking real GPU headroom - see that
+// file's comment). Set explicitly per request rather than relying on the
+// server default implicitly: agent-loop.ts's Coder/Tester loop accumulates
+// every tool call/result into the message history across up to 25
+// iterations, a real, observed contributor to empty-output failures when
+// the effective context runs out mid-loop.
+const DEFAULT_NUM_CTX = 16384;
 
 export interface OllamaChatResult {
   message: OllamaMessage;
@@ -58,6 +68,7 @@ export async function ollamaChat(ollamaHost: string, options: OllamaChatOptions)
         messages: options.messages,
         ...(options.tools ? { tools: options.tools } : {}),
         ...(options.format ? { format: options.format } : {}),
+        options: { num_ctx: options.numCtx ?? DEFAULT_NUM_CTX },
       }),
       signal: controller.signal,
     });
