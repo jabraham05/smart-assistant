@@ -29,8 +29,11 @@ export function registerCodeTask(server: McpServer, config: Config, chatSessionI
           ),
         repoUrl: z
           .string()
-          .min(1, "repoUrl must not be empty")
           .optional()
+          // Models sometimes send "" instead of actually omitting an optional
+          // field - treat that the same as omitted rather than erroring, since
+          // the intent (from-scratch task) is unambiguous either way.
+          .transform((v) => (v && v.trim().length > 0 ? v : undefined))
           .describe(
             "Git URL the task's target repo can be cloned from (e.g. a GitHub URL), when this " +
               "task is about an existing project. Must be a real URL the user gave you or " +
