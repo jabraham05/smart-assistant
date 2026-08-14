@@ -16,6 +16,7 @@ import { registerResearchTask } from "./tools/research-task.js";
 import { registerResearchTaskStatus } from "./tools/research-task-status.js";
 import { registerResearchSearch } from "./tools/research-search.js";
 import { registerGoalManage } from "./tools/goal-manage.js";
+import { registerCalculate } from "./tools/calculate.js";
 
 export interface RequestContext {
   // The n8n Chat workflow's session id, threaded in via the MCP Client
@@ -52,5 +53,6 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerResearchTaskStatus(server, config, context.chatSessionId);
   registerResearchSearch(server, config);
   registerGoalManage(server, config, context.chatSessionId);
+  registerCalculate(server);
   return server;
 }

@@ -1616,7 +1616,8 @@ run yet (next natural run is its 3am schedule).
 - `skills-mcp/` — MCP server hosting agent-callable tools
   (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
   `code_task`, `spotify_control`, `dashboard_control`, `web_search`,
-  `research_task`, `research_task_status`, `research_search`, `goal_manage`),
+  `research_task`, `research_task_status`, `research_search`, `goal_manage`,
+  `calculate`),
   plus internal (non-MCP) routes `/internal/dashboard-data` and
   `/internal/spotify-action` (see "Smart-mirror dashboard" above), wired
   into `docker-compose.yml` (builds from `skills-mcp/Dockerfile`,
