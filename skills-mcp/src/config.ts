@@ -5,6 +5,7 @@ export interface Config {
   homeLocation?: string;
   homeLatitude?: number;
   homeLongitude?: number;
+  homeTimezone: string;
   skillsProposalWebhookUrl: string;
   googleCalendarKeyFile?: string;
   googleCalendarId?: string;
@@ -43,6 +44,12 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     homeLocation: env.HOME_LOCATION || undefined,
     homeLatitude: Number.isFinite(homeLatitude) ? homeLatitude : undefined,
     homeLongitude: Number.isFinite(homeLongitude) ? homeLongitude : undefined,
+    // calendar_event's reference for converting a bare local time into the
+    // correct offset instead of defaulting to UTC - always has a value
+    // (unlike the weather home-location fields above), since calendar_event
+    // needs a concrete offset to put in its tool description regardless of
+    // whether the user ever configured one.
+    homeTimezone: env.HOME_TIMEZONE || "America/Los_Angeles",
     skillsProposalWebhookUrl,
     // Optional, not required at startup: calendar tools return a clear
     // config-missing error at call time (see lib/google-calendar.ts)

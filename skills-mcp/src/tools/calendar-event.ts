@@ -4,9 +4,20 @@ import type { Config } from "../config.js";
 import { createEvent, deleteEvent, listEvents, updateEvent } from "../lib/google-calendar.js";
 import { errorResult, textResult } from "../types.js";
 
-const isoDateTime = z
-  .string()
-  .describe("ISO 8601 datetime with a timezone offset, e.g. '2026-07-27T15:00:00-07:00'.");
+// Takes homeTimezone so the description can state a concrete, unambiguous
+// offset - observed directly: given only an abstract example, the model
+// created a "3pm" event using 'Z' (UTC) instead of the user's actual local
+// offset, landing it 7 hours off from what was asked.
+function isoDateTime(homeTimezone: string) {
+  return z
+    .string()
+    .describe(
+      `ISO 8601 datetime with a timezone offset, e.g. '2026-07-27T15:00:00-07:00'. This ` +
+        `user's local timezone is ${homeTimezone} — when the user gives a local/wall-clock ` +
+        `time ("3pm", "tomorrow morning") without naming a timezone, use that offset. Only ` +
+        `use 'Z'/UTC if the user explicitly says UTC or GMT.`,
+    );
+}
 
 // Deterministic safety net, independent of whether the model's context
 // actually included the real current date (observed directly: it
@@ -58,10 +69,10 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
         action: z
           .enum(["list", "create", "update", "delete"])
           .describe("Which calendar operation to perform."),
-        timeMin: isoDateTime
+        timeMin: isoDateTime(config.homeTimezone)
           .optional()
           .describe("list: start of the time range to search. Omit to default to now."),
-        timeMax: isoDateTime
+        timeMax: isoDateTime(config.homeTimezone)
           .optional()
           .describe("list: end of the time range to search. Omit to default to 7 days from now."),
         maxResults: z
@@ -76,8 +87,8 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
           .optional()
           .describe("update/delete: the event's id, from a prior action='list' call. Required for both."),
         summary: z.string().optional().describe("create: event title (required). update: new title, if changing."),
-        start: isoDateTime.optional().describe("create: event start time (required). update: new start time, if changing."),
-        end: isoDateTime.optional().describe("create: event end time (required). update: new end time, if changing."),
+        start: isoDateTime(config.homeTimezone).optional().describe("create: event start time (required). update: new start time, if changing."),
+        end: isoDateTime(config.homeTimezone).optional().describe("create: event end time (required). update: new end time, if changing."),
         description: z.string().optional().describe("create/update: event description/notes."),
         location: z.string().optional().describe("create/update: event location."),
       },
