@@ -860,6 +860,121 @@ Pattern` for Branch C) so a future proposal from either path is judged
 by whether it would genuinely help with a *different but similar* future
 situation, not just whether it accurately recorded what happened once.
 
+## Self-improvement pipeline: Reviewer + Proposer (built, not yet activated)
+
+`skill_gap_scanner` (above) catches capability/knowledge gaps, personality
+drift, and correction patterns — but it never systematically scores *every*
+conversation, and it never tries to find more than one cause for a given
+symptom. This pipeline does both, and is the direct fix for a real gap
+exposed by the 2026-07-28 persona incident (see [Persona
+system](#persona-system) and `amy_persona_tone_update.md` in Claude's
+memory): Amy's reflexive-help-offer/butler-camp problem had **two
+independent causes at once** — stale `system_prompt` text *and* an
+independently-drifting Honcho peer card silently overriding the fix. A
+reviewer that stops at the first plausible explanation would have "solved"
+one and left the other live, which is close to what happened by hand that
+day.
+
+New Postgres database `self_improvement`
+(`postgres/init/08-create-self-improvement-db.sql`, same
+per-service-database pattern as `events`/`coding_tasks`/`research`):
+
+- `persona_snapshots` — dedup persona text by `md5(system_prompt)`.
+- `review_turns` — per-turn capture: user message, agent reply, tool-call
+  trace, and a **point-in-time snapshot of both Honcho peer cards** (the
+  live `Get User Card`/`Get User Card For Amy` nodes only ever show the
+  *current* card, useless for diagnosing a past incident after the fact).
+- `review_scores` — one row per (session, context-length chunk), five
+  independent 1-5 rubric dimensions (`task_success`, `relevance`,
+  `persona_alignment`, `user_sentiment`, `followup_coherence`) — decomposed
+  scores correlate with human judgment far better than one holistic score.
+- `review_attributions` — **one-to-many** per score row (`persona_text` /
+  `honcho_peer_card` / `model_capability_limitation` / `tool_failure` /
+  `ambiguous_user_request` / `none`), specifically so a single symptom can
+  carry more than one independent cause, each with a confidence and a
+  quoted piece of evidence.
+- `golden_transcripts` / `golden_regression_runs` — a small curated
+  regression set (seeded with a reconstruction of the 07-28 incident) that
+  every candidate persona edit gets replayed against before it's surfaced
+  for approval, so a fix for one failure mode can't silently regress
+  another.
+- `review_cursor`, `review_runs` — incremental-scan watermark and an audit
+  trail, same rationale as `coding_task_log`.
+
+**Chat workflow changes** (`n8n/workflows/9YdYYhVGfsKgj4yz.json`, the one
+change in this pipeline that touches live production): the `AI Agent` node
+now has `returnIntermediateSteps: true`, and three new nodes — `Build Turn
+Log Record` → `Upsert Persona Snapshot` → `Log Turn` — hang off the same
+convergence point that already feeds the terminal Honcho-store `HTTP
+Request` node (both the normal-completion path and the garbage-output
+fallback path already flow through there, so `$json.output` is guaranteed
+present either way). All three are `onError: continueRegularOutput` — this
+must never be able to break a live reply, which has already streamed back
+to the user by the time these nodes run.
+
+**`self_improvement_reviewer`** (new workflow, daily 4:30am, inactive until
+tested): pulls sessions via the same Honcho `sessions/list` pattern
+`skill_gap_scanner` Branch C already uses, looks up each session's
+`review_turns` rows (falling back to a live Honcho `messages/list` fetch
+for sessions that predate the Chat workflow change, flagging
+`noTraceAvailable` so the judge doesn't assume `tool_failure` without other
+evidence), chunks by turn boundary at a ~12k-char budget (most real
+sessions are one chunk given this project's usage volume), and calls a
+shared **`self_improvement_judge_subworkflow`** — extracted into its own
+workflow specifically so the live Reviewer and the golden-regression check
+below can never diverge in judge-prompt wording. The judge runs on
+`qwen3:14b` (matching the live agent, not the 8b model — an 8b judge is a
+documented reliability risk in this project for reflective reasoning) via
+a raw `POST ollama:11434/api/chat` structured-output call, same pattern as
+`skill_gap_scanner`'s `Ollama Reasoning`/`Detect Correction Pattern` and
+coding-orchestrator's `callReviewer()`. Its system prompt explicitly says:
+*"list every distinct root cause you can identify — a single symptom can
+have more than one independent cause; do not stop at the first plausible
+explanation."*
+
+**`self_improvement_proposer`** (new workflow, daily 6am, inactive until
+tested): gated by a deterministic evidence threshold (≥2 qualifying
+`persona_text`-attributed scores in 14 days, or one at `confidence ≥ 0.9`
+with `persona_alignment_score ≤ 2` — kept rule-based on purpose, same
+philosophy as `event-bus`'s `classify.ts` staying deterministic rather than
+routing a judgment-free check through an LLM). Splits the current persona
+on `##`/`###` headings, asks an LLM to propose an edit to only the
+section(s) evidence points at, reconstructs the full prompt with just that
+section swapped in (everything else byte-identical), replays it against
+`golden_transcripts` through the same judge sub-workflow used by the
+Reviewer, and — exactly like `skill_gap_scanner` Branch B — writes the
+result into the **existing dormant** `personas.proposed_system_prompt` /
+`proposed_reason` / `proposed_at` columns. No new proposal-storage
+mechanism, no auto-apply: `proposed_reason` gets the LLM's rationale plus a
+regression-check summary appended (a loud `⚠️ REGRESSION on N/M golden
+transcripts: ...` prefix if anything regressed), and a human still has to
+read it and manually promote it into `system_prompt`, same process already
+used for Branch B proposals.
+
+**One manual step required before activating anything**: create a Postgres
+credential named exactly `Self-Improvement Postgres account` in n8n
+(Settings → Credentials → New → Postgres; host `postgres`, port `5432`,
+database `self_improvement`, user `assistant`, same password as the other
+Postgres credentials here) — every new Postgres node in the three
+workflows above references this credential by name with a placeholder ID
+(`REPLACE_WITH_SELF_IMPROVEMENT_PG_CRED_ID`) that won't resolve on import;
+n8n will prompt to reassign each one to the real credential once it
+exists. Apply the schema first if the Postgres volume predates this file
+(same manual-apply pattern as `04`-`07`):
+```
+docker compose exec -i postgres psql -U assistant -d postgres -c "CREATE DATABASE self_improvement OWNER assistant;"
+docker compose exec -i postgres psql -U assistant -d self_improvement < postgres/init/08-create-self-improvement-db.sql
+```
+
+Build order and end-to-end verification steps (including the specific
+acceptance test for the attribution mechanism — the judge must return
+*both* `persona_text` and `honcho_peer_card` attributions for the seeded
+07-28 transcript, not one merged entry) are in the plan this pipeline was
+built from; ask Claude if you need it re-surfaced. Not yet activated:
+`self_improvement_reviewer` and `self_improvement_proposer` ship inactive,
+same "self-test before flagging for review" discipline as everything else
+autonomous in this project.
+
 ## Coding-agent pipeline + sandbox (in progress)
 
 The next step beyond `skill_propose`/`skill_gap_scanner`: those can only
