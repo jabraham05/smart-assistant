@@ -35,6 +35,27 @@ const RULES: Record<string, ClassificationResult> = {
   "coding_orchestrator.task_needs_review": { priority: "high", notify: false },
   "discord.dm_received": { priority: "normal", notify: false },
   "pi_dashboard.control_changed": { priority: "low", notify: false },
+  // Deliberately low, not high: arriving/leaving home is never something
+  // the user needs told about via a DM to their own phone - the value here
+  // is the audit trail and future goal-matching (e.g. a "spend less time
+  // at my desk in the evening" goal), not a notification. Never has an
+  // origin_session_id (Home Assistant has no chat session), so if this
+  // were "high" it would DM-escalate on every single arrival/departure.
+  "home_assistant.arrived_home": { priority: "low", notify: false },
+  "home_assistant.left_home": { priority: "low", notify: false },
+  // Audit-trail only - never needs to reach the user actively.
+  "google_calendar.event_detected": { priority: "low", notify: false },
+  // No origin_session_id is ever set for this source (a passive
+  // session-write wouldn't reach the user in time for a "starting soon"
+  // reminder to matter) - relies entirely on the priority:"high" +
+  // no-session escalation path.
+  "google_calendar.event_starting_soon": { priority: "high", notify: false },
+  // No origin_session_id here either. The real "don't overdo it" cap is
+  // idleReflectionMessageMinHours (see index.ts's /idle-reflection-check
+  // and /idle-reflection-messaged), not this priority - "high" here just
+  // means "when it IS allowed to fire, it must actually reach the user,"
+  // not "fire often."
+  "idle_reflection.proactive_thought": { priority: "high", notify: false },
 };
 
 export function classify(source: string, type: string): ClassificationResult {

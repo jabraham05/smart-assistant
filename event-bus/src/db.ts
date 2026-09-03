@@ -202,3 +202,44 @@ export async function countEventsSince(config: Config, source: string, type: str
 export async function touchScannerLastRun(config: Config, key: string): Promise<void> {
   await getPool(config).query(`UPDATE scanner_state SET last_run = now() WHERE key = $1`, [key]);
 }
+
+export interface CalendarWatcherStateRow {
+  event_id: string;
+  summary: string | null;
+  start_time: string | null;
+  first_seen_at: string;
+  reminded_at: string | null;
+}
+
+export async function getCalendarWatcherState(
+  config: Config,
+  eventId: string,
+): Promise<CalendarWatcherStateRow | undefined> {
+  const result = await getPool(config).query<CalendarWatcherStateRow>(
+    `SELECT * FROM calendar_watcher_state WHERE event_id = $1`,
+    [eventId],
+  );
+  return result.rows[0];
+}
+
+export async function insertCalendarWatcherState(
+  config: Config,
+  input: { eventId: string; summary: string | null; startTime: string | null },
+): Promise<void> {
+  await getPool(config).query(
+    `INSERT INTO calendar_watcher_state (event_id, summary, start_time) VALUES ($1, $2, $3)`,
+    [input.eventId, input.summary, input.startTime],
+  );
+}
+
+export async function markCalendarReminded(config: Config, eventId: string): Promise<void> {
+  await getPool(config).query(`UPDATE calendar_watcher_state SET reminded_at = now() WHERE event_id = $1`, [
+    eventId,
+  ]);
+}
+
+// Keeps the table from growing forever - a day past start is well past any
+// useful "already reminded" lookup for that event.
+export async function pruneOldCalendarWatcherState(config: Config): Promise<void> {
+  await getPool(config).query(`DELETE FROM calendar_watcher_state WHERE start_time < now() - interval '1 day'`);
+}

@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import { createServer } from "./server.js";
 import { registerDashboardDataRoute } from "./routes/dashboard-data.js";
 import { registerSpotifyActionRoute } from "./routes/spotify-action.js";
+import { registerCalendarEventsRoute } from "./routes/calendar-events.js";
 
 const config = loadConfig(process.env);
 
@@ -18,6 +19,12 @@ registerDashboardDataRoute(app, config);
 // Plain internal REST route, no LLM/MCP involved — the Pi's Spotify
 // play/pause/skip buttons reach this via a dedicated n8n webhook.
 registerSpotifyActionRoute(app, config);
+
+// Plain internal REST route, no LLM/MCP involved — event-bus's calendar
+// poll-and-diff watcher fetches from this directly (see
+// event-bus/src/calendar-watch.ts), reusing this service's existing
+// Google Calendar service-account auth instead of duplicating the key.
+registerCalendarEventsRoute(app, config);
 
 // Stateless mode: a fresh McpServer + transport per request, no session
 // tracking. This is the simplest spec-compliant shape for an internal-only

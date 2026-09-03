@@ -27,6 +27,16 @@ export function buildEventMessage(event: EventRow): string {
         `(started outside a chat session — check the coding_proposals table for what's there so far.)`
       );
     }
+    case "google_calendar.event_starting_soon": {
+      const summary = payload.summary as string | undefined;
+      const start = payload.start as string | undefined;
+      return `Starting soon: ${summary ?? "(untitled event)"}${start ? ` at ${start}` : ""}.`;
+    }
+    case "idle_reflection.proactive_thought": {
+      // The model already wrote the user-facing text - no further
+      // templating needed, just surface it directly.
+      return (payload.message as string | undefined) ?? "Amy had a thought but didn't include a message.";
+    }
     default:
       return `Event: ${event.type} (from ${event.source}).`;
   }

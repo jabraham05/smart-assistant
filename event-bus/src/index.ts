@@ -1,11 +1,10 @@
 import express from "express";
 import { loadConfig } from "./config.js";
 import * as db from "./db.js";
-import { classify } from "./classify.js";
-import { matchEventToGoals } from "./goal-matching.js";
 import { notifySession } from "./notify.js";
-import { notifyOwnerDirect } from "./discord-notify.js";
-import { buildEventMessage } from "./message-templates.js";
+import { ingestEvent } from "./ingest.js";
+import { pollCalendar } from "./calendar-watch.js";
+import { getWorkLevel } from "./work-level.js";
 
 const config = loadConfig(process.env);
 
@@ -41,38 +40,13 @@ app.post("/events", async (req, res) => {
   }
 
   try {
-    const event = await db.insertEvent(config, {
+    const event = await ingestEvent(config, {
       source: body.source,
       type: body.type,
       payload: body.payload,
       occurredAt: body.occurredAt,
       originSessionId: body.originSessionId,
     });
-
-    const { priority, notify } = classify(event.source, event.type);
-    await db.updateEventClassification(config, event.id, { priority, should_notify: notify });
-
-    await matchEventToGoals(config, event);
-
-    if (notify && event.origin_session_id) {
-      await notifySession(config, event.origin_session_id, buildEventMessage(event));
-      await db.markEventStatus(config, event.id, "notified", true);
-    } else if (notify) {
-      await db.markEventStatus(config, event.id, "notify_skipped_no_session");
-    } else if (priority === "high" && !event.origin_session_id) {
-      // Orphaned high-priority event: no session to reply into, and (per
-      // classify.ts) no source-level notification already covers it either
-      // (that's what notify:false means for these rules - the source
-      // handles the has-session case itself). Without this, an event like a
-      // CLI-triggered coding task's task_needs_review/task_resource_limit
-      // (see scripts/start-coding-task.mjs) would silently vanish - there's
-      // no chat session to write into and nothing else watching. Escalate
-      // via a direct DM instead of dropping it.
-      await notifyOwnerDirect(config, buildEventMessage(event));
-      await db.markEventStatus(config, event.id, "notified", true);
-    } else {
-      await db.markEventStatus(config, event.id, "processed");
-    }
 
     res.status(201).json({ id: event.id });
   } catch (e) {
@@ -211,6 +185,71 @@ app.post("/skill-gap-check", async (_req, res) => {
     res.json({ shouldScan, messageCount, threshold: config.skillGapCheckMessages });
   } catch (e) {
     console.error("failed to run skill-gap-check:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+function hoursSince(date: Date): number {
+  return (Date.now() - date.getTime()) / 3_600_000;
+}
+
+// POST /idle-reflection-check - called every ~30min by idlereflection0001's
+// Schedule Trigger. Two independent gates, deterministic, no LLM:
+// shouldReflect (is it worth running the Honcho+Ollama reasoning at all -
+// only when work level is low and enough time has passed) and
+// canMessageUser (a separate, stricter cooldown specifically for the
+// "message the user directly" outcome - see classify.ts's
+// idle_reflection.proactive_thought comment). canMessageUser's own
+// scanner_state row only advances via /idle-reflection-messaged, at the
+// moment a message actually sends - never here, so a "no" tick never
+// consumes the cooldown.
+app.post("/idle-reflection-check", async (_req, res) => {
+  try {
+    const { level } = await getWorkLevel(config);
+    if (level === "high") {
+      return res.json({ shouldReflect: false, canMessageUser: false, workLevel: "high" });
+    }
+
+    const lastRun = await db.getScannerLastRun(config, "idle_reflection");
+    const shouldReflect = hoursSince(lastRun) >= config.idleReflectionMinHours;
+    if (shouldReflect) {
+      await db.touchScannerLastRun(config, "idle_reflection");
+    }
+
+    const lastMessaged = await db.getScannerLastRun(config, "idle_reflection_message");
+    const canMessageUser = hoursSince(lastMessaged) >= config.idleReflectionMessageMinHours;
+
+    res.json({ shouldReflect, canMessageUser, workLevel: "low" });
+  } catch (e) {
+    console.error("failed to run idle-reflection-check:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /idle-reflection-messaged - called by idlereflection0001 only right
+// after it actually publishes a message_user event, starting the
+// idleReflectionMessageMinHours cooldown. Never called for the
+// propose_skill outcome - that path doesn't interrupt the user, so it
+// doesn't need the same structural cap.
+app.post("/idle-reflection-messaged", async (_req, res) => {
+  try {
+    await db.touchScannerLastRun(config, "idle_reflection_message");
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("failed to mark idle-reflection-messaged:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /calendar/poll-check - called every ~10min by calendarwatch0001's
+// Schedule Trigger. All real logic lives here, not in n8n - same
+// "n8n is just a cron" shape as /goals/nudge-check and /skill-gap-check.
+app.post("/calendar/poll-check", async (_req, res) => {
+  try {
+    const result = await pollCalendar(config);
+    res.json(result);
+  } catch (e) {
+    console.error("failed to run calendar poll-check:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

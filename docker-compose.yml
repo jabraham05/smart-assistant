@@ -256,6 +256,16 @@ services:
       # already uses, just also reaching this service.
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
       DISCORD_ALLOWED_USER_ID: ${DISCORD_ALLOWED_USER_ID}
+      # Calendar poll-and-diff watcher + idle-time self-reflection - see
+      # calendar-watch.ts and work-level.ts. All optional with sensible
+      # defaults (see .env.example).
+      SKILLS_MCP_URL: ${SKILLS_MCP_URL:-http://skills-mcp:3001}
+      CALENDAR_REMINDER_LEAD_MINUTES: ${CALENDAR_REMINDER_LEAD_MINUTES:-30}
+      CALENDAR_POLL_LOOKAHEAD_HOURS: ${CALENDAR_POLL_LOOKAHEAD_HOURS:-24}
+      CODING_TASKS_DB_NAME: ${CODING_TASKS_DB_NAME:-coding_tasks}
+      RESEARCH_DB_NAME: ${RESEARCH_DB_NAME:-research}
+      IDLE_REFLECTION_MIN_HOURS: ${IDLE_REFLECTION_MIN_HOURS:-4}
+      IDLE_REFLECTION_MESSAGE_MIN_HOURS: ${IDLE_REFLECTION_MESSAGE_MIN_HOURS:-24}
     depends_on: [postgres]
     networks: [assistant-net]
 

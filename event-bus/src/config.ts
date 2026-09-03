@@ -27,6 +27,31 @@ export interface Config {
   // path (see index.ts) - not required for any other event-bus behavior.
   discordBotToken?: string;
   discordAllowedUserId?: string;
+  // Always-on internal infra, real default rather than optional/undefined -
+  // same tier as eventBusUrl elsewhere in this project. Lets calendar-watch.ts
+  // reuse skills-mcp's existing Google Calendar auth instead of duplicating
+  // the service-account key into this image too.
+  skillsMcpUrl: string;
+  // How close to an event's start time (minutes) before /calendar/poll-check
+  // fires the one-time "starting soon" reminder for it.
+  calendarReminderLeadMinutes: number;
+  // How far ahead (hours) each poll asks skills-mcp for upcoming events.
+  calendarPollLookaheadHours: number;
+  // Read-only pools into databases event-bus doesn't otherwise own, same
+  // precedent as n8nDatabase above - just the database name differs, same
+  // Postgres host/user/password. Used only by work-level.ts to answer
+  // "is a coding or research task currently running."
+  codingTasksDbName: string;
+  researchDbName: string;
+  // How many hours of continuous low work-level must pass between
+  // idle-reflection reasoning runs (see /idle-reflection-check).
+  idleReflectionMinHours: number;
+  // Separate, stricter cooldown specifically for the "message the user
+  // directly" outcome (see /idle-reflection-check's canMessageUser and
+  // /idle-reflection-messaged) - deliberately independent of
+  // idleReflectionMinHours so silent skill proposals can still queue up
+  // more often than proactive DMs are allowed to fire.
+  idleReflectionMessageMinHours: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -55,5 +80,18 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     skillGapCheckMessages: env.SKILL_GAP_CHECK_MESSAGES ? Number(env.SKILL_GAP_CHECK_MESSAGES) : 10,
     discordBotToken: env.DISCORD_BOT_TOKEN || undefined,
     discordAllowedUserId: env.DISCORD_ALLOWED_USER_ID || undefined,
+    skillsMcpUrl: env.SKILLS_MCP_URL || "http://skills-mcp:3001",
+    calendarReminderLeadMinutes: env.CALENDAR_REMINDER_LEAD_MINUTES
+      ? Number(env.CALENDAR_REMINDER_LEAD_MINUTES)
+      : 30,
+    calendarPollLookaheadHours: env.CALENDAR_POLL_LOOKAHEAD_HOURS
+      ? Number(env.CALENDAR_POLL_LOOKAHEAD_HOURS)
+      : 24,
+    codingTasksDbName: env.CODING_TASKS_DB_NAME || "coding_tasks",
+    researchDbName: env.RESEARCH_DB_NAME || "research",
+    idleReflectionMinHours: env.IDLE_REFLECTION_MIN_HOURS ? Number(env.IDLE_REFLECTION_MIN_HOURS) : 4,
+    idleReflectionMessageMinHours: env.IDLE_REFLECTION_MESSAGE_MIN_HOURS
+      ? Number(env.IDLE_REFLECTION_MESSAGE_MIN_HOURS)
+      : 24,
   };
 }
