@@ -172,3 +172,33 @@ export async function getStaleGoals(config: Config, staleDays: number): Promise<
   );
   return result.rows;
 }
+
+// Both scanner_state functions are scoped to a single named scanner (only
+// 'skill_gap_scanner' exists today) rather than assuming one global
+// cadence, so a second periodic scanner could get its own independent
+// message-count cadence later without touching this one's state.
+
+export async function getScannerLastRun(config: Config, key: string): Promise<Date> {
+  const result = await getPool(config).query<{ last_run: string }>(
+    `SELECT last_run FROM scanner_state WHERE key = $1`,
+    [key],
+  );
+  // No row for an unrecognized key is a real bug (scanner_state is seeded
+  // once via the init SQL, not created on demand), so this should never
+  // actually throw in practice - fail loudly rather than silently picking
+  // an arbitrary fallback that could under- or over-trigger the scanner.
+  if (result.rows.length === 0) throw new Error(`No scanner_state row for key "${key}"`);
+  return new Date(result.rows[0].last_run);
+}
+
+export async function countEventsSince(config: Config, source: string, type: string, since: Date): Promise<number> {
+  const result = await getPool(config).query<{ count: string }>(
+    `SELECT count(*) FROM events WHERE source = $1 AND type = $2 AND occurred_at > $3`,
+    [source, type, since.toISOString()],
+  );
+  return Number(result.rows[0].count);
+}
+
+export async function touchScannerLastRun(config: Config, key: string): Promise<void> {
+  await getPool(config).query(`UPDATE scanner_state SET last_run = now() WHERE key = $1`, [key]);
+}

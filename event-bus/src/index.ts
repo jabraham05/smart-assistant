@@ -4,6 +4,8 @@ import * as db from "./db.js";
 import { classify } from "./classify.js";
 import { matchEventToGoals } from "./goal-matching.js";
 import { notifySession } from "./notify.js";
+import { notifyOwnerDirect } from "./discord-notify.js";
+import { buildEventMessage } from "./message-templates.js";
 
 const config = loadConfig(process.env);
 
@@ -19,10 +21,6 @@ function deriveKeywords(title: string, description?: string): string[] {
   const text = `${title} ${description || ""}`.toLowerCase();
   const words = text.split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOPWORDS.has(w));
   return Array.from(new Set(words));
-}
-
-function buildEventSummary(source: string, type: string): string {
-  return `Event: ${type} (from ${source}).`;
 }
 
 // POST /events - ingest, deterministic classification, goal matching, notify.
@@ -57,10 +55,21 @@ app.post("/events", async (req, res) => {
     await matchEventToGoals(config, event);
 
     if (notify && event.origin_session_id) {
-      await notifySession(config, event.origin_session_id, buildEventSummary(event.source, event.type));
+      await notifySession(config, event.origin_session_id, buildEventMessage(event));
       await db.markEventStatus(config, event.id, "notified", true);
     } else if (notify) {
       await db.markEventStatus(config, event.id, "notify_skipped_no_session");
+    } else if (priority === "high" && !event.origin_session_id) {
+      // Orphaned high-priority event: no session to reply into, and (per
+      // classify.ts) no source-level notification already covers it either
+      // (that's what notify:false means for these rules - the source
+      // handles the has-session case itself). Without this, an event like a
+      // CLI-triggered coding task's task_needs_review/task_resource_limit
+      // (see scripts/start-coding-task.mjs) would silently vanish - there's
+      // no chat session to write into and nothing else watching. Escalate
+      // via a direct DM instead of dropping it.
+      await notifyOwnerDirect(config, buildEventMessage(event));
+      await db.markEventStatus(config, event.id, "notified", true);
     } else {
       await db.markEventStatus(config, event.id, "processed");
     }
@@ -180,6 +189,28 @@ app.post("/goals/nudge-check", async (_req, res) => {
     res.json({ staleCount: stale.length, notified, skipped });
   } catch (e) {
     console.error("failed to run goals nudge-check:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /skill-gap-check - called frequently (every ~15min) by
+// skill_gap_scanner's Schedule Trigger, purely to decide WHETHER that
+// workflow's expensive Honcho+Ollama reasoning branches should actually run
+// this tick. Deterministic counting only, no LLM here - mirrors
+// /goals/nudge-check's "n8n is just a cron, all logic lives here" shape.
+// Only advances scanner_state.last_run when it says yes, so a "no" tick
+// costs one cheap COUNT query and nothing else.
+app.post("/skill-gap-check", async (_req, res) => {
+  try {
+    const lastRun = await db.getScannerLastRun(config, "skill_gap_scanner");
+    const messageCount = await db.countEventsSince(config, "chat", "message_received", lastRun);
+    const shouldScan = messageCount >= config.skillGapCheckMessages;
+    if (shouldScan) {
+      await db.touchScannerLastRun(config, "skill_gap_scanner");
+    }
+    res.json({ shouldScan, messageCount, threshold: config.skillGapCheckMessages });
+  } catch (e) {
+    console.error("failed to run skill-gap-check:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

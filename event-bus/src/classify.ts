@@ -21,6 +21,14 @@ const DEFAULT: ClassificationResult = { priority: "normal", notify: false };
 // notifies on in v1 is the Goals stale-nudge (see index.ts's
 // /goals/nudge-check) - a deliberately conservative start, not a
 // general-purpose "everything pings you" firehose.
+//
+// `priority: "high"` has a real behavioral consequence beyond being stored
+// on the row: index.ts escalates any high-priority event with no
+// origin_session_id into a direct Discord DM (see discord-notify.ts),
+// since that's the one case with no existing notification path at all
+// (not a session to reply into, not covered by a source's own notify
+// call). Don't mark something "high" casually - it means "the user must
+// find out about this even if nobody's chatting with Amy right now."
 const RULES: Record<string, ClassificationResult> = {
   "coding_orchestrator.task_completed": { priority: "normal", notify: false },
   "coding_orchestrator.task_resource_limit": { priority: "high", notify: false },

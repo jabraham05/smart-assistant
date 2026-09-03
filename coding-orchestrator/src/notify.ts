@@ -113,7 +113,13 @@ export async function notifyOrigin(config: Config, row: CodingTaskRow): Promise<
       body: JSON.stringify({
         source: "coding_orchestrator",
         type,
-        payload: { taskId: row.id, taskDescription: row.task_description, prUrl: row.pr_url || undefined },
+        payload: {
+          taskId: row.id,
+          taskDescription: row.task_description,
+          prUrl: row.pr_url || undefined,
+          reviewerReason: row.reviewer_reason || undefined,
+          attemptCount: row.attempt_count,
+        },
         originSessionId: row.origin_session_id,
       }),
     });

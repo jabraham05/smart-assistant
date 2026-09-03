@@ -249,6 +249,13 @@ services:
       HONCHO_API_KEY: ${HONCHO_API_KEY}
       HONCHO_WORKSPACE_ID: smart-assistant
       GOAL_STALE_DAYS: ${GOAL_STALE_DAYS:-7}
+      SKILL_GAP_CHECK_MESSAGES: ${SKILL_GAP_CHECK_MESSAGES:-10}
+      # Optional — only used to DM the owner directly when a high-priority
+      # event has no origin_session_id to reply into (e.g. a CLI-triggered
+      # coding task; see discord-notify.ts). Same bot/user id discord-bot
+      # already uses, just also reaching this service.
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DISCORD_ALLOWED_USER_ID: ${DISCORD_ALLOWED_USER_ID}
     depends_on: [postgres]
     networks: [assistant-net]
 

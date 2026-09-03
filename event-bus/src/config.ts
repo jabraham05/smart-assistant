@@ -15,6 +15,18 @@ export interface Config {
   // How many days of no goal_progress_log activity before the nudge
   // workflow considers a goal stale.
   goalStaleDays: number;
+  // How many chat.message_received events must accumulate since
+  // scanner_state's last_run before /skill-gap-check tells
+  // skill_gap_scanner it's actually worth running its Honcho+Ollama
+  // reasoning, instead of that running on a fixed schedule regardless of
+  // whether anything happened.
+  skillGapCheckMessages: number;
+  // Optional, same "clear degradation, not a crash" pattern as
+  // honchoApiKey: notifyOwnerDirect() logs and drops instead of throwing
+  // when unset. Used only for the orphaned-high-priority-event escalation
+  // path (see index.ts) - not required for any other event-bus behavior.
+  discordBotToken?: string;
+  discordAllowedUserId?: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -40,5 +52,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     honchoApiKey: env.HONCHO_API_KEY || undefined,
     honchoWorkspaceId: env.HONCHO_WORKSPACE_ID || "smart-assistant",
     goalStaleDays: env.GOAL_STALE_DAYS ? Number(env.GOAL_STALE_DAYS) : 7,
+    skillGapCheckMessages: env.SKILL_GAP_CHECK_MESSAGES ? Number(env.SKILL_GAP_CHECK_MESSAGES) : 10,
+    discordBotToken: env.DISCORD_BOT_TOKEN || undefined,
+    discordAllowedUserId: env.DISCORD_ALLOWED_USER_ID || undefined,
   };
 }
