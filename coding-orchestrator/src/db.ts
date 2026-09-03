@@ -124,6 +124,33 @@ export async function updateTask(
   );
 }
 
+export interface CodingSkillRow {
+  id: number;
+  name: string;
+  role: string;
+  template: string | null;
+  content: string;
+}
+
+// role='coder'/'tester' pulls that role's own skills plus every 'both'
+// skill; template=null (existing-repo tasks, or template='none') still
+// gets every template-agnostic skill via the `template IS NULL` half of
+// the OR - only a skill deliberately scoped to a specific template gets
+// excluded when it doesn't match.
+export async function getActiveCodingSkills(
+  config: Config,
+  role: "coder" | "tester",
+  template: string | null,
+): Promise<CodingSkillRow[]> {
+  const result = await getPool(config).query<CodingSkillRow>(
+    `SELECT id, name, role, template, content FROM coding_skills
+     WHERE status = 'active' AND role IN ($1, 'both') AND (template IS NULL OR template = $2)
+     ORDER BY id`,
+    [role, template],
+  );
+  return result.rows;
+}
+
 export async function logPhase(
   config: Config,
   taskId: number,

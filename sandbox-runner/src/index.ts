@@ -105,6 +105,7 @@ app.post("/task", async (req, res) => {
       fallbackRepoUrl: body.fallbackRepoUrl,
       fallbackRef: body.fallbackRef,
       fallbackProjectFolder: body.fallbackProjectFolder,
+      template: body.template,
     });
     res.json(result);
   } catch (e) {

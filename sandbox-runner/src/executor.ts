@@ -395,6 +395,13 @@ export interface CreateTaskContainerRequest {
   fallbackRepoUrl?: string;
   fallbackRef?: string;
   fallbackProjectFolder?: string;
+  // Name of a folder under the cloned repo's `_templates/` directory to
+  // seed `projectFolder` with. Only meaningful when `projectFolder` is
+  // itself set (the from-scratch/shared-landing-repo path) - passing this
+  // alongside an existing-repo clone would be a caller bug, not handled
+  // specially here since coding-orchestrator's pipeline.ts already never
+  // does that.
+  template?: string;
 }
 
 export interface CreateTaskContainerResult {
@@ -435,7 +442,7 @@ interface AttemptResult {
 
 async function attemptCreateTaskContainer(
   config: Config,
-  opts: { repoUrl: string; ref?: string; projectFolder: string; taskId: string },
+  opts: { repoUrl: string; ref?: string; projectFolder: string; taskId: string; template?: string },
 ): Promise<AttemptResult> {
   const docker = getDocker(config);
   const cloneUrl = maybeAuthenticateCloneUrl(opts.repoUrl, config.githubToken);
@@ -445,9 +452,22 @@ async function attemptCreateTaskContainer(
     Cmd: [
       "sh",
       "-c",
-      'git clone --depth 1 --branch "$REF" "$REPO_URL" /work/repo && mkdir -p "/work/repo/$PROJECT_FOLDER" && tail -f /dev/null',
+      // TEMPLATE empty (existing-repo path, or "none") -> the `if` is a
+      // no-op and this behaves exactly as before. TEMPLATE set -> seeds
+      // the fresh project folder from the landing repo's own
+      // `_templates/$TEMPLATE`, already cloned as part of this same repo
+      // - no second clone, no base-image change needed when templates
+      // change.
+      'git clone --depth 1 --branch "$REF" "$REPO_URL" /work/repo && mkdir -p "/work/repo/$PROJECT_FOLDER" && ' +
+        'if [ -n "$TEMPLATE" ]; then cp -r "/work/repo/_templates/$TEMPLATE/." "/work/repo/$PROJECT_FOLDER/"; fi && ' +
+        "tail -f /dev/null",
     ],
-    Env: [`REPO_URL=${cloneUrl}`, `REF=${opts.ref ?? "main"}`, `PROJECT_FOLDER=${opts.projectFolder}`],
+    Env: [
+      `REPO_URL=${cloneUrl}`,
+      `REF=${opts.ref ?? "main"}`,
+      `PROJECT_FOLDER=${opts.projectFolder}`,
+      `TEMPLATE=${opts.template ?? ""}`,
+    ],
     Tty: false,
     Labels: {
       [TASK_LABEL_KEY]: opts.taskId,
@@ -497,6 +517,7 @@ export async function createTaskContainer(
     ref: req.ref,
     projectFolder: req.projectFolder ?? "",
     taskId: req.taskId,
+    template: req.template,
   });
 
   if (primary.ok) {

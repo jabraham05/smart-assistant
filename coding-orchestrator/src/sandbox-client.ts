@@ -12,6 +12,11 @@ export interface CreateContainerRequest {
   fallbackRepoUrl?: string;
   fallbackRef?: string;
   fallbackProjectFolder?: string;
+  // Name of a folder under the landing repo's `_templates/` directory to
+  // seed `projectFolder` with, copied in right after it's created. Only
+  // meaningful (and only ever sent) on the from-scratch path - see
+  // pipeline.ts's runTaskPipeline.
+  template?: string;
 }
 
 export interface CreateContainerResult {

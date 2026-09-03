@@ -4,7 +4,13 @@ import * as sandbox from "./sandbox-client.js";
 import { ollamaChat, parseJsonContent } from "./ollama.js";
 import { runAgentLoop, type AgentTool } from "./agent-loop.js";
 import { notifyOrigin } from "./notify.js";
+import { TEMPLATE_NAMES, validateTemplate } from "./templates.js";
 
+// Lessons that used to live as hand-written clauses here (CommonJS vs ESM,
+// config-file syntax, respecting an existing scaffold) now live in the
+// coding_skills table instead - see getActiveCodingSkills/formatSkills
+// below - so they're editable without a redeploy and can grow beyond what's
+// hardcoded at the moment this file was last touched.
 const CODER_SYSTEM_PROMPT =
   "You are the Coder for this task. You have a shell in your own container, with the target " +
   "repository already checked out - use it to look at real files before changing them, make the " +
@@ -26,6 +32,11 @@ const TESTER_SYSTEM_PROMPT =
   "genuinely adequate, end your final reply with a line starting with 'STATUS:' giving a short " +
   "one-sentence summary of what you just did.";
 
+function formatSkills(skills: db.CodingSkillRow[]): string {
+  if (skills.length === 0) return "";
+  return "\n\nLessons learned from past tasks:\n" + skills.map((s) => `- ${s.content}`).join("\n");
+}
+
 const RETRY_SUFFIX =
   " This is a retry: your previous attempt ended without making any real changes. Try again now, " +
   "actually looking at files and making the edits described.";
@@ -41,9 +52,29 @@ interface TaskContext {
   containerId: string;
   workingDir: string;
   testCommand: string;
+  // Pre-formatted (formatSkills) - fetched once per task, not per attempt,
+  // since active skills don't change mid-task.
+  coderSkillsText: string;
+  testerSkillsText: string;
 }
 
-function agentTools(sandboxRunnerUrl: string, containerId: string, workingDir: string): AgentTool[] {
+// Matched against write_file's filename to refuse Tester edits to config
+// the template already set up correctly. Prompt text alone ("these are a
+// known-working scaffold, don't rewrite them") failed to prevent this
+// exact mistake twice in a row (the Tester rewrote jest.config.js as raw
+// JSON, then repeated the identical broken content 6 times without ever
+// adapting) - a deterministic refusal is the reliable version of the same
+// guidance, not a replacement for a different lesson.
+const CONFIG_FILE_PATTERN =
+  /(^|\/)(package(-lock)?\.json|jest\.config\.(js|ts|cjs|mjs|json)|pytest\.ini|babel\.config\.(js|json)|\.babelrc(\.json)?|tsconfig\.json|next\.config\.(js|mjs))$/i;
+
+function agentTools(
+  sandboxRunnerUrl: string,
+  containerId: string,
+  workingDir: string,
+  taskId: number,
+  options: { denyConfigWrites?: boolean } = {},
+): AgentTool[] {
   return [
     {
       name: "run_command",
@@ -58,6 +89,16 @@ function agentTools(sandboxRunnerUrl: string, containerId: string, workingDir: s
           command: String(args.command),
           workingDir,
         });
+        if (result.exitCode !== 0) {
+          // Root-causing "the Coder loops without making progress" needs to
+          // see WHY the command it keeps rerunning actually fails - the
+          // per-iteration trace (agent-loop.ts) only shows the command
+          // name, not its result. Truncated preview, not the full output,
+          // to avoid reintroducing the log-bloat problem the terminal-only
+          // logging was deliberately scoped to avoid.
+          const preview = (result.stderr || result.stdout || "").replace(/\s+/g, " ").slice(0, 400);
+          console.log(`task=${taskId} run_command failed (exit ${result.exitCode}): ${preview}`);
+        }
         return `exit code: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}\n\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`;
       },
     },
@@ -75,18 +116,51 @@ function agentTools(sandboxRunnerUrl: string, containerId: string, workingDir: s
         required: ["filename", "content"],
       },
       execute: async (args) => {
-        await sandbox.writeFileInContainer(sandboxRunnerUrl, containerId, {
-          filename: String(args.filename),
-          content: String(args.content),
-          workingDir,
-        });
-        return `Wrote ${String(args.filename)} successfully.`;
+        const filename = String(args.filename);
+        const content = String(args.content);
+        if (options.denyConfigWrites && CONFIG_FILE_PATTERN.test(filename)) {
+          console.log(`task=${taskId} write_file refused (config file, Tester): ${filename}`);
+          return (
+            `Refused: "${filename}" is project config already set up correctly by the starter scaffold ` +
+            `(or by the Coder). You don't need to, and shouldn't, modify it - focus only on test files.`
+          );
+        }
+        await sandbox.writeFileInContainer(sandboxRunnerUrl, containerId, { filename, content, workingDir });
+        // Length + first line only - enough to tell "rewrote this file with
+        // genuinely different content" from "wrote the identical thing
+        // again" (the actual loop signature we're trying to root-cause)
+        // without logging full file contents.
+        console.log(
+          `task=${taskId} write_file: ${filename} (${content.length} bytes, starts "${content.slice(0, 60).replace(/\s+/g, " ")}")`,
+        );
+        return `Wrote ${filename} successfully.`;
       },
     },
   ];
 }
 
-async function callPlanner(config: Config, task: string): Promise<{ plan: string; testCommand: string }> {
+async function callPlanner(
+  config: Config,
+  task: string,
+  isFromScratch: boolean,
+): Promise<{ plan: string; testCommand: string; template: string }> {
+  const templateGuidance = isFromScratch
+    ? "This is a from-scratch task with no existing repository, so also decide which starter template " +
+      "(if any) the Coder should begin from - each is a real, pre-built, working scaffold copied into " +
+      "the empty project folder before the Coder starts, so it never has to invent test-runner config " +
+      "or module-syntax conventions from zero:\n" +
+      "- 'node-jest': plain Node.js, CommonJS (require/module.exports), Jest already wired as the test " +
+      "command. Pick this for a general JS/Node task with no other signal.\n" +
+      "- 'python-pytest': plain Python script/module, pytest already configured.\n" +
+      "- 'nextjs-app': a minimal Next.js (App Router) web app, Jest wired for unit tests. Pick this for " +
+      "a task that's actually building a web app/frontend/UI.\n" +
+      "- 'express-api': a minimal Express backend (app.js exports the app for testing, index.js starts " +
+      "it), Jest + supertest wired. Pick this for a task building an HTTP API/backend service.\n" +
+      "- 'none': the task needs a language/tooling none of the above cover (e.g. Go, Rust, a shell " +
+      "script) - never force one of the above onto a task it doesn't actually fit."
+    : "This task targets an existing repository - always return template: 'none'. The existing " +
+      "project's own conventions apply; a generic starter template must never override them.";
+
   const { message } = await ollamaChat(config.ollamaHost, {
     model: config.plannerModel,
     think: true,
@@ -106,19 +180,28 @@ async function callPlanner(config: Config, task: string): Promise<{ plan: string
           "language/tooling - e.g. 'node --test' for a plain Node.js project, 'python3 -m pytest' for " +
           "Python, 'go test ./...' for Go, 'cargo test' for Rust). Never default to npm test for a " +
           "non-Node.js task - that fails immediately with no package.json, unrelated to whether the " +
-          "code is correct.",
+          "code is correct.\n\n" +
+          templateGuidance,
       },
       { role: "user", content: `Task: ${task}` },
     ],
     format: {
       type: "object",
-      properties: { plan: { type: "string" }, testCommand: { type: "string" } },
+      properties: {
+        plan: { type: "string" },
+        testCommand: { type: "string" },
+        template: { type: "string", enum: [...TEMPLATE_NAMES, "none"] },
+      },
       required: ["plan", "testCommand"],
     },
   });
 
-  const parsed = parseJsonContent(message.content, { plan: "", testCommand: "" });
-  return { plan: parsed.plan ?? "", testCommand: parsed.testCommand ?? "npm test" };
+  const parsed = parseJsonContent(message.content, { plan: "", testCommand: "", template: "none" });
+  return {
+    plan: parsed.plan ?? "",
+    testCommand: parsed.testCommand ?? "npm test",
+    template: validateTemplate(parsed.template),
+  };
 }
 
 function buildAgentUserPrompt(ctx: TaskContext, plan: string, feedback: RetryFeedback | null): string {
@@ -138,20 +221,22 @@ async function runCoderRound(
   ctx: TaskContext,
   plan: string,
   feedback: RetryFeedback | null,
-): Promise<{ output: string; succeeded: boolean }> {
-  const tools = agentTools(config.sandboxRunnerUrl, ctx.containerId, ctx.workingDir);
+): Promise<{ output: string; succeeded: boolean; exhaustedIterations: boolean }> {
+  const tools = agentTools(config.sandboxRunnerUrl, ctx.containerId, ctx.workingDir, ctx.taskId);
   const userPrompt = buildAgentUserPrompt(ctx, plan, feedback);
+  const systemPrompt = CODER_SYSTEM_PROMPT + ctx.coderSkillsText;
 
   const first = await runAgentLoop({
     ollamaHost: config.ollamaHost,
     model: config.coderModel,
-    systemPrompt: CODER_SYSTEM_PROMPT,
+    systemPrompt,
     userPrompt,
     tools,
     maxIterations: config.coderMaxIterations,
+    label: `coder task=${ctx.taskId} attempt=first`,
   });
   if (first.output.trim()) {
-    return { output: first.output, succeeded: true };
+    return { output: first.output, succeeded: true, exhaustedIterations: false };
   }
 
   // Empty output, first attempt - one immediate inline retry with the same
@@ -160,12 +245,29 @@ async function runCoderRound(
   const retry = await runAgentLoop({
     ollamaHost: config.ollamaHost,
     model: config.coderModel,
-    systemPrompt: CODER_SYSTEM_PROMPT + RETRY_SUFFIX,
+    systemPrompt: systemPrompt + RETRY_SUFFIX,
     userPrompt,
     tools,
     maxIterations: config.coderMaxIterations,
+    label: `coder task=${ctx.taskId} attempt=inline-retry`,
   });
-  return { output: retry.output, succeeded: Boolean(retry.output.trim()) };
+  if (!retry.output.trim()) {
+    // Both calls came back empty - previously indistinguishable from each
+    // other or from a genuine iteration-exhaustion in coding_task_log; log
+    // enough here to actually root-cause the next occurrence.
+    console.error(
+      `coding task ${ctx.taskId}: Coder produced no output on both the first call ` +
+        `(${first.exhaustedIterations ? "exhausted iterations" : "empty final reply"}, ` +
+        `${first.iterations} iteration(s)) and the inline retry (` +
+        `${retry.exhaustedIterations ? "exhausted iterations" : "empty final reply"}, ` +
+        `${retry.iterations} iteration(s))`,
+    );
+  }
+  return {
+    output: retry.output,
+    succeeded: Boolean(retry.output.trim()),
+    exhaustedIterations: retry.exhaustedIterations,
+  };
 }
 
 // Tester round - now checks the SAME "genuinely non-empty output" condition
@@ -178,14 +280,17 @@ async function runTesterRound(
   plan: string,
   feedback: RetryFeedback | null,
 ): Promise<{ output: string; succeeded: boolean }> {
-  const tools = agentTools(config.sandboxRunnerUrl, ctx.containerId, ctx.workingDir);
+  const tools = agentTools(config.sandboxRunnerUrl, ctx.containerId, ctx.workingDir, ctx.taskId, {
+    denyConfigWrites: true,
+  });
   const result = await runAgentLoop({
     ollamaHost: config.ollamaHost,
     model: config.testerModel,
-    systemPrompt: TESTER_SYSTEM_PROMPT,
+    systemPrompt: TESTER_SYSTEM_PROMPT + ctx.testerSkillsText,
     userPrompt: buildAgentUserPrompt(ctx, plan, feedback),
     tools,
     maxIterations: config.testerMaxIterations,
+    label: `tester task=${ctx.taskId}`,
   });
   return { output: result.output, succeeded: Boolean(result.output.trim()) };
 }
@@ -270,7 +375,11 @@ async function runAttempt(
     "coder",
     coderResult.succeeded ? "success" : "error",
     coderResult.output,
-    coderResult.succeeded ? undefined : "Coder produced no output after an inline retry",
+    coderResult.succeeded
+      ? undefined
+      : coderResult.exhaustedIterations
+        ? "Coder exhausted max iterations without a final reply, even after an inline retry"
+        : "Coder returned empty content with zero tool calls, even after an inline retry",
   );
   if (!coderResult.succeeded) {
     return {
@@ -373,6 +482,21 @@ async function finalizeTask(
   });
   if (prResult.pushed && prResult.prUrl) {
     await db.updateTask(config, ctx.taskId, { pr_url: prResult.prUrl });
+  } else {
+    // Found via real usage: a bad/expired GITHUB_TOKEN makes this fail on
+    // every task, but the DB-visible state (latest_status: "Done", empty
+    // pr_url) was indistinguishable from a task still being worked on -
+    // console.error alone isn't visible to code_task_status or anyone
+    // just reading the DB, and container log history doesn't survive a
+    // restart, so a real failure like this can go unnoticed indefinitely.
+    console.error(
+      `coding task ${ctx.taskId}: approved but PR was not opened - pushed=${prResult.pushed}, ` +
+        `prUrl=${prResult.prUrl ?? "(none)"}, error=${prResult.error ?? "(none)"}, ` +
+        `pushExitCode=${prResult.pushExitCode}`,
+    );
+    await db.updateTask(config, ctx.taskId, {
+      latest_status: `Approved, but PR was not opened: ${prResult.error ?? "unknown error"}`,
+    });
   }
 }
 
@@ -387,12 +511,23 @@ export async function runTaskPipeline(config: Config, taskId: number): Promise<v
   let containerId: string | undefined;
 
   try {
+    // Planner runs before container creation now (it only ever needed the
+    // task description, never repo access) so its from-scratch template
+    // choice can actually be passed to the container-creation call below,
+    // instead of the container already existing by the time a template
+    // decision would be known.
+    const isFromScratch = !task.target_repo_url;
+    const { plan, testCommand, template } = await callPlanner(config, task.task_description, isFromScratch);
+    await db.logPhase(config, taskId, null, "plan", "success", plan);
+
     // sandbox-runner's own /task route requires `repoUrl` unconditionally
     // (it has no notion of "from scratch, use the fallback as primary") -
     // so for a from-scratch task (no target_repo_url), the fallback repo
     // must be sent AS repoUrl directly, with no separate fallback fields at
     // all. Mirrors exactly the ternary the old n8n "Create Task Container"
-    // node used.
+    // node used. `template` is only ever passed on this from-scratch
+    // branch - an existing repo's own conventions are never overridden,
+    // even if the Planner somehow still returned one.
     const container = task.target_repo_url
       ? await sandbox.createContainer(config.sandboxRunnerUrl, {
           repoUrl: task.target_repo_url,
@@ -408,6 +543,7 @@ export async function runTaskPipeline(config: Config, taskId: number): Promise<v
           ref: "main",
           projectFolder: task.project_folder,
           taskId: String(taskId),
+          template: template === "none" ? undefined : template,
         });
     containerId = container.containerId;
     await db.updateTask(config, taskId, {
@@ -418,8 +554,13 @@ export async function runTaskPipeline(config: Config, taskId: number): Promise<v
     });
 
     try {
-      const { plan, testCommand } = await callPlanner(config, task.task_description);
-      await db.logPhase(config, taskId, null, "plan", "success", plan);
+      // Fetched once per task, not per attempt/round - active skills don't
+      // change mid-task, and this avoids a DB round-trip on every retry.
+      const skillsTemplate = template === "none" ? null : template;
+      const [coderSkills, testerSkills] = await Promise.all([
+        db.getActiveCodingSkills(config, "coder", skillsTemplate),
+        db.getActiveCodingSkills(config, "tester", skillsTemplate),
+      ]);
 
       const ctx: TaskContext = {
         taskId,
@@ -427,6 +568,8 @@ export async function runTaskPipeline(config: Config, taskId: number): Promise<v
         containerId: container.containerId,
         workingDir: container.workingDir,
         testCommand: task.test_command || testCommand,
+        coderSkillsText: formatSkills(coderSkills),
+        testerSkillsText: formatSkills(testerSkills),
       };
 
       let feedback: RetryFeedback | null = null;
