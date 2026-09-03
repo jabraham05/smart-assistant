@@ -11,14 +11,15 @@ export function registerCalculate(server: McpServer): void {
       description:
         "Evaluate a mathematical expression exactly and deterministically - addition, subtraction, " +
         "multiplication, division, exponents (^), percentages (e.g. '18%' means 0.18), and " +
-        "parentheses. Always use this for any arithmetic beyond the most trivial mental math " +
-        "(percentages, multi-step calculations, ratios) instead of computing the answer yourself - " +
-        "language models are not reliable at multi-step arithmetic even when confident, and getting " +
-        "a real number wrong (a body-fat calculation, a calorie target, a budget) can genuinely " +
-        "mislead the user. Pass one self-contained expression, e.g. '160 * 0.18' or " +
-        "'131.2 / (1 - 0.10)' or '160 * (1 - 18%)'. For a multi-step problem, either write it as one " +
-        "expression or call this multiple times, once per step - never finish the last step in your " +
-        "head.",
+        "parentheses. ALWAYS use this tool for ANY arithmetic, no matter how simple it looks - never " +
+        "compute a numeric result yourself, not even a single simple operation. There is no such " +
+        "thing as 'too trivial to bother' - language models (including you) are not reliable at " +
+        "arithmetic, and that unreliability applies to simple-looking calculations too, not just " +
+        "complex ones. Getting a real number wrong (a body-fat calculation, a calorie target, a " +
+        "budget) can genuinely mislead the user. Pass one self-contained expression, e.g. " +
+        "'160 * 0.18' or '131.2 / (1 - 0.10)' or '160 * (1 - 18%)'. For a multi-step problem, either " +
+        "write it as one expression or call this multiple times, once per step - never finish the " +
+        "last step in your head.",
       inputSchema: {
         expression: z
           .string()
