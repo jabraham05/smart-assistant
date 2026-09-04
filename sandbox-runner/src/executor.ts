@@ -61,15 +61,50 @@ function demuxLogs(buffer: Buffer): { stdout: string; stderr: string } {
   return { stdout, stderr };
 }
 
-// Shared container lifecycle: create -> start -> wait (with a hard
-// timeout) -> capture logs -> always remove, regardless of outcome. Both
-// runInSandbox (read-only test execution) and proposePullRequest's push
-// step (the only place this service ever writes anything) go through
-// this same disposable-container path - same security posture either
-// way (no docker.sock, non-root, isolated network, resource caps).
+// Builds a minimal single-file POSIX ustar archive so a file's content can
+// be written into a container via putArchive (Docker's `docker cp`
+// equivalent) instead of a shell command argument or env var - neither of
+// which have a defined size limit that's safe for an arbitrary unified
+// diff (a real diff touching a generated file like package-lock.json
+// routinely runs to hundreds of KB, well past the kernel's ARG_MAX for a
+// single exec - see the PATCH_B64 history this replaces).
+function buildSingleFileTar(archivePath: string, content: Buffer): Buffer {
+  const HEADER_SIZE = 512;
+  const header = Buffer.alloc(HEADER_SIZE);
+
+  const writeOctal = (value: number, offset: number, length: number) => {
+    header.write(value.toString(8).padStart(length - 1, "0") + "\0", offset, length, "utf8");
+  };
+
+  header.write(archivePath, 0, 100, "utf8"); // name
+  writeOctal(0o644, 100, 8); // mode
+  writeOctal(0, 108, 8); // uid
+  writeOctal(0, 116, 8); // gid
+  writeOctal(content.length, 124, 12); // size
+  writeOctal(Math.floor(Date.now() / 1000), 136, 12); // mtime
+  header.write("        ", 148, 8, "utf8"); // checksum placeholder (8 spaces) while summing below
+  header.write("0", 156, 1, "utf8"); // typeflag: regular file
+  header.write("ustar", 257, 6, "utf8"); // magic ("ustar\0", trailing NUL from Buffer.alloc)
+  header.write("00", 263, 2, "utf8"); // version
+
+  let checksum = 0;
+  for (const byte of header) checksum += byte;
+  header.write(checksum.toString(8).padStart(6, "0") + "\0 ", 148, 8, "utf8");
+
+  const padding = (HEADER_SIZE - (content.length % HEADER_SIZE)) % HEADER_SIZE;
+  return Buffer.concat([header, content, Buffer.alloc(padding), Buffer.alloc(HEADER_SIZE * 2)]);
+}
+
+// Shared container lifecycle: create -> write any files -> start -> wait
+// (with a hard timeout) -> capture logs -> always remove, regardless of
+// outcome. Both runInSandbox (read-only test execution) and
+// proposePullRequest's push step (the only place this service ever writes
+// anything) go through this same disposable-container path - same
+// security posture either way (no docker.sock, non-root, isolated
+// network, resource caps).
 async function runEphemeralContainer(
   config: Config,
-  opts: { cmd: string; env: string[]; timeoutSeconds?: number },
+  opts: { cmd: string; env: string[]; files?: { path: string; content: string }[]; timeoutSeconds?: number },
 ): Promise<ExecuteResult> {
   const docker = new Docker({ socketPath: config.dockerSocketPath });
   const startTime = Date.now();
@@ -94,6 +129,14 @@ async function runEphemeralContainer(
   const timeoutMs = (opts.timeoutSeconds ?? config.defaultTimeoutSeconds) * 1000;
 
   try {
+    // Written before start, same as `docker cp` into a stopped container -
+    // no size limit tied to exec/env, unlike everything else this
+    // container's Cmd could otherwise receive its input through.
+    for (const file of opts.files ?? []) {
+      const tar = buildSingleFileTar(file.path, Buffer.from(file.content, "utf8"));
+      await container.putArchive(tar, { path: "/" });
+    }
+
     await container.start();
 
     const waitPromise = container.wait();
@@ -144,8 +187,7 @@ async function runEphemeralContainer(
 const RUN_SCRIPT = `set -o pipefail
 git clone --depth 1 --branch "$REF" "$REPO_URL" /work/repo
 cd /work/repo || exit 1
-if [ -n "$PATCH_B64" ]; then
-  echo "$PATCH_B64" | base64 -d > /tmp/patch.diff
+if [ -f /tmp/patch.diff ]; then
   patch -p1 --fuzz=3 --no-backup-if-mismatch < /tmp/patch.diff
   PATCH_EXIT_CODE=$?
   echo "PATCH_APPLY_EXIT_CODE:$PATCH_EXIT_CODE" >&2
@@ -182,12 +224,8 @@ export async function runInSandbox(config: Config, req: ExecuteRequest): Promise
 
   const result = await runEphemeralContainer(config, {
     cmd: RUN_SCRIPT,
-    env: [
-      `REPO_URL=${cloneUrl}`,
-      `REF=${req.ref ?? "main"}`,
-      `TEST_COMMAND=${req.testCommand}`,
-      ...(req.patch ? [`PATCH_B64=${Buffer.from(req.patch, "utf8").toString("base64")}`] : []),
-    ],
+    env: [`REPO_URL=${cloneUrl}`, `REF=${req.ref ?? "main"}`, `TEST_COMMAND=${req.testCommand}`],
+    files: req.patch ? [{ path: "tmp/patch.diff", content: req.patch }] : [],
     timeoutSeconds: req.timeoutSeconds,
   });
 
@@ -212,7 +250,6 @@ const PUSH_SCRIPT = `set -o pipefail
 git clone --branch "$BASE_REF" "$PUSH_URL" /work/repo
 cd /work/repo || exit 1
 git checkout -b "$BRANCH_NAME"
-echo "$PATCH_B64" | base64 -d > /tmp/patch.diff
 patch -p1 --fuzz=3 --no-backup-if-mismatch < /tmp/patch.diff
 PATCH_EXIT_CODE=$?
 echo "PATCH_APPLY_EXIT_CODE:$PATCH_EXIT_CODE" >&2
@@ -263,11 +300,11 @@ export async function proposePullRequest(
       `PUSH_URL=${pushUrl}`,
       `BASE_REF=${req.baseRef ?? "main"}`,
       `BRANCH_NAME=${req.branchName}`,
-      `PATCH_B64=${Buffer.from(req.patch, "utf8").toString("base64")}`,
       `GIT_AUTHOR_NAME=${config.gitAuthorName}`,
       `GIT_AUTHOR_EMAIL=${config.gitAuthorEmail}`,
       `COMMIT_MESSAGE=${req.commitMessage}`,
     ],
+    files: [{ path: "tmp/patch.diff", content: req.patch }],
   });
 
   // The push URL (with the embedded token) can appear in git's own error
