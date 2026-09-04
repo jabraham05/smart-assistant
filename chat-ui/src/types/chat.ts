@@ -4,6 +4,13 @@ export interface ChatMessage {
   content: string;
   steps?: StepEvent[];
   rawEvents?: N8nStreamEvent[];
+  // True when the AI Agent's stream ended with zero tokens (a known,
+  // documented reliability gap - see README's tool-calling gotcha section).
+  // The fallback chain still corrects Honcho/Postgres memory for future
+  // turns, but the streaming response has already closed by the time it
+  // runs, so this turn's reply is genuinely empty - flagged here so the UI
+  // can show something instead of a blank bubble.
+  isEmpty?: boolean;
 }
 
 export interface ChatRequest {
