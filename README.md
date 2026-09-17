@@ -235,8 +235,10 @@ prototype's shape held up unchanged.
   [`docs/event-bus-and-goals.md`](docs/event-bus-and-goals.md).
 - Documentation for `event-bus/src/calendar-watch.ts` (the calendar
   poll-and-diff watcher) — a known gap, not a sign it's unused.
-- Automated test suites for any service (`event-bus`, `coding-orchestrator`,
-  `sandbox-runner`, `skills-mcp`, `chat-ui`, `discord-bot`) — every
-  "verified" claim across `docs/` is manual/live testing against the real
-  stack, not an automated test. Next planned piece of work, one service at
-  a time.
+- Automated test suites for most services. `event-bus` has a first one now
+  (`classify.ts`/`goal-matching.ts`'s pure logic, via Node's built-in test
+  runner — see [`docs/event-bus-and-goals.md`](docs/event-bus-and-goals.md))
+  but `coding-orchestrator`, `sandbox-runner`, `skills-mcp`, `chat-ui`, and
+  `discord-bot` still have none — every "verified" claim for those is
+  manual/live testing against the real stack. Next planned piece of work,
+  one service at a time.

@@ -101,3 +101,24 @@ instead of one hardcoded string for everyone.
 calendar poll-and-diff watcher, `CALENDAR_REMINDER_LEAD_MINUTES`/
 `CALENDAR_POLL_LOOKAHEAD_HOURS`) shares this service but doesn't have a
 write-up yet — a known gap, not a sign it's unused.
+
+**2026-09-17 — first real automated tests in this project, not just manual
+verification.** Every "verified" claim above (and across every other
+`docs/*.md` file) was manual/live testing against the real stack — no
+service in this project had a test suite at all until now. Started here
+since `classify.ts`/`goal-matching.ts` are the two genuinely pure,
+dependency-free pieces of logic anywhere in the project (per the "no LLM,
+no I/O" note above), making them the cheapest place to get real unit-test
+coverage. `goal-matching.ts`'s matching logic was inlined directly into
+`matchEventToGoals` alongside its Postgres calls, with no pure function to
+test in isolation — extracted `matchKeywords(goal, event): string[]` as a
+small, testability-motivated refactor (`matchEventToGoals` is now a thin
+wrapper that calls it, then does the DB writes). Uses Node's built-in test
+runner (`node --import tsx --test src/*.test.ts`, `npm test`) — no new
+dependency, since Node 22 (already required) ships it natively.
+`tsconfig.json` excludes `*.test.ts` from the production build so test
+files never end up in the Docker image's `dist/`. Deliberately narrow
+scope for this first pass: `work-level.ts` (real Postgres queries) and the
+`/idle-reflection-*`/`/goals/*` routes (real DB + HTTP) still have no
+automated coverage — next candidates, once a pattern for testing
+DB-touching code in this project exists.
