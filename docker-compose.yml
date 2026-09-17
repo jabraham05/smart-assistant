@@ -171,9 +171,16 @@ services:
       # session. All three optional — clear error at call time if unset.
       # See README's Research workflow section for the one-time research
       # database + pgvector setup these depend on.
+      # TODO(knowledge-engine cutover): remove once research-task.ts/
+      # research-task-status.ts/research-search.ts are rewritten to call
+      # KNOWLEDGE_ENGINE_URL directly instead of these webhooks.
       RESEARCH_TASK_WEBHOOK_URL: ${RESEARCH_TASK_WEBHOOK_URL}
       RESEARCH_TASK_STATUS_WEBHOOK_URL: ${RESEARCH_TASK_STATUS_WEBHOOK_URL}
       RESEARCH_SEARCH_WEBHOOK_URL: ${RESEARCH_SEARCH_WEBHOOK_URL}
+      # knowledge_search/knowledge_ingest talk to knowledge-engine directly
+      # (not through an n8n webhook) — always-on internal infra, same tier
+      # as SANDBOX_RUNNER_URL/EVENT_BUS_URL above, no config-missing path.
+      KNOWLEDGE_ENGINE_URL: http://knowledge-engine:3005
     networks: [assistant-net]
 
   # Docker-outside-of-Docker sandbox: spins up a fresh, disposable container
@@ -267,6 +274,27 @@ services:
       IDLE_REFLECTION_MIN_HOURS: ${IDLE_REFLECTION_MIN_HOURS:-4}
       IDLE_REFLECTION_MESSAGE_MIN_HOURS: ${IDLE_REFLECTION_MESSAGE_MIN_HOURS:-24}
     depends_on: [postgres]
+    networks: [assistant-net]
+
+  # Owns document ingestion, chunking, embedding, hybrid retrieval, and the
+  # research agent - replacing research_pipeline (see
+  # docs/knowledge-engine.md). Reuses the existing `research` Postgres
+  # database (pgvector already installed there) rather than provisioning a
+  # new one. Internal-only, no published port; skills-mcp and n8n reach it
+  # directly at http://knowledge-engine:3005, same pattern as goal_manage ->
+  # event-bus (no n8n proxy workflow for this one).
+  knowledge-engine:
+    build:
+      context: ./knowledge-engine
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "3005"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      RESEARCH_DB_NAME: ${RESEARCH_DB_NAME:-research}
+      OLLAMA_HOST: http://ollama:11434
+      KNOWLEDGE_EMBEDDING_MODEL: ${KNOWLEDGE_EMBEDDING_MODEL:-nomic-embed-text}
+    depends_on: [postgres, ollama]
     networks: [assistant-net]
 
   # Self-hosted Home Assistant, phone-presence-only for now (see README's
