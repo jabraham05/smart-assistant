@@ -1,0 +1,26 @@
+
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+# Publishes presence changes to event-bus's generic POST /events (see
+# automations.yaml) - event-bus reaches HA over assistant-net, HA reaches
+# event-bus the same way, no published port needed on either side.
+rest_command:
+  notify_event_bus_arrived_home:
+    url: "http://event-bus:3004/events"
+    method: POST
+    content_type: "application/json"
+    payload: '{"source": "home_assistant", "type": "arrived_home"}'
+  notify_event_bus_left_home:
+    url: "http://event-bus:3004/events"
+    method: POST
+    content_type: "application/json"
+    payload: '{"source": "home_assistant", "type": "left_home"}'

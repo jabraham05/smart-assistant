@@ -5,3 +5,15 @@ skills-mcp/secrets/google-calendar-key.json
 .claude/
 .DS_Store
 Thumbs.db
+
+# Home Assistant runtime state - configuration.yaml/automations.yaml/
+# scripts.yaml/scenes.yaml/secrets.yaml/blueprints stay tracked, everything
+# else here is live instance state (auth tokens, device registry, logs, db).
+homeassistant/config/.storage/
+homeassistant/config/.cache/
+homeassistant/config/.HA_VERSION
+homeassistant/config/.ha_run.lock
+homeassistant/config/*.log
+homeassistant/config/*.log.*
+homeassistant/config/*.db
+homeassistant/config/*.db-*

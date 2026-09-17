@@ -1,0 +1,23 @@
+- id: "presence_arrived_home"
+  alias: "Notify event-bus: arrived home"
+  description: "Publishes a home_assistant.arrived_home event when John's phone enters the home zone."
+  trigger:
+    - platform: state
+      entity_id: person.john_abraham
+      to: "home"
+  condition: []
+  action:
+    - service: rest_command.notify_event_bus_arrived_home
+  mode: single
+
+- id: "presence_left_home"
+  alias: "Notify event-bus: left home"
+  description: "Publishes a home_assistant.left_home event when John's phone leaves the home zone."
+  trigger:
+    - platform: state
+      entity_id: person.john_abraham
+      from: "home"
+  condition: []
+  action:
+    - service: rest_command.notify_event_bus_left_home
+  mode: single

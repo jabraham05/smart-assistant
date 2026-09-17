@@ -269,6 +269,26 @@ services:
     depends_on: [postgres]
     networks: [assistant-net]
 
+  # Self-hosted Home Assistant, phone-presence-only for now (see README's
+  # "Home Assistant + presence" section). No new backend service needed on
+  # this side to consume it — HA's own Automations POST zone enter/leave
+  # events straight into event-bus's generic POST /events over
+  # assistant-net, the same endpoint chat/coding-orchestrator already use.
+  # Bind-mounted (not a named volume) so configuration.yaml/automations
+  # can be edited directly from the host, same convention as
+  # ./postgres/init. Docker Desktop on Windows doesn't support
+  # network_mode: host (HA's recommended mode for full mDNS device
+  # discovery) - irrelevant for presence-only scope since the companion
+  # app connects via a manually-entered URL, not discovery.
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./homeassistant/config:/config
+    networks: [assistant-net]
+
   chat-ui:
     build:
       context: ./chat-ui
