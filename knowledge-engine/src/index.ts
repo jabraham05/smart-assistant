@@ -1,12 +1,15 @@
 import express from "express";
 import { loadConfig } from "./config.js";
 import { checkSchema } from "./db.js";
-import { ingestText } from "./engine/ingest.js";
+import { ingestDocument } from "./engine/ingest.js";
 
 const config = loadConfig(process.env);
 
 const app = express();
-app.use(express.json({ limit: "10mb" }));
+// Generous limit: a base64-encoded PDF manual sent via /documents/ingest
+// runs well past express's 100kb default (a real multi-hundred-page manual,
+// base64-inflated ~33%, can land in the tens of MB).
+app.use(express.json({ limit: "150mb" }));
 
 // Phase 0 checkpoint: proves the service connects to the real `research`
 // database and the tables from 08-create-knowledge-tables.sql exist, not
@@ -21,13 +24,15 @@ app.get("/health", async (_req, res) => {
   }
 });
 
-// POST /documents/ingest - direct knowledge ingestion (remember()). Phase
-// 1a: text/URL only, PDF comes in Phase 1b via scripts/ingest-document.mjs.
+// POST /documents/ingest - direct knowledge ingestion (remember()).
+// text/url/pdf. Local-file PDF ingestion is CLI-only via
+// scripts/ingest-document.mjs, since no upload channel exists in chat-ui.
 app.post("/documents/ingest", async (req, res) => {
   const body = req.body as {
-    sourceType?: "text" | "url";
+    sourceType?: "text" | "url" | "pdf";
     text?: string;
     url?: string;
+    pdfBase64?: string;
     title?: string;
     domain?: string;
     metadata?: Record<string, unknown>;
@@ -35,15 +40,16 @@ app.post("/documents/ingest", async (req, res) => {
     originSessionId?: string;
   };
 
-  if (body.sourceType !== "text" && body.sourceType !== "url") {
-    return res.status(400).json({ error: "sourceType must be 'text' or 'url'" });
+  if (body.sourceType !== "text" && body.sourceType !== "url" && body.sourceType !== "pdf") {
+    return res.status(400).json({ error: "sourceType must be 'text', 'url', or 'pdf'" });
   }
 
   try {
-    const result = await ingestText(config, {
+    const result = await ingestDocument(config, {
       sourceType: body.sourceType,
       text: body.text,
       url: body.url,
+      pdfBase64: body.pdfBase64,
       title: body.title,
       domain: body.domain,
       metadata: body.metadata,
