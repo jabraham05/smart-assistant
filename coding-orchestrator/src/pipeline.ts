@@ -2,7 +2,7 @@ import type { Config } from "./config.js";
 import * as db from "./db.js";
 import * as sandbox from "./sandbox-client.js";
 import { ollamaChat, parseJsonContent } from "./ollama.js";
-import { runAgentLoop, type AgentTool } from "./agent-loop.js";
+import { runAgentLoop, truncateToolResult, type AgentTool } from "./agent-loop.js";
 import { notifyOrigin } from "./notify.js";
 import { TEMPLATE_NAMES, validateTemplate } from "./templates.js";
 
@@ -99,7 +99,7 @@ function agentTools(
           const preview = (result.stderr || result.stdout || "").replace(/\s+/g, " ").slice(0, 400);
           console.log(`task=${taskId} run_command failed (exit ${result.exitCode}): ${preview}`);
         }
-        return `exit code: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}\n\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`;
+        return `exit code: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}\n\nstdout:\n${truncateToolResult(result.stdout)}\n\nstderr:\n${truncateToolResult(result.stderr)}`;
       },
     },
     {

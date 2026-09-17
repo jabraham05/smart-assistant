@@ -37,7 +37,7 @@ export interface OllamaChatOptions {
 // every tool call/result into the message history across up to 25
 // iterations, a real, observed contributor to empty-output failures when
 // the effective context runs out mid-loop.
-const DEFAULT_NUM_CTX = 16384;
+export const DEFAULT_NUM_CTX = 16384;
 
 export interface OllamaChatResult {
   message: OllamaMessage;

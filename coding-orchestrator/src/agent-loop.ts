@@ -1,4 +1,4 @@
-import { ollamaChat, type OllamaMessage, type OllamaTool } from "./ollama.js";
+import { DEFAULT_NUM_CTX, ollamaChat, type OllamaMessage, type OllamaTool } from "./ollama.js";
 
 export interface AgentTool {
   name: string;
@@ -18,6 +18,11 @@ export interface AgentLoopOptions {
   // e.g. "coder task=13". Optional so existing/future callers aren't forced
   // to supply one; logging just gets less specific without it.
   label?: string;
+  // Must match whatever num_ctx the caller actually requests from Ollama
+  // (defaults to the same DEFAULT_NUM_CTX ollamaChat itself falls back to)
+  // - trimHistoryToBudget below sizes its trim threshold off of this, so a
+  // mismatch here would make it trim against the wrong window size.
+  numCtx?: number;
 }
 
 export interface AgentLoopResult {
@@ -28,6 +33,80 @@ export interface AgentLoopResult {
   // replacement for n8n's "Max iterations (N) reached" agent-node error,
   // now a distinguishable, typed outcome instead of a thrown exception.
   exhaustedIterations: boolean;
+}
+
+// Caps a single tool result before it ever enters the message history - one
+// `run_command` call (a full test run, a `cat` of a large file) can return
+// tens of KB on its own, which alone can eat a large fraction of the context
+// budget in a single iteration regardless of how much history trimming
+// below does. Keeps head and tail rather than just the head: the command
+// that ran is obvious from the start, but the actual error is usually at
+// the end of stdout/stderr, not the beginning.
+export function truncateToolResult(text: string, maxChars = 4000): string {
+  if (text.length <= maxChars) return text;
+  const headChars = Math.floor(maxChars * 0.6);
+  const tailChars = maxChars - headChars;
+  return (
+    text.slice(0, headChars) +
+    `\n... [truncated ${text.length - maxChars} chars] ...\n` +
+    text.slice(text.length - tailChars)
+  );
+}
+
+// No tokenizer available here for an arbitrary Ollama model, so this is a
+// deliberately conservative chars-per-token estimate - trimming should kick
+// in before the model actually runs out of context, not after.
+const CHARS_PER_TOKEN_ESTIMATE = 4;
+
+function estimateChars(messages: OllamaMessage[]): number {
+  return messages.reduce((sum, m) => sum + m.content.length, 0);
+}
+
+// Drops the oldest assistant/tool exchanges once the running history
+// threatens to exceed the model's context window, replacing them with one
+// short marker instead of just letting the model silently lose context mid-
+// task. messages[0] (system) and messages[1] (the original task/plan) are
+// never dropped - losing the actual task description partway through a
+// 25-iteration loop would be far worse than losing an old tool result. This
+// is the direct fix for the "empty output near context exhaustion" failure
+// ollama.ts's DEFAULT_NUM_CTX comment already documents as a real, observed
+// cause, rather than just detecting/logging it after the fact as the rest
+// of this file's error paths do.
+function trimHistoryToBudget(messages: OllamaMessage[], numCtx: number): OllamaMessage[] {
+  // 0.6 leaves room for the tool schemas sent alongside every request and
+  // for the model's own reply, neither of which counts against this total.
+  const budgetChars = numCtx * CHARS_PER_TOKEN_ESTIMATE * 0.6;
+  if (messages.length <= 4 || estimateChars(messages) <= budgetChars) return messages;
+
+  const head = messages.slice(0, 2);
+  const tail = messages.slice(2);
+  let droppedCount = 0;
+
+  // Each dropped "exchange" is one assistant message (its tool_calls) plus
+  // every tool-result message that immediately followed it - shifting until
+  // the next non-tool message keeps a dangling tool result from ever being
+  // left with no matching assistant call in front of it.
+  while (tail.length > 2 && estimateChars([...head, ...tail]) > budgetChars) {
+    tail.shift();
+    droppedCount++;
+    while (tail.length > 0 && tail[0].role === "tool") {
+      tail.shift();
+      droppedCount++;
+    }
+  }
+
+  if (droppedCount === 0) return messages;
+  return [
+    ...head,
+    {
+      role: "user",
+      content:
+        `[${droppedCount} earlier tool call(s)/result(s) omitted to stay within context. The work ` +
+        "already done from them is still applied in the container - it is not repeated here, just no " +
+        "longer shown.]",
+    },
+    ...tail,
+  ];
 }
 
 // Short, single-line summary of a tool call for per-iteration tracing -
@@ -56,16 +135,19 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     function: { name: t.name, description: t.description, parameters: t.parameters },
   }));
 
-  const messages: OllamaMessage[] = [
+  const numCtx = options.numCtx ?? DEFAULT_NUM_CTX;
+  let messages: OllamaMessage[] = [
     { role: "system", content: options.systemPrompt },
     { role: "user", content: options.userPrompt },
   ];
 
   for (let iteration = 1; iteration <= options.maxIterations; iteration++) {
+    messages = trimHistoryToBudget(messages, numCtx);
     const { message } = await ollamaChat(options.ollamaHost, {
       model: options.model,
       messages,
       tools: ollamaTools,
+      numCtx,
     });
 
     const toolCalls = message.tool_calls ?? [];

@@ -1317,6 +1317,15 @@ One real n8n internals gotcha hit during cutover: `n8n unpublish:workflow` deact
 
 **Verified live end-to-end**, in order: a standalone spike confirmed Ollama tool-calling works via raw HTTP; a task run directly against `coding-orchestrator` (bypassing n8n) completed successfully first try with a clean structured log and no leaked container; a second run exercised *both* the Reviewer-rejection retry and a genuine Coder-round failure retry in the same run (unified through the one shared loop), still correctly cleaned up its container and notified the origin session on the eventual honest give-up; the full webhook path (`skills-mcp` → n8n proxy → `coding-orchestrator`) round-tripped correctly for both submit and status; and a final clean run went all the way through two real attempts to `approve` and opened a genuine PR (`github.com/jabraham05/coding_tasks/pull/4`), with the origin-session notify message landing correctly. One tuning fix along the way: the default Ollama call timeout (120s) turned out too tight for real GPU contention when testing several tasks concurrently (a `qwen3:8b`/`qwen3:14b` model swap under load can plausibly exceed that) — raised to 240s; even while that was mistuned, the resulting abort was caught cleanly by the outer `try/catch/finally` and reported honestly rather than crashing silently, which was the entire point of the rewrite.
 
+### 2026-09-03 — trimming `agent-loop.ts`'s message history to the model's actual context budget
+
+`agent-loop.ts` (the Coder/Tester tool-calling loop from the rewrite above) accumulates every tool call and result into one growing message array across up to 25 iterations — exactly the mechanism `ollama.ts`'s `DEFAULT_NUM_CTX` (16384) comment already flags as a real, observed contributor to empty-output failures once the effective context runs out mid-loop. Two fixes, both deliberately conservative (no tokenizer available for an arbitrary Ollama model, so chars-per-token is estimated at a generous 4:1):
+
+- `truncateToolResult` caps any single tool result (a full test run, a `cat` of a large file) at 4000 chars before it ever enters history, keeping the head and tail rather than just the head — the command that ran is obvious from the start, the actual error is usually at the end.
+- `trimHistoryToBudget` runs once per iteration and, once the running history threatens to exceed `numCtx`, drops the oldest assistant/tool-result exchanges (never the system prompt or the original task, `messages[0]`/`messages[1]`) and replaces them with a one-line marker noting how many were omitted — the work already applied in the container isn't repeated, just no longer shown.
+
+`numCtx` is now an explicit `AgentLoopOptions` field (defaulting to `ollama.ts`'s own now-exported `DEFAULT_NUM_CTX`) so the trim threshold can't silently drift out of sync with whatever context window is actually requested from Ollama.
+
 ## Smart-mirror dashboard (Raspberry Pi)
 
 A second physical client: a Raspberry Pi with a display, running its own
