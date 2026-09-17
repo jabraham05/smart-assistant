@@ -1,0 +1,399 @@
+{
+  "config": {
+    "models": [
+      "qwen3:8b",
+      "qwen2.5-coder:7b",
+      "llama3-groq-tool-use:8b"
+    ],
+    "reps": 3,
+    "think": false
+  },
+  "results": [
+    {
+      "model": "qwen3:8b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\",\"unit\":\"celsius\"})",
+          "ttftMs": 467.4287999999997,
+          "totalMs": 485.7650999999996
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 402.1784000000007,
+          "totalMs": 420.54359999999997
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 377.3900000000003,
+          "totalMs": 395.3655000000008
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"latest news on the Mars Perseverance rover\"})",
+          "ttftMs": 429.3637000000008,
+          "totalMs": 447.3191000000006
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"time\":\"tomorrow at 5pm\",\"text\":\"Call mom\"})",
+          "ttftMs": 455.6975999999995,
+          "totalMs": 473.9435999999996
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 175.8785000000007,
+          "totalMs": 189.57780000000002
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 195.29939999999988,
+          "totalMs": 219.08469999999943
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 188.32360000000153,
+          "totalMs": 207.89720000000125
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 179.83539999999994,
+          "totalMs": 212.58170000000064
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "8",
+          "ttftMs": 177.34209999999985,
+          "totalMs": 189.82700000000114
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 176.54160000000047,
+          "totalMs": 190.1112000000012
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 183.45350000000144,
+          "totalMs": 196.20809999999983
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "yseressan",
+          "ttftMs": 175.5645999999997,
+          "totalMs": 217.09399999999914
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 177.74169999999867,
+          "totalMs": 692.4009999999998,
+          "tokensPerSec": 108.44138743009404,
+          "evalCount": 56
+        },
+        {
+          "ttftMs": 176.04240000000027,
+          "totalMs": 665.3583999999992,
+          "tokensPerSec": 110.3243126182411,
+          "evalCount": 54
+        },
+        {
+          "ttftMs": 169.02720000000045,
+          "totalMs": 657.5172999999995,
+          "tokensPerSec": 110.51148398504411,
+          "evalCount": 54
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "qwen2.5-coder:7b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 266.41049999999814,
+          "totalMs": 484.4451999999983
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 166.39580000000205,
+          "totalMs": 375.70880000000034
+        },
+        {
+          "name": "calculate",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 167.32619999999952,
+          "totalMs": 347.20170000000144
+        },
+        {
+          "name": "search",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 172.79739999999947,
+          "totalMs": 398.22239999999874
+        },
+        {
+          "name": "reminder",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 170.93870000000243,
+          "totalMs": 438.8086000000003
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 165.34660000000076,
+          "totalMs": 176.89740000000165
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 204.65209999999934,
+          "totalMs": 227.28659999999945
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40 mph",
+          "ttftMs": 176.4803000000029,
+          "totalMs": 206.71510000000126
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 173.45650000000023,
+          "totalMs": 203.17259999999806
+        },
+        {
+          "name": "word-problem",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 172.21949999999924,
+          "totalMs": 183.9385000000002
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 183.63820000000123,
+          "totalMs": 195.04089999999997
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 171.3731000000007,
+          "totalMs": 182.9284000000007
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "essecaryn",
+          "ttftMs": 165.8565000000017,
+          "totalMs": 205.95480000000316
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 172.42269999999917,
+          "totalMs": 665.2415999999976,
+          "tokensPerSec": 113.52486600011352,
+          "evalCount": 56
+        },
+        {
+          "ttftMs": 176.35009999999966,
+          "totalMs": 663.766599999999,
+          "tokensPerSec": 114.78891139115963,
+          "evalCount": 56
+        },
+        {
+          "ttftMs": 155.47060000000056,
+          "totalMs": 642.6533000000018,
+          "tokensPerSec": 114.94229281138585,
+          "evalCount": 56
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "llama3-groq-tool-use:8b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 240.8214999999982,
+          "totalMs": 702.530399999996
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 461.2949000000008,
+          "totalMs": 478.2471000000005
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 409.4759999999951,
+          "totalMs": 426.75099999999657
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"Mars Perseverance rover\"})",
+          "ttftMs": 458.14850000000297,
+          "totalMs": 474.91910000000644
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"text\":\"Call mom\",\"time\":\"tomorrow at 5pm\"})",
+          "ttftMs": 506.79470000000583,
+          "totalMs": 523.5903000000035
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 217.02150000000256,
+          "totalMs": 227.73970000000554
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 222.03710000000137,
+          "totalMs": 243.8824999999997
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 193.8451999999961,
+          "totalMs": 206.4024999999965
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 198.06899999999587,
+          "totalMs": 228.2737999999954
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "8",
+          "ttftMs": 202.70030000000406,
+          "totalMs": 215.0411000000022
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 200.6617999999944,
+          "totalMs": 212.4496999999974
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 197.70870000000286,
+          "totalMs": 207.3136999999988
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "yrracseni",
+          "ttftMs": 195.83140000000276,
+          "totalMs": 241.24180000000342
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 184.8726999999999,
+          "totalMs": 766.6917999999932,
+          "tokensPerSec": 116.85916923441778,
+          "evalCount": 68
+        },
+        {
+          "ttftMs": 186.32130000000325,
+          "totalMs": 760.7093000000023,
+          "tokensPerSec": 118.30201809324983,
+          "evalCount": 68
+        },
+        {
+          "ttftMs": 195.56790000000183,
+          "totalMs": 768.4821000000011,
+          "tokensPerSec": 118.59913492395702,
+          "evalCount": 68
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "summaries": [
+    {
+      "model": "qwen3:8b",
+      "toolAccuracyPct": 100,
+      "generalAccuracyPct": 71.4,
+      "avgTtftMs": "174",
+      "avgTotalMs": "672",
+      "avgTokensPerSec": "109.8",
+      "errors": 0
+    },
+    {
+      "model": "qwen2.5-coder:7b",
+      "toolAccuracyPct": 16.7,
+      "generalAccuracyPct": 85.7,
+      "avgTtftMs": "168",
+      "avgTotalMs": "657",
+      "avgTokensPerSec": "114.4",
+      "errors": 0
+    },
+    {
+      "model": "llama3-groq-tool-use:8b",
+      "toolAccuracyPct": 83.3,
+      "generalAccuracyPct": 71.4,
+      "avgTtftMs": "189",
+      "avgTotalMs": "765",
+      "avgTokensPerSec": "117.9",
+      "errors": 0
+    }
+  ]
+}
