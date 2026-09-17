@@ -1326,6 +1326,10 @@ One real n8n internals gotcha hit during cutover: `n8n unpublish:workflow` deact
 
 `numCtx` is now an explicit `AgentLoopOptions` field (defaulting to `ollama.ts`'s own now-exported `DEFAULT_NUM_CTX`) so the trim threshold can't silently drift out of sync with whatever context window is actually requested from Ollama.
 
+### 2026-09-04 — replacing `PATCH_B64` with a tar-based file write, for diffs too large for `ARG_MAX`
+
+Both of `sandbox-runner`'s scripted container paths (`RUN_SCRIPT`'s test execution, `PUSH_SCRIPT`'s PR-proposal push) used to pass the unified diff into the container as a base64-encoded environment variable (`PATCH_B64`), decoded back to a file inside the script. That has no size limit that's actually safe — a real diff touching a generated file like `package-lock.json` routinely runs to hundreds of KB, well past the kernel's `ARG_MAX` for a single `exec`. Replaced with `buildSingleFileTar` — a minimal single-file POSIX ustar archive written into the (not-yet-started) container via dockerode's `putArchive` (the `docker cp` equivalent), the same "bypass shell/exec argument parsing entirely" approach the `write_file` tool above already established. `runEphemeralContainer` now takes an optional `files` list, written before `container.start()`; both `RUN_SCRIPT` and `PUSH_SCRIPT` simplified to just check `[ -f /tmp/patch.diff ]` instead of decoding an env var.
+
 ## Smart-mirror dashboard (Raspberry Pi)
 
 A second physical client: a Raspberry Pi with a display, running its own
