@@ -2,6 +2,7 @@ import express from "express";
 import { loadConfig } from "./config.js";
 import { checkSchema } from "./db.js";
 import { ingestDocument } from "./engine/ingest.js";
+import { search } from "./engine/search.js";
 
 const config = loadConfig(process.env);
 
@@ -59,6 +60,36 @@ app.post("/documents/ingest", async (req, res) => {
     res.status(201).json(result);
   } catch (e) {
     console.error("failed to ingest document:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /search - hybrid retrieval (vector + keyword via Reciprocal Rank
+// Fusion) with first-class citations per result.
+app.post("/search", async (req, res) => {
+  const body = req.body as {
+    query?: string;
+    domain?: string;
+    metadataFilter?: Record<string, unknown>;
+    includeStale?: boolean;
+    topK?: number;
+  };
+
+  if (!body.query || typeof body.query !== "string") {
+    return res.status(400).json({ error: "query is required" });
+  }
+
+  try {
+    const results = await search(config, {
+      query: body.query,
+      domain: body.domain,
+      metadataFilter: body.metadataFilter,
+      includeStale: body.includeStale,
+      topK: body.topK,
+    });
+    res.json({ results });
+  } catch (e) {
+    console.error("failed to search:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

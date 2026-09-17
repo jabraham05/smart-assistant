@@ -177,4 +177,87 @@ export interface ChunkSearchRow {
   domain: string | null;
   source_url: string | null;
   source_title: string | null;
+  rrf_score: number;
+}
+
+export interface HybridSearchOptions {
+  queryEmbedding: number[];
+  queryText: string;
+  domain?: string;
+  metadataFilter?: Record<string, unknown>;
+  includeStale?: boolean;
+  topK?: number;
+}
+
+// Reciprocal Rank Fusion (constant k=60, the standard default from the
+// original RRF paper) combining vector cosine and keyword (ts_rank)
+// ranking, rather than a weighted sum of the two raw scores - cosine
+// similarity and ts_rank live on incomparable scales, so fusing by rank
+// position avoids needing hand-tuned weights entirely. Metadata/domain/
+// freshness filters are a hard WHERE pre-filter applied identically to both
+// candidate lists, not part of the ranking itself.
+export async function hybridSearchChunks(config: Config, options: HybridSearchOptions): Promise<ChunkSearchRow[]> {
+  const topK = options.topK ?? 5;
+  const candidateLimit = Math.max(topK * 4, 20);
+  const RRF_K = 60;
+
+  const result = await getPool(config).query<ChunkSearchRow>(
+    `WITH vector_ranked AS (
+       SELECT c.id, ROW_NUMBER() OVER (ORDER BY c.embedding <=> $1::vector) AS rank
+       FROM chunks c
+       JOIN documents d ON d.id = c.document_id
+       WHERE d.status = 'complete'
+         AND ($2::text IS NULL OR d.domain = $2)
+         AND d.metadata @> $3::jsonb
+         AND ($5::boolean OR d.valid_until IS NULL OR d.valid_until > now())
+       ORDER BY c.embedding <=> $1::vector
+       LIMIT $6
+     ),
+     keyword_ranked AS (
+       SELECT c.id, ROW_NUMBER() OVER (ORDER BY ts_rank(c.content_tsv, plainto_tsquery('english', $4)) DESC) AS rank
+       FROM chunks c
+       JOIN documents d ON d.id = c.document_id
+       WHERE d.status = 'complete'
+         AND ($2::text IS NULL OR d.domain = $2)
+         AND d.metadata @> $3::jsonb
+         AND ($5::boolean OR d.valid_until IS NULL OR d.valid_until > now())
+         AND c.content_tsv @@ plainto_tsquery('english', $4)
+       ORDER BY ts_rank(c.content_tsv, plainto_tsquery('english', $4)) DESC
+       LIMIT $6
+     ),
+     combined AS (
+       SELECT id, SUM(1.0 / ($7 + rank)) AS rrf_score
+       FROM (SELECT * FROM vector_ranked UNION ALL SELECT * FROM keyword_ranked) all_ranked
+       GROUP BY id
+     )
+     SELECT
+       c.id AS chunk_id,
+       c.content,
+       c.heading,
+       c.page_number,
+       c.section_path,
+       d.id AS document_id,
+       d.title AS document_title,
+       d.domain,
+       s.url AS source_url,
+       s.title AS source_title,
+       combined.rrf_score
+     FROM combined
+     JOIN chunks c ON c.id = combined.id
+     JOIN documents d ON d.id = c.document_id
+     LEFT JOIN sources s ON s.id = c.source_id
+     ORDER BY combined.rrf_score DESC
+     LIMIT $8`,
+    [
+      `[${options.queryEmbedding.join(",")}]`,
+      options.domain ?? null,
+      JSON.stringify(options.metadataFilter ?? {}),
+      options.queryText,
+      options.includeStale ?? false,
+      candidateLimit,
+      RRF_K,
+      topK,
+    ],
+  );
+  return result.rows;
 }
