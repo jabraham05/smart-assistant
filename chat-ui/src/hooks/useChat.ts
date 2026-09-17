@@ -55,6 +55,10 @@ export function useChat(sessionId: string) {
       // Agent thinking again after a tool call) becomes a new step entry
       // instead of overwriting the first.
       const openSteps = new Map<string, number>();
+      // Tracked separately from React state (which updates async via the
+      // functional setMessages below) so the post-stream check can read a
+      // definitive answer synchronously once the reader loop finishes.
+      let accumulatedContent = "";
 
       const applyEvent = (event: N8nStreamEvent) => {
         setMessages((prev) =>
@@ -83,6 +87,7 @@ export function useChat(sessionId: string) {
             if (event.type === "item") {
               // AI Agent's streamed tokens are the actual reply text.
               if (nodeName === "AI Agent" && event.content) {
+                accumulatedContent += event.content;
                 return { ...m, content: m.content + event.content, steps, rawEvents };
               }
               return { ...m, rawEvents };
@@ -162,6 +167,22 @@ export function useChat(sessionId: string) {
           } catch {
             // ignore trailing partial line
           }
+        }
+
+        // The stream can end with zero AI Agent tokens (a known, documented
+        // reliability gap - the fallback chain that corrects Honcho/Postgres
+        // memory for future turns runs *after* this response has already
+        // closed, so there's nothing left to stream this turn). Without
+        // this, the message renders as a literally blank bubble with no
+        // indication anything happened.
+        if (!accumulatedContent.trim()) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMessageId
+                ? { ...m, content: "No response was generated for that message — try asking again.", isEmpty: true }
+                : m
+            )
+          );
         }
       } finally {
         setIsSending(false);

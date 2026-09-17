@@ -2023,6 +2023,18 @@ above) — the prototype's shape held up unchanged.
   - Tools are now consumed via a `skills-mcp` MCP server (`memory_recall`,
     `weather_get`) rather than bespoke n8n HTTP Request Tool nodes — see the
     architecture section above.
+  - **2026-09-04 — a stream can end with genuinely zero `AI Agent` tokens
+    for that turn, not just garbage ones.** The safety net above corrects
+    Honcho/Postgres memory so a *future* turn stays clean, but it runs
+    after the response has already streamed and closed — it has nothing to
+    hand back for the turn currently in flight. `chat-ui` used to render
+    this as a literally blank message bubble with no indication anything
+    happened. Fixed client-side, not in n8n: `useChat.ts` tracks whether
+    any `AI Agent` content actually streamed, and if none did, overwrites
+    the bubble with a plain "No response was generated for that message —
+    try asking again." (`ChatMessage.isEmpty`, styled distinctly in
+    `MessageBubble.tsx`) — a UI-level mitigation for this same underlying
+    gap, not a fix for it.
 - **Fixed 2026-07-26 — the persona used to confabulate specific fake
   details** when a question didn't actually call for a tool it has — a
   fake meeting ("Johnson & Co"), fake traffic, or in one case a fabricated
