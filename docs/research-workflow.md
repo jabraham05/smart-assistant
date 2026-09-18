@@ -1,4 +1,10 @@
-# Research workflow (topic research, markdown synthesis, RAG recall)
+# Research workflow (topic research, markdown synthesis, RAG recall) — superseded
+
+**2026-09 — superseded by [`docs/knowledge-engine.md`](knowledge-engine.md).**
+`research_pipeline` is unpublished (kept in `n8n/workflows/` as a rollback
+reference only, never deleted) and every tool/table below has a
+replacement in the new knowledge engine. This file is kept for history —
+see `docs/knowledge-engine.md` for the current system.
 
 Part of the [Smart Assistant](../README.md) project. See
 [`docs/persona-system.md`](persona-system.md) for `web_search` (the

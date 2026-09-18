@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Config } from "../config.js";
-import { getResearchTaskStatus } from "../lib/research-workflow.js";
+import { getResearchStatus } from "../lib/knowledge-engine-client.js";
 import { errorResult, textResult } from "../types.js";
 
 // chatSessionId comes from the MCP transport layer (see server.ts's
@@ -22,7 +22,7 @@ export function registerResearchTaskStatus(server: McpServer, config: Config, ch
         return errorResult("research_task_status has no chat session in scope for this call.");
       }
       try {
-        const result = await getResearchTaskStatus(config, chatSessionId);
+        const result = await getResearchStatus(config, chatSessionId);
         if (!result.found) {
           return textResult("No research task found for this conversation.");
         }

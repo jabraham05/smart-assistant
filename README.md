@@ -42,8 +42,11 @@ eventually tested) on its own.
 - [`docs/home-assistant.md`](docs/home-assistant.md) — self-hosted Home
   Assistant, phone-presence tracking
 - [`docs/discord-bridge.md`](docs/discord-bridge.md) — Discord DM client
-- [`docs/research-workflow.md`](docs/research-workflow.md) — topic
-  research, markdown synthesis, RAG recall
+- [`docs/knowledge-engine.md`](docs/knowledge-engine.md) — document
+  ingestion, hybrid retrieval + citations, and web research (replaces the
+  old research workflow)
+- [`docs/research-workflow.md`](docs/research-workflow.md) — superseded,
+  kept for history
 - [`docs/known-gotchas.md`](docs/known-gotchas.md) — generic n8n/Docker/
   tooling gotchas not specific to any one system above
 
@@ -54,9 +57,11 @@ eventually tested) on its own.
   above). One file per system; the README stays limited to setup and this
   layout.
 - `postgres/init/` — one-time DB init scripts (creates the `n8n` database
-  and, as of `02-create-research-db.sql`, the `research` database + pgvector
-  schema for the Research workflow; runs once against an empty volume
-  only — see [`docs/research-workflow.md`](docs/research-workflow.md) for
+  and, as of `02-create-research-db.sql`, the `research` database +
+  pgvector extension; `08-create-knowledge-tables.sql` and
+  `09-add-domain-skills-table.sql` add the knowledge-engine's tables to
+  that same `research` database. Runs once against an empty volume
+  only — see [`docs/knowledge-engine.md`](docs/knowledge-engine.md) for
   the manual-migration command needed on an already-existing volume like
   this project's).
 - `n8n/workflows/` — exported workflow JSON, for history/diffing. Edit
@@ -70,14 +75,18 @@ eventually tested) on its own.
 - `skills-mcp/` — MCP server hosting agent-callable tools
   (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
   `code_task`, `spotify_control`, `dashboard_control`, `web_search`,
-  `research_task`, `research_task_status`, `research_search`, `goal_manage`,
-  `calculate`),
+  `knowledge_search`, `knowledge_ingest`, `research_task`,
+  `research_task_status`, `goal_manage`, `calculate`),
   plus internal (non-MCP) routes `/internal/dashboard-data` and
   `/internal/spotify-action` (see
   [`docs/smart-mirror-dashboard.md`](docs/smart-mirror-dashboard.md)),
   wired into `docker-compose.yml` (builds from `skills-mcp/Dockerfile`,
   internal-only, no published port). n8n's `Chat` workflow reaches it via an
   `MCP Client Tool` node.
+- `knowledge-engine/` — document ingestion, hybrid (vector + keyword)
+  retrieval with first-class citations, and web research (see
+  [`docs/knowledge-engine.md`](docs/knowledge-engine.md)); reuses the
+  `research` Postgres database, internal-only, no published port.
 - `event-bus/` — event ingestion, deterministic classification, and
   deterministic goal-matching (see
   [`docs/event-bus-and-goals.md`](docs/event-bus-and-goals.md)); its own
@@ -132,8 +141,8 @@ eventually tested) on its own.
 4. `bash scripts/pull-models.sh` — pulls `llama3.1:8b` and `nomic-embed-text`
    (`nomic-embed-text` was originally pulled for an abandoned self-hosted-Honcho
    attempt and sat unused; it's now genuinely load-bearing again, as the
-   embedding model behind the Research workflow's `research_chunks.embedding`
-   column — see [`docs/research-workflow.md`](docs/research-workflow.md)).
+   embedding model behind the knowledge engine's `chunks.embedding`
+   column — see [`docs/knowledge-engine.md`](docs/knowledge-engine.md)).
    This script is stale re: the *actual* chat model — the `Chat`
    workflow's `Ollama Chat Model` node is user-configured and has already
    moved on from `llama3.1:8b` (see
