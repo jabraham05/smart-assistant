@@ -33,7 +33,26 @@ export function registerResearchTask(server: McpServer, config: Config, chatSess
         const result = await startResearch(config, topic, { domain, originSessionId: chatSessionId });
 
         if (result.route.source === "knowledge") {
-          return textResult("Already have enough background on this in the knowledge base - use knowledge_search to see it.");
+          // Return the actual top result content inline rather than telling
+          // the model to go call knowledge_search itself - a real test run
+          // showed the model taking a "go check knowledge_search" suggestion
+          // at face value and fabricating a "done" reply without ever making
+          // that second call. Returning the real content here removes the
+          // need for a second tool call (and the reliability gap) entirely.
+          const top = result.knowledgeResults.slice(0, 2);
+          if (top.length === 0) {
+            return textResult(
+              "Already have enough background on this in the knowledge base, but no specific passages came back - try knowledge_search directly.",
+            );
+          }
+          const excerpts = top
+            .map((r) => {
+              const location = [r.documentTitle, r.pageNumber ? `page ${r.pageNumber}` : null].filter(Boolean).join(", ");
+              const content = r.content.length > 1500 ? `${r.content.slice(0, 1500)}...` : r.content;
+              return `[${location}]\n${content}`;
+            })
+            .join("\n\n---\n\n");
+          return textResult(`Already have background on this in the knowledge base:\n\n${excerpts}`);
         }
 
         return textResult(

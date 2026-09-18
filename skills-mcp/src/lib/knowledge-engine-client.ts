@@ -60,6 +60,7 @@ export async function knowledgeIngestUrl(
 
 export interface ResearchStartResult {
   route: { source: "knowledge" | "web"; reason: string };
+  knowledgeResults: KnowledgeSearchResult[];
   sessionId?: number;
   status?: string;
 }
