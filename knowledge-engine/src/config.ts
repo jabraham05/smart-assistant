@@ -11,6 +11,19 @@ export interface Config {
   // project reaches Ollama at.
   ollamaHost: string;
   embeddingModel: string;
+  // Optional, same "clear degradation" pattern as everywhere else Tavily is
+  // used (skills-mcp's web_search) - web escalation just returns a clear
+  // error if a research() call actually needs it and this is unset, rather
+  // than the whole service failing to start.
+  tavilyApiKey?: string;
+  // The router's deterministic threshold (see engine/router.ts): a
+  // knowledge-base hit with an RRF score below this is treated as "not
+  // good enough," escalating to live web search instead. Chosen from real
+  // observed scores during Phase 1c testing (a genuinely relevant top
+  // result scored ~0.03; a weak/tangential one ~0.015) - deliberately a
+  // config value, not a hardcoded constant, since the right cutoff is an
+  // empirical question likely to need retuning once real usage exists.
+  routeToWebThreshold: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -38,5 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     },
     ollamaHost: env.OLLAMA_HOST || "http://ollama:11434",
     embeddingModel: env.KNOWLEDGE_EMBEDDING_MODEL || "nomic-embed-text",
+    tavilyApiKey: env.TAVILY_API_KEY || undefined,
+    routeToWebThreshold: env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD ? Number(env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD) : 0.02,
   };
 }

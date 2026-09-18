@@ -294,6 +294,10 @@ services:
       RESEARCH_DB_NAME: ${RESEARCH_DB_NAME:-research}
       OLLAMA_HOST: http://ollama:11434
       KNOWLEDGE_EMBEDDING_MODEL: ${KNOWLEDGE_EMBEDDING_MODEL:-nomic-embed-text}
+      # Web-research escalation (see engine/router.ts) - optional, clear
+      # error at call time if unset, same pattern as skills-mcp's web_search.
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
+      KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD: ${KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD}
     depends_on: [postgres, ollama]
     networks: [assistant-net]
 

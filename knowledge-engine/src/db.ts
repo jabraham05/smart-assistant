@@ -259,5 +259,11 @@ export async function hybridSearchChunks(config: Config, options: HybridSearchOp
       topK,
     ],
   );
-  return result.rows;
+  // node-pg returns NUMERIC/aggregate SUM columns as strings, not numbers,
+  // to avoid silent precision loss - real bug caught live via
+  // decideRoute's `topResult.score.toFixed is not a function` once a
+  // caller actually tried to use rrf_score as a number instead of just
+  // displaying it. Converting once here, at the query boundary, means every
+  // caller can trust ChunkSearchRow.rrf_score's declared `number` type.
+  return result.rows.map((row) => ({ ...row, rrf_score: Number(row.rrf_score) }));
 }

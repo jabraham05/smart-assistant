@@ -3,6 +3,7 @@ import { loadConfig } from "./config.js";
 import { checkSchema } from "./db.js";
 import { ingestDocument } from "./engine/ingest.js";
 import { search } from "./engine/search.js";
+import { research } from "./engine/research.js";
 
 const config = loadConfig(process.env);
 
@@ -90,6 +91,25 @@ app.post("/search", async (req, res) => {
     res.json({ results });
   } catch (e) {
     console.error("failed to search:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /research - Phase 2 scope: one deterministic knowledge-vs-web
+// routing decision plus one round of web search if the knowledge base
+// doesn't have a good enough answer. Synchronous for now.
+app.post("/research", async (req, res) => {
+  const body = req.body as { query?: string; domain?: string };
+
+  if (!body.query || typeof body.query !== "string") {
+    return res.status(400).json({ error: "query is required" });
+  }
+
+  try {
+    const result = await research(config, { query: body.query, domain: body.domain });
+    res.json(result);
+  } catch (e) {
+    console.error("failed to research:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
