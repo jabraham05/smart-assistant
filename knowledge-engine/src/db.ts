@@ -267,3 +267,159 @@ export async function hybridSearchChunks(config: Config, options: HybridSearchOp
   // caller can trust ChunkSearchRow.rrf_score's declared `number` type.
   return result.rows.map((row) => ({ ...row, rrf_score: Number(row.rrf_score) }));
 }
+
+// --- Phase 4: persistent research sessions ---
+
+export interface ResearchSessionRow {
+  id: number;
+  topic: string;
+  domain: string | null;
+  status: string;
+  trigger_source: string;
+  origin_session_id: string | null;
+  document_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function insertResearchSession(
+  config: Config,
+  input: { topic: string; domain?: string; triggerSource?: string; originSessionId?: string },
+): Promise<ResearchSessionRow> {
+  const result = await getPool(config).query<ResearchSessionRow>(
+    `INSERT INTO research_sessions (topic, domain, trigger_source, origin_session_id, status)
+     VALUES ($1, $2, $3, $4, 'running')
+     RETURNING *`,
+    [input.topic, input.domain || null, input.triggerSource || "chat", input.originSessionId || null],
+  );
+  return result.rows[0];
+}
+
+export async function updateResearchSessionStatus(
+  config: Config,
+  sessionId: number,
+  status: string,
+  documentId?: number,
+): Promise<void> {
+  await getPool(config).query(
+    `UPDATE research_sessions SET status = $2, document_id = COALESCE($3, document_id), updated_at = now() WHERE id = $1`,
+    [sessionId, status, documentId ?? null],
+  );
+}
+
+export async function getLatestResearchSessionByOriginSession(
+  config: Config,
+  originSessionId: string,
+): Promise<ResearchSessionRow | undefined> {
+  const result = await getPool(config).query<ResearchSessionRow>(
+    `SELECT * FROM research_sessions WHERE origin_session_id = $1 ORDER BY id DESC LIMIT 1`,
+    [originSessionId],
+  );
+  return result.rows[0];
+}
+
+export interface FindingRow {
+  id: number;
+  research_session_id: number;
+  claim: string;
+  confidence: string;
+  created_at: string;
+}
+
+export async function insertFinding(
+  config: Config,
+  input: { researchSessionId: number; claim: string; confidence: string },
+): Promise<FindingRow> {
+  const result = await getPool(config).query<FindingRow>(
+    `INSERT INTO findings (research_session_id, claim, confidence) VALUES ($1, $2, $3) RETURNING *`,
+    [input.researchSessionId, input.claim, input.confidence],
+  );
+  return result.rows[0];
+}
+
+export interface CitationRow {
+  id: number;
+  finding_id: number;
+  source_id: number;
+  excerpt: string;
+  supports: boolean;
+  created_at: string;
+}
+
+export async function insertCitation(
+  config: Config,
+  input: { findingId: number; sourceId: number; excerpt: string; supports: boolean },
+): Promise<void> {
+  await getPool(config).query(
+    `INSERT INTO citations (finding_id, source_id, excerpt, supports) VALUES ($1, $2, $3, $4)`,
+    [input.findingId, input.sourceId, input.excerpt, input.supports],
+  );
+}
+
+// Finds an existing source row for this URL under this document, or
+// creates one - findings only carry raw URLs, not source_id, so both
+// persist-research.ts (linking a finding's citations) and its own chunk
+// insert need to resolve the same URL to the same source row rather than
+// creating a duplicate row per mention.
+export async function getOrCreateSource(
+  config: Config,
+  documentId: number,
+  url: string,
+  title?: string,
+): Promise<SourceRow> {
+  const existing = await getPool(config).query<SourceRow>(
+    `SELECT * FROM sources WHERE document_id = $1 AND url = $2 LIMIT 1`,
+    [documentId, url],
+  );
+  if (existing.rows[0]) return existing.rows[0];
+  return insertSource(config, { documentId, url, title });
+}
+
+export interface CitationDetail {
+  source_url: string | null;
+  source_title: string | null;
+  excerpt: string;
+  supports: boolean;
+}
+
+export interface FindingDetail {
+  id: number;
+  claim: string;
+  confidence: string;
+  citations: CitationDetail[];
+}
+
+export interface ResearchSessionDetail {
+  session: ResearchSessionRow;
+  findings: FindingDetail[];
+}
+
+// Powers GET /research/:id - the whole point of Phase 4: "what did we
+// learn about X" needs to return real findings/citations weeks later, not
+// just the flat markdown blob the old research_documents.markdown column
+// held.
+export async function getResearchSessionDetail(config: Config, sessionId: number): Promise<ResearchSessionDetail | undefined> {
+  const sessionResult = await getPool(config).query<ResearchSessionRow>(`SELECT * FROM research_sessions WHERE id = $1`, [
+    sessionId,
+  ]);
+  const session = sessionResult.rows[0];
+  if (!session) return undefined;
+
+  const findingsResult = await getPool(config).query<{ id: number; claim: string; confidence: string }>(
+    `SELECT id, claim, confidence FROM findings WHERE research_session_id = $1 ORDER BY id`,
+    [sessionId],
+  );
+
+  const findings: FindingDetail[] = [];
+  for (const findingRow of findingsResult.rows) {
+    const citationsResult = await getPool(config).query<CitationDetail>(
+      `SELECT s.url AS source_url, s.title AS source_title, c.excerpt, c.supports
+       FROM citations c JOIN sources s ON s.id = c.source_id
+       WHERE c.finding_id = $1 ORDER BY c.id`,
+      [findingRow.id],
+    );
+    findings.push({ ...findingRow, citations: citationsResult.rows });
+  }
+
+  return { session, findings };
+}
