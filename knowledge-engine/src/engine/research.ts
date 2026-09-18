@@ -6,6 +6,7 @@ import { runResearchAgent } from "./research-agent.js";
 import { clusterFindings } from "./cluster-findings.js";
 import { verifyClusters, type VerifiedFinding } from "./verify.js";
 import { persistResearch } from "./persist-research.js";
+import { notifyResearchComplete } from "../notify.js";
 
 export interface ResearchInput {
   query: string;
@@ -43,6 +44,8 @@ export async function checkKnowledge(
 // an already-created research_sessions row, updating its status when done
 // rather than returning a value directly.
 export async function runWebResearchAndPersist(config: Config, input: ResearchInput, sessionId: number): Promise<void> {
+  const notifyInfo = { sessionId, topic: input.query, originSessionId: input.originSessionId };
+
   try {
     const agentResult = await runResearchAgent(config, input.query, input.domain);
     const clusters = clusterFindings(agentResult.findings, input.query);
@@ -56,9 +59,16 @@ export async function runWebResearchAndPersist(config: Config, input: ResearchIn
       findings,
       existingSessionId: sessionId,
     });
+
+    // research_task's tool description promises to post an update in the
+    // originating conversation once a background run finishes - this is
+    // what actually keeps that promise, the same lesson already learned
+    // once for the coding-agent pipeline (see notify.ts's own comment).
+    await notifyResearchComplete(config, notifyInfo, findings, false);
   } catch (e) {
     console.error(`background research failed (session ${sessionId}):`, e);
     await db.updateResearchSessionStatus(config, sessionId, "failed");
+    await notifyResearchComplete(config, notifyInfo, [], true);
   }
 }
 

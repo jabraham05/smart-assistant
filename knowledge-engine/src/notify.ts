@@ -1,0 +1,90 @@
+import { Pool } from "pg";
+import type { Config } from "./config.js";
+import type { VerifiedFinding } from "./engine/verify.js";
+
+export interface ResearchCompletionInfo {
+  sessionId: number;
+  topic: string;
+  originSessionId?: string;
+}
+
+let n8nPool: Pool | undefined;
+
+function getN8nPool(config: Config): Pool {
+  if (!n8nPool) {
+    n8nPool = new Pool({
+      host: config.postgres.host,
+      port: config.postgres.port,
+      database: config.n8nDatabase,
+      user: config.postgres.user,
+      password: config.postgres.password,
+    });
+  }
+  return n8nPool;
+}
+
+function buildSummary(topic: string, findings: VerifiedFinding[], failed: boolean): string {
+  if (failed) {
+    return `Research on "${topic}" didn't finish successfully - worth trying again or narrowing the topic.`;
+  }
+  if (findings.length === 0) {
+    return `Finished researching "${topic}", but didn't turn up anything concrete enough to record.`;
+  }
+  const contested = findings.filter((f) => f.confidence === "contested").length;
+  const contestedNote = contested > 0 ? ` (${contested} of them had conflicting sources)` : "";
+  return `Finished researching "${topic}" - found ${findings.length} finding(s)${contestedNote}. Ask me about it and I'll pull up what I found.`;
+}
+
+// Posts a real follow-up back into the chat session a background research
+// run was started from, once it reaches a terminal state - the direct
+// replacement for research_pipeline's Notify Chat History / Notify Honcho
+// nodes, and the same pattern coding-orchestrator's notify.ts already
+// uses. Without this, research_task's "I'll post an update once it's
+// done" would be a false promise, exactly the bug this project already
+// found and fixed once for the coding-agent pipeline (see
+// docs/coding-agent-pipeline.md's 2026-07-27 entry) - not repeating it
+// here.
+export async function notifyResearchComplete(
+  config: Config,
+  info: ResearchCompletionInfo,
+  findings: VerifiedFinding[],
+  failed: boolean,
+): Promise<void> {
+  if (!info.originSessionId) return;
+
+  const summary = buildSummary(info.topic, findings, failed);
+
+  try {
+    await getN8nPool(config).query(`INSERT INTO n8n_chat_histories (session_id, message) VALUES ($1, $2::jsonb)`, [
+      `${info.originSessionId}__Postgres_Chat_Memory`,
+      JSON.stringify({
+        type: "ai",
+        content: summary,
+        tool_calls: [],
+        additional_kwargs: {},
+        response_metadata: {},
+        invalid_tool_calls: [],
+      }),
+    ]);
+  } catch (e) {
+    console.error(`notifyResearchComplete: failed to write n8n_chat_histories for session ${info.sessionId}:`, e);
+  }
+
+  if (config.honchoApiKey) {
+    try {
+      const res = await fetch(
+        `https://api.honcho.dev/v3/workspaces/${config.honchoWorkspaceId}/sessions/${info.originSessionId}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.honchoApiKey}` },
+          body: JSON.stringify({ messages: [{ content: summary, peer_id: "amy" }] }),
+        },
+      );
+      if (!res.ok) {
+        console.error(`notifyResearchComplete: Honcho notify failed for session ${info.sessionId}: ${res.status}`);
+      }
+    } catch (e) {
+      console.error(`notifyResearchComplete: failed to notify Honcho for session ${info.sessionId}:`, e);
+    }
+  }
+}

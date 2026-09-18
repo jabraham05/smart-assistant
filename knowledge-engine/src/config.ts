@@ -29,6 +29,12 @@ export interface Config {
   // Chat workflow's AI Agent and skill_gap_scanner's dedup check use.
   researchModel: string;
   researchMaxIterations: number;
+  // notify.ts - posting a real follow-up into the chat session a
+  // background research run was started from, once it finishes. Same
+  // fields/pattern as coding-orchestrator's notify.ts.
+  n8nDatabase: string;
+  honchoApiKey?: string;
+  honchoWorkspaceId: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -60,5 +66,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     routeToWebThreshold: env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD ? Number(env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD) : 0.02,
     researchModel: env.KNOWLEDGE_RESEARCH_MODEL || "qwen3:8b",
     researchMaxIterations: env.KNOWLEDGE_RESEARCH_MAX_ITERATIONS ? Number(env.KNOWLEDGE_RESEARCH_MAX_ITERATIONS) : 12,
+    n8nDatabase: env.N8N_DB_NAME || "n8n",
+    honchoApiKey: env.HONCHO_API_KEY || undefined,
+    honchoWorkspaceId: env.HONCHO_WORKSPACE_ID || "smart-assistant",
   };
 }

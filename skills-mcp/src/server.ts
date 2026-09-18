@@ -14,7 +14,8 @@ import { registerDashboardControl } from "./tools/dashboard-control.js";
 import { registerWebSearch } from "./tools/web-search.js";
 import { registerResearchTask } from "./tools/research-task.js";
 import { registerResearchTaskStatus } from "./tools/research-task-status.js";
-import { registerResearchSearch } from "./tools/research-search.js";
+import { registerKnowledgeSearch } from "./tools/knowledge-search.js";
+import { registerKnowledgeIngest } from "./tools/knowledge-ingest.js";
 import { registerGoalManage } from "./tools/goal-manage.js";
 import { registerCalculate } from "./tools/calculate.js";
 
@@ -51,7 +52,8 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerWebSearch(server, config);
   registerResearchTask(server, config, context.chatSessionId);
   registerResearchTaskStatus(server, config, context.chatSessionId);
-  registerResearchSearch(server, config);
+  registerKnowledgeSearch(server, config);
+  registerKnowledgeIngest(server, config);
   registerGoalManage(server, config, context.chatSessionId);
   registerCalculate(server);
   return server;

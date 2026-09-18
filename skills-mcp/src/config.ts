@@ -18,9 +18,7 @@ export interface Config {
   sandboxRunnerUrl: string;
   eventBusUrl: string;
   tavilyApiKey?: string;
-  researchTaskWebhookUrl?: string;
-  researchTaskStatusWebhookUrl?: string;
-  researchSearchWebhookUrl?: string;
+  knowledgeEngineUrl: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -87,13 +85,11 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // config-missing error at call time, same pattern as the calendar/
     // Spotify/dashboard tools use. Get a free key at tavily.com.
     tavilyApiKey: env.TAVILY_API_KEY || undefined,
-    // Optional, not required at startup: research_task/research_task_status/
-    // research_search each return a clear config-missing error at call time,
-    // same pattern as the coding-task webhooks. See README's Research
-    // workflow section for the one-time research DB + pgvector setup these
-    // depend on.
-    researchTaskWebhookUrl: env.RESEARCH_TASK_WEBHOOK_URL || undefined,
-    researchTaskStatusWebhookUrl: env.RESEARCH_TASK_STATUS_WEBHOOK_URL || undefined,
-    researchSearchWebhookUrl: env.RESEARCH_SEARCH_WEBHOOK_URL || undefined,
+    // Always-on internal infra, same tier as sandboxRunnerUrl/eventBusUrl
+    // above - knowledge_search/knowledge_ingest/research_task/
+    // research_task_status all talk to this directly, no n8n hop and no
+    // config-missing error path. Replaces the old RESEARCH_*_WEBHOOK_URL
+    // vars that pointed at research_pipeline's n8n webhooks.
+    knowledgeEngineUrl: env.KNOWLEDGE_ENGINE_URL || "http://knowledge-engine:3005",
   };
 }
