@@ -261,6 +261,58 @@ rows directly (`DELETE FROM webhook_entity WHERE "workflowId" =
 reused; the workflow file itself is kept in `n8n/workflows/` as a rollback
 reference, never deleted, matching `codingtaskpipe1x`'s treatment.
 
+## 2026-09-18 — dogfooded with a real document, found and fixed a real routing miscalibration
+
+Every prior checkpoint above was verified against small throwaway test
+fixtures (a Bitcoin whitepaper PDF, single short web pages). This closes
+the loop on the system's actual motivating use case: ingested two real
+documents — the 2007-08 Porsche Cayman (987) Quick Reference Guide (3
+chunks) and the full Cayman/Cayman S (987) Owner's Manual (283 chunks,
+500+ real pages) — via `scripts/ingest-document.mjs`, run from inside the
+`knowledge-engine` container itself (it has no published port; copied the
+downloaded PDFs and the script in via `docker compose cp`).
+
+**Verified correct against the real manual**: page numbers landed exactly
+on the manual's own printed page numbers (e.g. the "6 Table of Contents"
+heading on PDF page 8, matching the document's real front-matter offset);
+142 of 283 chunks got a real detected heading. A real query ("how do I
+bleed the Porsche Ceramic Composite Brakes") returned the manual's actual
+Brake Fluid Level section (page 194) with correct cross-references to
+other real pages the manual itself points to (56, 186) — the first time
+this was checked against genuine multi-hundred-page structured content
+rather than a single test PDF.
+
+**A real, quantified problem found**: asking `/research` "what type of
+brake fluid does the Porsche Cayman need" — a question the manual directly
+answers — escalated to a live web search anyway. The router's
+`KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD` (0.02, chosen in Phase 2 from a single
+small test document) turned out not to generalize: with the real
+286-chunk two-document corpus, even the genuinely correct top match (the
+manual's own Brake Fluid Level section) scored only 0.0164 — all 5 of the
+top results for that query clustered tightly at 0.0154-0.0164, confirming
+this wasn't a one-off scoring fluke. RRF scores compress as the corpus
+grows (more chunks compete for rank position), so a threshold tuned
+against one document doesn't hold once real content accumulates. The
+resulting wasted web search independently re-derived the *exact same
+fact* already sitting in the manual (`0.4 quarts/0.39 liters ... Original
+Porsche brake fluid` — both the manual and the live web agent landed on
+identical wording), which is about as direct a demonstration of wasted
+work as this could produce.
+
+**Fixed**: retuned `KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD` from `0.02` to
+`0.012` (both the `config.ts` code default and `.env.example`'s
+documented default), based on today's real observed scores rather than
+Phase 2's single-document test. Re-verified the identical query
+immediately after rebuilding: `route.source` correctly stayed
+`"knowledge"` (`"top knowledge-base match scored 0.0164, met the 0.012
+threshold"`), and the top result surfaced an even more precise answer
+than the earlier web search had found — the manual's own Technical Data
+capacities table ("Brake fluid: approx. 0.4 quarts/0.39 liters; use only
+Original Porsche brake fluid"). **This threshold is confirmed to still
+need retuning as more domains/documents get added** — it's a real,
+evolving property of RRF against a growing corpus, not a one-time
+constant to set and forget.
+
 ## Not built yet
 
 - Reranking (a cross-encoder model) — deferred until hybrid retrieval is

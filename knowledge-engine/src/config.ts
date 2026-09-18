@@ -63,7 +63,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     ollamaHost: env.OLLAMA_HOST || "http://ollama:11434",
     embeddingModel: env.KNOWLEDGE_EMBEDDING_MODEL || "nomic-embed-text",
     tavilyApiKey: env.TAVILY_API_KEY || undefined,
-    routeToWebThreshold: env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD ? Number(env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD) : 0.02,
+    routeToWebThreshold: env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD ? Number(env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD) : 0.012,
     researchModel: env.KNOWLEDGE_RESEARCH_MODEL || "qwen3:8b",
     researchMaxIterations: env.KNOWLEDGE_RESEARCH_MAX_ITERATIONS ? Number(env.KNOWLEDGE_RESEARCH_MAX_ITERATIONS) : 12,
     n8nDatabase: env.N8N_DB_NAME || "n8n",
