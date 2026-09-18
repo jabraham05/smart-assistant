@@ -24,6 +24,11 @@ export interface Config {
   // config value, not a hardcoded constant, since the right cutoff is an
   // empirical question likely to need retuning once real usage exists.
   routeToWebThreshold: number;
+  // Model for the research agent loop (engine/research-agent.ts) and the
+  // contradiction-verification calls (engine/verify.ts) - same model the
+  // Chat workflow's AI Agent and skill_gap_scanner's dedup check use.
+  researchModel: string;
+  researchMaxIterations: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -53,5 +58,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     embeddingModel: env.KNOWLEDGE_EMBEDDING_MODEL || "nomic-embed-text",
     tavilyApiKey: env.TAVILY_API_KEY || undefined,
     routeToWebThreshold: env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD ? Number(env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD) : 0.02,
+    researchModel: env.KNOWLEDGE_RESEARCH_MODEL || "qwen3:8b",
+    researchMaxIterations: env.KNOWLEDGE_RESEARCH_MAX_ITERATIONS ? Number(env.KNOWLEDGE_RESEARCH_MAX_ITERATIONS) : 12,
   };
 }
