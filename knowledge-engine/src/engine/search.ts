@@ -1,6 +1,7 @@
 import type { Config } from "../config.js";
 import * as db from "../db.js";
 import { embedText } from "../lib/ollama-embeddings.js";
+import { getDomainPolicy } from "./domain-skills.js";
 
 export interface SearchInput {
   query: string;
@@ -25,7 +26,10 @@ export interface SearchResult {
 }
 
 export async function search(config: Config, input: SearchInput): Promise<SearchResult[]> {
-  const queryEmbedding = await embedText(config, input.query);
+  const [queryEmbedding, policy] = await Promise.all([
+    embedText(config, input.query),
+    getDomainPolicy(config, input.domain),
+  ]);
 
   const rows = await db.hybridSearchChunks(config, {
     queryEmbedding,
@@ -34,6 +38,7 @@ export async function search(config: Config, input: SearchInput): Promise<Search
     metadataFilter: input.metadataFilter,
     includeStale: input.includeStale,
     topK: input.topK,
+    useRecencyRanking: policy.freshnessRequired,
   });
 
   return rows.map((row) => ({

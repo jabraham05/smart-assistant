@@ -187,6 +187,14 @@ export interface HybridSearchOptions {
   metadataFilter?: Record<string, unknown>;
   includeStale?: boolean;
   topK?: number;
+  // From the domain's domain_skills.freshness_required (see
+  // engine/domain-skills.ts) - when true, a third ranked list orders
+  // candidates by how recently they were retrieved/ingested and fuses it
+  // in via the same RRF mechanism as vector/keyword, so a fresher
+  // otherwise-similar chunk outranks a stale one. Off by default: most
+  // domains (a car's wiring diagram doesn't go stale) shouldn't have
+  // recency silently affecting ranking at all.
+  useRecencyRanking?: boolean;
 }
 
 // Reciprocal Rank Fusion (constant k=60, the standard default from the
@@ -225,9 +233,25 @@ export async function hybridSearchChunks(config: Config, options: HybridSearchOp
        ORDER BY ts_rank(c.content_tsv, plainto_tsquery('english', $4)) DESC
        LIMIT $6
      ),
+     recency_ranked AS (
+       SELECT c.id, ROW_NUMBER() OVER (ORDER BY COALESCE(d.retrieved_at, d.created_at) DESC) AS rank
+       FROM chunks c
+       JOIN documents d ON d.id = c.document_id
+       WHERE $9::boolean
+         AND d.status = 'complete'
+         AND ($2::text IS NULL OR d.domain = $2)
+         AND d.metadata @> $3::jsonb
+         AND ($5::boolean OR d.valid_until IS NULL OR d.valid_until > now())
+       ORDER BY COALESCE(d.retrieved_at, d.created_at) DESC
+       LIMIT $6
+     ),
      combined AS (
        SELECT id, SUM(1.0 / ($7 + rank)) AS rrf_score
-       FROM (SELECT * FROM vector_ranked UNION ALL SELECT * FROM keyword_ranked) all_ranked
+       FROM (
+         SELECT * FROM vector_ranked
+         UNION ALL SELECT * FROM keyword_ranked
+         UNION ALL SELECT * FROM recency_ranked
+       ) all_ranked
        GROUP BY id
      )
      SELECT
@@ -257,6 +281,7 @@ export async function hybridSearchChunks(config: Config, options: HybridSearchOp
       candidateLimit,
       RRF_K,
       topK,
+      options.useRecencyRanking ?? false,
     ],
   );
   // node-pg returns NUMERIC/aggregate SUM columns as strings, not numbers,
@@ -422,4 +447,22 @@ export async function getResearchSessionDetail(config: Config, sessionId: number
   }
 
   return { session, findings };
+}
+
+// --- Phase 5: domain skills (database-backed policy config) ---
+
+export interface DomainSkillRow {
+  domain: string;
+  source_priority: string[];
+  freshness_required: boolean;
+  version_field: string | null;
+  notes: string | null;
+}
+
+// No row for a domain is a normal, expected case (most domains have no
+// special policy yet) - callers get undefined and fall back to the
+// deterministic default (see engine/domain-skills.ts), not an error.
+export async function getDomainSkill(config: Config, domain: string): Promise<DomainSkillRow | undefined> {
+  const result = await getPool(config).query<DomainSkillRow>(`SELECT * FROM domain_skills WHERE domain = $1`, [domain]);
+  return result.rows[0];
 }
