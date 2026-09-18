@@ -1,9 +1,14 @@
 import express from "express";
 import { loadConfig } from "./config.js";
-import { checkSchema, getResearchSessionDetail, getLatestResearchSessionByOriginSession } from "./db.js";
+import {
+  checkSchema,
+  getResearchSessionDetail,
+  getLatestResearchSessionByOriginSession,
+  insertResearchSession,
+} from "./db.js";
 import { ingestDocument } from "./engine/ingest.js";
 import { search } from "./engine/search.js";
-import { research } from "./engine/research.js";
+import { checkKnowledge, runWebResearchAndPersist } from "./engine/research.js";
 
 const config = loadConfig(process.env);
 
@@ -95,12 +100,14 @@ app.post("/search", async (req, res) => {
   }
 });
 
-// POST /research - deterministic knowledge-vs-web routing; a web
-// escalation runs the full research agent and persists the result
-// (research_sessions/findings/citations, plus a searchable document).
-// Synchronous for now - becomes fire-and-forget if a real research run's
-// latency (multiple web fetches + an agent loop) ever proves too slow for
-// a caller to wait on directly.
+// POST /research - deterministic knowledge-vs-web routing, always
+// synchronous for the fast half (checkKnowledge). A web escalation is
+// genuinely slow (a real agent run took over a minute in Phase 3 testing)
+// - too slow to block an MCP tool call - so that half responds immediately
+// with an ack + sessionId and runs the actual agent loop + persistence in
+// the background (not awaited by this handler), same "ack immediately,
+// keep working after" shape research_pipeline's own onReceived webhook
+// trigger used. Callers poll GET /research/status for completion.
 app.post("/research", async (req, res) => {
   const body = req.body as { query?: string; domain?: string; triggerSource?: string; originSessionId?: string };
 
@@ -108,17 +115,41 @@ app.post("/research", async (req, res) => {
     return res.status(400).json({ error: "query is required" });
   }
 
+  const input = {
+    query: body.query,
+    domain: body.domain,
+    triggerSource: body.triggerSource,
+    originSessionId: body.originSessionId,
+  };
+
   try {
-    const result = await research(config, {
-      query: body.query,
-      domain: body.domain,
-      triggerSource: body.triggerSource,
-      originSessionId: body.originSessionId,
+    const { route, knowledgeResults } = await checkKnowledge(config, input);
+
+    if (route.source === "knowledge") {
+      return res.json({ route, knowledgeResults });
+    }
+
+    if (!config.tavilyApiKey) {
+      return res.status(500).json({ error: "web escalation needed but TAVILY_API_KEY is not configured" });
+    }
+
+    const session = await insertResearchSession(config, {
+      topic: input.query,
+      domain: input.domain,
+      triggerSource: input.triggerSource,
+      originSessionId: input.originSessionId,
     });
-    res.json(result);
+    res.json({ route, knowledgeResults: [], sessionId: session.id, status: "running" });
+
+    // Deliberately not awaited - the HTTP response above already went out.
+    // Errors are caught and recorded on the session row inside
+    // runWebResearchAndPersist itself, not here.
+    void runWebResearchAndPersist(config, input, session.id);
   } catch (e) {
     console.error("failed to research:", e);
-    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    if (!res.headersSent) {
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
   }
 });
 

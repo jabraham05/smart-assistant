@@ -9,6 +9,11 @@ export interface PersistResearchInput {
   triggerSource?: string;
   originSessionId?: string;
   findings: VerifiedFinding[];
+  // When the caller already created a research_sessions row up front (the
+  // fast-ack path in index.ts's POST /research, so the HTTP response
+  // doesn't have to wait for the full agent run) - reuses that row instead
+  // of creating a second one.
+  existingSessionId?: number;
 }
 
 export interface PersistResearchResult {
@@ -23,12 +28,14 @@ export interface PersistResearchResult {
 // so the exact same knowledge_search a future conversation already uses
 // can surface these findings too, with no separate recall mechanism needed.
 export async function persistResearch(config: Config, input: PersistResearchInput): Promise<PersistResearchResult> {
-  const session = await db.insertResearchSession(config, {
-    topic: input.topic,
-    domain: input.domain,
-    triggerSource: input.triggerSource,
-    originSessionId: input.originSessionId,
-  });
+  const session = input.existingSessionId
+    ? { id: input.existingSessionId }
+    : await db.insertResearchSession(config, {
+        topic: input.topic,
+        domain: input.domain,
+        triggerSource: input.triggerSource,
+        originSessionId: input.originSessionId,
+      });
 
   const document = await db.insertDocument(config, {
     kind: "research",
