@@ -178,6 +178,8 @@ export interface ChunkSearchRow {
   source_url: string | null;
   source_title: string | null;
   rrf_score: number;
+  keyword_overlap_count: number;
+  query_lexeme_count: number;
 }
 
 export interface HybridSearchOptions {
@@ -210,7 +212,17 @@ export async function hybridSearchChunks(config: Config, options: HybridSearchOp
   const RRF_K = 60;
 
   const result = await getPool(config).query<ChunkSearchRow>(
-    `WITH vector_ranked AS (
+    `WITH query_lexemes AS (
+       -- Real, non-trivial lexemes in the query, stemmed/stopword-filtered
+       -- the same way content_tsv already is - lets the final SELECT check
+       -- genuine keyword overlap per result without a second round trip.
+       -- length >= 3 drops noise fragments (e.g. a stray "r" from "GT-R").
+       SELECT ARRAY(
+         SELECT lex FROM unnest(tsvector_to_array(to_tsvector('english', $4))) AS lex
+         WHERE length(lex) >= 3
+       ) AS lexemes
+     ),
+     vector_ranked AS (
        SELECT c.id, ROW_NUMBER() OVER (ORDER BY c.embedding <=> $1::vector) AS rank
        FROM chunks c
        JOIN documents d ON d.id = c.document_id
@@ -265,11 +277,20 @@ export async function hybridSearchChunks(config: Config, options: HybridSearchOp
        d.domain,
        s.url AS source_url,
        s.title AS source_title,
-       combined.rrf_score
+       combined.rrf_score,
+       COALESCE(array_length(
+         ARRAY(
+           SELECT unnest(query_lexemes.lexemes)
+           INTERSECT
+           SELECT unnest(tsvector_to_array(c.content_tsv))
+         ),
+       1), 0) AS keyword_overlap_count,
+       COALESCE(array_length(query_lexemes.lexemes, 1), 0) AS query_lexeme_count
      FROM combined
      JOIN chunks c ON c.id = combined.id
      JOIN documents d ON d.id = c.document_id
      LEFT JOIN sources s ON s.id = c.source_id
+     CROSS JOIN query_lexemes
      ORDER BY combined.rrf_score DESC
      LIMIT $8`,
     [

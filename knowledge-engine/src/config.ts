@@ -24,6 +24,18 @@ export interface Config {
   // config value, not a hardcoded constant, since the right cutoff is an
   // empirical question likely to need retuning once real usage exists.
   routeToWebThreshold: number;
+  // Second, independent gate alongside routeToWebThreshold (see
+  // engine/router.ts): the top result must also share at least this many
+  // real, non-trivial keywords with the query. Added after live testing
+  // proved the RRF score alone can't tell a genuine match from an
+  // unrelated same-domain "best of a bad bunch" - a real brake-fluid
+  // question and a completely unrelated "Nissan GT-R" question against a
+  // Porsche-only corpus both scored ~0.0164, because a domain-filtered
+  // vector search always ranks *something* top-K regardless of true
+  // relevance. Default of 1 is deliberately low - it only needs to rule
+  // out zero genuine overlap, not demand a strong match, since embeddings
+  // alone should still carry real paraphrased matches.
+  minKeywordOverlap: number;
   // Model for the research agent loop (engine/research-agent.ts) and the
   // contradiction-verification calls (engine/verify.ts) - same model the
   // Chat workflow's AI Agent and skill_gap_scanner's dedup check use.
@@ -64,6 +76,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     embeddingModel: env.KNOWLEDGE_EMBEDDING_MODEL || "nomic-embed-text",
     tavilyApiKey: env.TAVILY_API_KEY || undefined,
     routeToWebThreshold: env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD ? Number(env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD) : 0.012,
+    minKeywordOverlap: env.KNOWLEDGE_MIN_KEYWORD_OVERLAP ? Number(env.KNOWLEDGE_MIN_KEYWORD_OVERLAP) : 1,
     researchModel: env.KNOWLEDGE_RESEARCH_MODEL || "qwen3:8b",
     researchMaxIterations: env.KNOWLEDGE_RESEARCH_MAX_ITERATIONS ? Number(env.KNOWLEDGE_RESEARCH_MAX_ITERATIONS) : 12,
     n8nDatabase: env.N8N_DB_NAME || "n8n",

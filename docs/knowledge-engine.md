@@ -313,6 +313,74 @@ need retuning as more domains/documents get added** — it's a real,
 evolving property of RRF against a growing corpus, not a one-time
 constant to set and forget.
 
+## 2026-09-19 — a deterministic lexical-overlap gate, since RRF score alone can't tell a real match from a coincidence
+
+Real chat testing after the two fixes above (dogfooding + `research_task`'s
+false-positive fix) surfaced the actual root cause underneath both: even
+after `research_task` started returning real content inline and the
+retry-nudge correctly forced a second attempt, a rephrased "Nissan GT-R
+successor rumors" query *still* routed to "knowledge" both times. Traced
+to `hybridSearchChunks()`'s `vector_ranked` CTE (`db.ts`): it always
+returns the top-K nearest neighbors by cosine distance with no relevance
+floor, so within a domain-filtered candidate pool *something* always
+ranks top-3 and gets folded into a similar RRF sum — regardless of true
+relevance. No threshold number can separate a genuine match from an
+unrelated same-domain "best of a bad bunch," because they occupy the same
+numeric range by construction (both the real brake-fluid match and the
+unrelated GT-R/PSM coincidence scored ~0.0164).
+
+**Fixed** with a second, independent, deterministic gate: `decideRoute()`
+now also requires the top result to share at least
+`config.minKeywordOverlap` (default 1) real, non-trivial (`length >= 3`)
+lexemes with the query — computed via a new `query_lexemes` CTE in
+`hybridSearchChunks()`, using the same `to_tsvector('english', ...)`
+stemming/stopword-removal `content_tsv` is already built with, so
+"bleeding" vs "bleed" etc. line up without custom normalization.
+Deliberately *not* reusing `keyword_ranked`'s existing full
+`plainto_tsquery` AND-match as the gate — that would be too strict and
+reject genuine vector-only natural-language matches (the real "bleed the
+PCCB" question doesn't literally contain "bleed" in the manual's correct
+Brake Fluid Level passage). A floor of 1 shared lexeme is the deliberate
+middle ground: strict enough to reject "Nissan GT-R" (shares zero lexemes
+with the unrelated Porsche Stability Management passage it was
+matching), permissive enough to keep "bleed the PCCB" correctly routed to
+knowledge (shares "brake" with the real match). If the query itself
+reduces to zero significant lexemes (all-stopword/degenerate), the gate
+is skipped entirely and pure RRF-threshold behavior applies — there's no
+real signal to check in that case. `pg_trgm` was considered and confirmed
+not installed (checked every `postgres/init/*.sql` file directly) so this
+is built entirely from core Postgres tsearch functions, no new extension.
+
+**Known, accepted trade-off**: a genuinely relevant chunk that's a pure
+paraphrase sharing zero stemmed lexemes with the query (e.g. query says
+"horsepower," chunk only says "PS") is now a new false negative. Inherent
+to any deterministic lexical gate layered on embeddings — mitigated by
+keeping the floor as low as 1 shared lexeme, not fixable further without
+reintroducing an LLM judgment call at this decision point (explicitly out
+of scope, same reasoning as `router.ts`'s original no-LLM comment).
+
+**Verified live**, re-running the exact real queries from the prior
+dogfooding + `research_task` sessions against the same two-document
+Porsche corpus: "how do I bleed the Porsche Ceramic Composite Brakes" and
+"what type of brake fluid does the Porsche Cayman need" both correctly
+stayed `route.source: "knowledge"` (unaffected by the new gate). "Nissan
+GT-R successor rumors" now correctly returns `route.source: "web"`, with
+`route.reason` explicitly citing the overlap gate ("shared only 0
+keyword(s) with the query (need 1) - likely a vector-similarity
+coincidence, not a real match") rather than the score, since the RRF
+score itself (~0.0164) was still above threshold. A real chat message
+reproducing the original bug end-to-end ("do some in-depth research on
+the upcoming Nissan GT-R successor rumors") triggered a genuine web
+escalation, a real multi-source research run (findings cross-verified as
+`confirmed` against real citations from thedrive.com and
+caranddriver.com), and persisted a real document — a second identical
+chat message afterward then correctly recalled that real, now-existing
+knowledge instead of escalating again, confirming the full
+research-once-then-recall loop works end-to-end with a genuinely novel
+topic. All test data (the throwaway GT-R research session and document)
+was cleaned up afterward; the two real Cayman documents from the earlier
+dogfooding round were kept.
+
 ## Not built yet
 
 - Reranking (a cross-encoder model) — deferred until hybrid retrieval is
