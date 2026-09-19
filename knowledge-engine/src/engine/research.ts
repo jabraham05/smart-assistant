@@ -33,7 +33,7 @@ export async function checkKnowledge(
   input: Pick<ResearchInput, "query" | "domain">,
 ): Promise<{ route: RouteDecision; knowledgeResults: SearchResult[] }> {
   const knowledgeResults = await search(config, { query: input.query, domain: input.domain, topK: 5 });
-  const route = decideRoute(knowledgeResults[0], config.routeToWebThreshold);
+  const route = decideRoute(knowledgeResults[0], config.routeToWebThreshold, config.minKeywordOverlap);
   return { route, knowledgeResults };
 }
 

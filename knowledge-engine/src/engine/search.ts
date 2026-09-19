@@ -22,6 +22,11 @@ export interface SearchResult {
   sectionPath: string | null;
   heading: string | null;
   score: number;
+  // Real keyword overlap between the query and this result's content, and
+  // how many significant lexemes the query itself had - see router.ts's
+  // decideRoute() for why this exists alongside the RRF score.
+  keywordOverlapCount: number;
+  queryLexemeCount: number;
   source: { url: string | null; title: string | null };
 }
 
@@ -49,6 +54,8 @@ export async function search(config: Config, input: SearchInput): Promise<Search
     sectionPath: row.section_path,
     heading: row.heading,
     score: row.rrf_score,
+    keywordOverlapCount: row.keyword_overlap_count,
+    queryLexemeCount: row.query_lexeme_count,
     source: { url: row.source_url, title: row.source_title },
   }));
 }

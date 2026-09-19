@@ -12,6 +12,7 @@ test("loadConfig: applies documented defaults", () => {
   assert.equal(config.postgres.database, "research");
   assert.equal(config.ollamaHost, "http://ollama:11434");
   assert.equal(config.embeddingModel, "nomic-embed-text");
+  assert.equal(config.minKeywordOverlap, 1);
 });
 
 test("loadConfig: env overrides win over defaults", () => {
@@ -20,8 +21,10 @@ test("loadConfig: env overrides win over defaults", () => {
     PORT: "4000",
     RESEARCH_DB_NAME: "custom_db",
     KNOWLEDGE_EMBEDDING_MODEL: "other-model",
+    KNOWLEDGE_MIN_KEYWORD_OVERLAP: "2",
   });
   assert.equal(config.port, 4000);
   assert.equal(config.postgres.database, "custom_db");
   assert.equal(config.embeddingModel, "other-model");
+  assert.equal(config.minKeywordOverlap, 2);
 });
