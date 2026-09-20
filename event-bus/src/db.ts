@@ -165,6 +165,22 @@ export async function getProgressLog(config: Config, goalId: number, limit = 20)
   return result.rows;
 }
 
+// Backs the Chat workflow's cross-turn capability continuity (Get Last
+// Active Capability node): the most recent classification the Chat
+// workflow itself published for this session, skipping zero-group turns
+// deliberately so a plain "thanks" doesn't erase real topic continuity for
+// the next genuine follow-up.
+export async function getLastCapability(config: Config, originSessionId: string): Promise<string[]> {
+  const result = await getPool(config).query<{ groups: string[] }>(
+    `SELECT payload->'relevantGroups' AS groups FROM events
+     WHERE source = 'chat' AND type = 'message_received' AND origin_session_id = $1
+       AND jsonb_array_length(payload->'relevantGroups') > 0
+     ORDER BY occurred_at DESC LIMIT 1`,
+    [originSessionId],
+  );
+  return result.rows[0]?.groups ?? [];
+}
+
 export async function getStaleGoals(config: Config, staleDays: number): Promise<GoalRow[]> {
   const result = await getPool(config).query<GoalRow>(
     `SELECT * FROM goals WHERE status = 'active' AND updated_at < now() - ($1 || ' days')::interval`,

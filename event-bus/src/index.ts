@@ -136,6 +136,21 @@ app.get("/goals/:id/progress", async (req, res) => {
   }
 });
 
+// GET /sessions/:sessionId/last-capability - the Chat workflow's Get Last
+// Active Capability node calls this before classification, so an ambiguous
+// topic-less follow-up can be kept under the same capability as the
+// previous turn. Purely a deterministic read of what the Chat workflow
+// itself already published to /events - see db.ts's getLastCapability.
+app.get("/sessions/:sessionId/last-capability", async (req, res) => {
+  try {
+    const capabilities = await db.getLastCapability(config, req.params.sessionId);
+    res.json({ capabilities });
+  } catch (e) {
+    console.error(`failed to get last capability for session ${req.params.sessionId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 // POST /goals/nudge-check - called by the goalsstalenudge1 n8n Schedule
 // Trigger workflow. All real logic lives here, not in n8n - the workflow is
 // purely a cron trigger. Deterministic, no LLM: a fixed-template message,
