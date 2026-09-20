@@ -165,6 +165,93 @@ export async function getProgressLog(config: Config, goalId: number, limit = 20)
   return result.rows;
 }
 
+export interface TaskContextRow {
+  id: number;
+  objective: string;
+  capability: string | null;
+  domain: string | null;
+  status: string;
+  origin_session_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InsertTaskContextInput {
+  objective: string;
+  capability?: string;
+  domain?: string;
+  originSessionId?: string;
+}
+
+export async function insertTaskContext(config: Config, input: InsertTaskContextInput): Promise<TaskContextRow> {
+  const result = await getPool(config).query<TaskContextRow>(
+    `INSERT INTO task_contexts (objective, capability, domain, origin_session_id)
+     VALUES ($1, $2, $3, $4)
+     RETURNING *`,
+    [input.objective, input.capability || null, input.domain || null, input.originSessionId || null],
+  );
+  return result.rows[0];
+}
+
+export async function getTaskContext(config: Config, taskContextId: number): Promise<TaskContextRow | undefined> {
+  const result = await getPool(config).query<TaskContextRow>(`SELECT * FROM task_contexts WHERE id = $1`, [taskContextId]);
+  return result.rows[0];
+}
+
+// status='open' is a virtual filter meaning "not yet resolved"
+// (active|waiting_for_user), matching the two non-terminal states a task
+// can be in - not a literal column value.
+export async function listTaskContexts(config: Config, status?: string): Promise<TaskContextRow[]> {
+  if (status === "open") {
+    const result = await getPool(config).query<TaskContextRow>(
+      `SELECT * FROM task_contexts WHERE status IN ('active', 'waiting_for_user') ORDER BY updated_at DESC`,
+    );
+    return result.rows;
+  }
+  if (status) {
+    const result = await getPool(config).query<TaskContextRow>(
+      `SELECT * FROM task_contexts WHERE status = $1 ORDER BY updated_at DESC`,
+      [status],
+    );
+    return result.rows;
+  }
+  const result = await getPool(config).query<TaskContextRow>(`SELECT * FROM task_contexts ORDER BY updated_at DESC`);
+  return result.rows;
+}
+
+export async function updateTaskContext(
+  config: Config,
+  taskContextId: number,
+  fields: Partial<Pick<TaskContextRow, "objective" | "capability" | "domain" | "status">>,
+): Promise<TaskContextRow | undefined> {
+  const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
+  if (entries.length === 0) return getTaskContext(config, taskContextId);
+
+  const setClauses = entries.map(([key], i) => `${key} = $${i + 2}`);
+  const values = entries.map(([, value]) => value);
+
+  const result = await getPool(config).query<TaskContextRow>(
+    `UPDATE task_contexts SET ${setClauses.join(", ")}, updated_at = now() WHERE id = $1 RETURNING *`,
+    [taskContextId, ...values],
+  );
+  return result.rows[0];
+}
+
+export async function insertTaskContextLog(config: Config, taskContextId: number, note: string): Promise<void> {
+  await getPool(config).query(`INSERT INTO task_context_log (task_context_id, note) VALUES ($1, $2)`, [taskContextId, note]);
+  await getPool(config).query(`UPDATE task_contexts SET updated_at = now() WHERE id = $1`, [taskContextId]);
+}
+
+export async function getTaskContextLog(config: Config, taskContextId: number): Promise<
+  { id: number; note: string; created_at: string }[]
+> {
+  const result = await getPool(config).query(
+    `SELECT id, note, created_at FROM task_context_log WHERE task_context_id = $1 ORDER BY id ASC`,
+    [taskContextId],
+  );
+  return result.rows;
+}
+
 // Backs the Chat workflow's cross-turn capability continuity (Get Last
 // Active Capability node): the most recent classification the Chat
 // workflow itself published for this session, skipping zero-group turns

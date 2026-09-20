@@ -136,6 +136,91 @@ app.get("/goals/:id/progress", async (req, res) => {
   }
 });
 
+// POST /task-contexts - create. Homed in General (always-on, ungated by
+// classification) since a task can span multiple capabilities - see
+// docs/chat-workflow.md.
+app.post("/task-contexts", async (req, res) => {
+  const body = req.body as { objective?: string; capability?: string; domain?: string; originSessionId?: string };
+
+  if (!body.objective || typeof body.objective !== "string") {
+    return res.status(400).json({ error: "objective is required" });
+  }
+
+  try {
+    const taskContext = await db.insertTaskContext(config, {
+      objective: body.objective,
+      capability: body.capability,
+      domain: body.domain,
+      originSessionId: body.originSessionId,
+    });
+    res.status(201).json(taskContext);
+  } catch (e) {
+    console.error("failed to create task context:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// GET /task-contexts?status=open - list. status=open means active or
+// waiting_for_user (not yet resolved) - this is what the Chat workflow's
+// Get Open Task Contexts node calls on every turn.
+app.get("/task-contexts", async (req, res) => {
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  try {
+    const taskContexts = await db.listTaskContexts(config, status);
+    res.json({ taskContexts });
+  } catch (e) {
+    console.error("failed to list task contexts:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// PATCH /task-contexts/:id - update; only provided fields change.
+app.patch("/task-contexts/:id", async (req, res) => {
+  const taskContextId = Number(req.params.id);
+  if (!Number.isInteger(taskContextId)) {
+    return res.status(400).json({ error: "invalid task context id" });
+  }
+  const body = req.body as { objective?: string; capability?: string; domain?: string; status?: string };
+
+  try {
+    const existing = await db.getTaskContext(config, taskContextId);
+    if (!existing) {
+      return res.status(404).json({ error: `task context ${taskContextId} not found` });
+    }
+    const updated = await db.updateTaskContext(config, taskContextId, body);
+    res.json(updated);
+  } catch (e) {
+    console.error(`failed to update task context ${taskContextId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /task-contexts/:id/log - append a note, unlike goal_progress_log
+// (system-written only via deterministic keyword matching) this is written
+// directly by the agent as a task develops.
+app.post("/task-contexts/:id/log", async (req, res) => {
+  const taskContextId = Number(req.params.id);
+  if (!Number.isInteger(taskContextId)) {
+    return res.status(400).json({ error: "invalid task context id" });
+  }
+  const body = req.body as { note?: string };
+  if (!body.note || typeof body.note !== "string") {
+    return res.status(400).json({ error: "note is required" });
+  }
+
+  try {
+    const existing = await db.getTaskContext(config, taskContextId);
+    if (!existing) {
+      return res.status(404).json({ error: `task context ${taskContextId} not found` });
+    }
+    await db.insertTaskContextLog(config, taskContextId, body.note);
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    console.error(`failed to log task context ${taskContextId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 // GET /sessions/:sessionId/last-capability - the Chat workflow's Get Last
 // Active Capability node calls this before classification, so an ambiguous
 // topic-less follow-up can be kept under the same capability as the
