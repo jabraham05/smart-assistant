@@ -203,7 +203,13 @@ HTTP Request -> Honcho /messages    Fix Postgres Memory Row
     `ollama-mcp-bridge` was removed after disproving the hypothesis it was
     deployed to test — it provided no benefit the native path doesn't
     already have once tool count is controlled.
-  - **Fixed with dynamic, per-message tool-group filtering** — the
+  - **Fixed with dynamic, per-message tool-group filtering** (note: the
+    category list below — `media`, `scheduling`, `info`, `self-growth` —
+    is the original 4-category set from when this mechanism first
+    shipped. It grew to 9 categories as more tools were added over time,
+    then got consolidated to 5 during the 2026-09-20 Coordinator work
+    documented near the end of this file — left as-written here for
+    historical accuracy rather than silently rewritten) — the
     `Chat` workflow gained `Classify Relevant Tool Groups` (a raw
     Ollama `/api/chat` call with a JSON-Schema `format`, same
     structured-output pattern as `skill_gap_scanner`/the coding-agent
@@ -313,3 +319,137 @@ HTTP Request -> Honcho /messages    Fix Postgres Memory Row
   reply-generating node) needs `alwaysOutputData: true`, not just the ones
   already known to hit this — worth auditing other pipelines for the same
   class of node.
+
+### 2026-09-20 — Coordinator: capability consolidation, cross-turn handoff, and persistent TaskContext
+
+Reviewing the built-out `knowledge-engine` (deterministic router + hybrid
+retrieval + research agent — see `docs/knowledge-engine.md`) against the
+project's own architecture surfaced that this Chat workflow's flat,
+9-category, fully-stateless-per-turn classifier was the missing layer
+above it: a small named set of capabilities (an Agent Registry) with
+deterministic routing, a way to hand off across turns when the topic
+genuinely changes, and a way for something spanning multiple real-world
+days to resume correctly later. Domain-specific agents (automotive/
+warframe) were explicitly rejected in favor of `domain` metadata on the
+existing shared Research capability — already fully satisfied by
+`knowledge-engine`'s `documents.domain`/`research_sessions.domain`
+columns, zero changes needed there.
+
+**Capability consolidation (9 groups → 5).** `Classify Relevant Tool
+Groups`'s enum shrank to `["research","personal","automation","self-growth"]`;
+`General` (just `calculate`, later also `task_context_manage`) stays
+implicit/always-on, not a classifier output. New `Expand Groups To
+Tools` mapping:
+```js
+const GROUPS = {
+  research: ['knowledge_search', 'knowledge_ingest', 'research_task', 'research_task_status', 'web_search'],
+  personal: ['memory_recall', 'goal_manage'],
+  automation: ['calendar_event', 'spotify_control', 'dashboard_control', 'weather_get'],
+  'self-growth': ['skill_propose', 'code_task', 'code_task_status'],
+};
+```
+`Detect Unfulfilled Search Intent` and `Detect Garbage Output` needed no
+changes — both key on literal tool names, never group names, and no tool
+name changed. Verified live, one message per capability plus a
+two-tool-in-one-turn message, checked against real n8n execution data.
+
+**`delegate()` needs no new infrastructure — confirmed, not built.** The
+classifier can already return several groups in one pass ("zero, one, or
+a few"), and `AI Agent`'s single tool-calling loop already gets every
+selected group's tools simultaneously and can call several in sequence.
+This already worked before this change and still does after.
+
+**`handoff()`: cross-turn capability continuity.** The real gap:
+classification only ever saw the current message in isolation, so an
+ambiguous follow-up ("and what's normal for that?") could misclassify
+even when the prior turn was obviously the same topic. Finished wiring
+`event-bus`'s `events` table instead of building new infrastructure — it
+already accepted `originSessionId`/`payload`, nothing populated them.
+`Expand Groups To Tools` now also returns its already-computed
+`relevantGroups`; a new `Publish Classification Event` node (positioned
+*after* `Expand Groups To Tools` in the linear chain — not a change to
+the existing `Publish Message Event`, which fires in parallel directly
+off the trigger and can't reference that node's output) POSTs it to
+`/events`. New `event-bus` endpoint `GET /sessions/:sessionId/last-capability`
+reads the most recent non-empty-groups classification for a session
+(skips zero-group turns deliberately, so a plain "thanks" doesn't erase
+real continuity). A new `Get Last Active Capability` node calls this
+*before* classification — inserted as a real predecessor of `Classify
+Relevant Tool Groups` (trigger → `Get Last Active Capability` → `Classify`),
+not a parallel sibling, so its data is guaranteed available — and its
+result is injected into the classifier's prompt as one more fact, with
+an instruction to keep an ambiguous follow-up under the same capability
+but classify normally on an explicit topic change. This adds no second
+LLM judgment call: the classifier already makes this call every turn,
+this just gives it one more deterministic input; the write side is a
+pure passthrough of already-computed data.
+
+Verified live with a real 3-turn conversation, decoded from n8n's
+`flatted`-encoded execution data (not text-matched, which proved
+unreliable — see below): "fuel sender resistance range" → `research`; "and
+what's normal for that?" (no topic keywords) → stayed `research`, confirmed
+`Get Last Active Capability` genuinely returned `["research"]` for that
+exact execution; "actually, pause the music" → switched to `automation`
+only, confirming an explicit new topic overrides continuity correctly.
+
+**Persistent cross-session `TaskContext`.** For something that spans
+multiple real-world days and needs to resume later (e.g. "measure the
+fuel sender now, full reading tomorrow"). New `task_contexts`/
+`task_context_log` tables in the `events` database (owned by `event-bus`,
+alongside `goals`/`scanner_state` — the existing precedent for
+cross-cutting, not-owned-by-one-capability concepts), with a `status`
+that includes `waiting_for_user` — the state none of `goals`/
+`coding_tasks`/`research_sessions` has today.
+
+Investigated whether session id or user identity is the right
+reconnection key: `chat-ui` mints a fresh random session id on every page
+load (`useSessions.ts`, not persisted client-side), so a session-keyed
+lookup would fail on the realistic "resume tomorrow in a new tab" case.
+Honcho's peer card is workspace-level, not session-scoped, confirming
+there's exactly one real human user across every client — so
+reconnection is a flat "any open task?" status query (`GET
+/task-contexts?status=open`), not a session or semantic match. A new
+always-on `task_context_manage` MCP tool (mirrors `goal-manage.ts`'s
+shape) is homed in `General` alongside `calculate` rather than gated by
+classification, since a task can span capabilities. A new `Get Open Task
+Contexts` node injects open tasks into `AI Agent`'s system prompt the
+same way `Get User Card`'s peer card already is.
+
+**A real wiring bug, caught during verification, not assumed away.**
+`Get Open Task Contexts` was first wired as a pure parallel branch off
+the trigger, apparently matching `Get Persona`/`Get User Card`'s
+pattern — but those aren't actually parallel-off-trigger at all; they're
+chained sequentially into `AI Agent`'s real input path (`Expand Groups To
+Tools → Get Persona → ... → Format Skills Catalog → AI Agent`), which is
+what actually guarantees they've executed by the time `AI Agent`'s
+`systemMessage` expression evaluates. A true trigger-parallel sibling has
+no such guarantee. This surfaced as real, reproducible failures: `AI
+Agent` output `{"error":"Node 'Get Open Task Contexts' hasn't been
+executed"}`, decoded via `flatted` from the raw execution data (grepping
+the raw text was insufficient here — the same lesson `docs/
+coding-agent-pipeline.md` already documents for `flatted`-encoded
+`execution_data`). Fixed by inserting the node into the real chain
+(`Format Skills Catalog → Get Open Task Contexts → AI Agent`) instead.
+
+**Verified live, with two real, honestly-reported limitations found along
+the way, neither caused by this change:** task creation and the first
+log entry (`empty tank read 240 ohms`) both worked with real tool calls
+and real DB changes. Verifying the cross-session reconnection step
+itself repeatedly hit `qwen3:14b` running at only 16% GPU/84% CPU — even
+immediately after a full `ollama` container restart, confirming this is
+a chronic VRAM constraint at the model's configured 16384-token context
+window, not transient fragmentation from testing. Independently confirmed
+unrelated to this feature: the same empty-output failure reproduced with
+zero open tasks injected at all. Separately, one attempt that did get a
+real model response claimed a completed action ("I've logged the
+measurement") without actually calling `task_context_manage` — the same
+confabulation class already fixed for `research_task` (see `docs/
+knowledge-engine.md`). Checked whether `Detect Garbage Output`'s existing
+safety net could be extended to catch this: its verb-claim regex doesn't
+include "logged/tracked/recorded," and `task_context_manage` can't be
+usefully added to its `ACTION_TOOLS` list since it's unconditionally
+bound every turn (like `calculate`) — adding it would make that check's
+`hadActionTool` always true, silently disabling the check for every other
+action tool too. Documented as a known limitation rather than patched
+speculatively; the deterministic mechanism (schema, API, injection) is
+proven correct independent of these two LLM-reliability gaps.
