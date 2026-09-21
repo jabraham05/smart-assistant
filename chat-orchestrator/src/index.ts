@@ -84,9 +84,9 @@ app.post("/webhook", async (req, res) => {
       // mean waiting on classification first, adding its latency as a
       // floor before this could even start - not worth it to skip a rare,
       // cheap call on a memoryPolicy=none turn.
-      searchMemory(config, chatInput).catch((e) => {
+      searchMemory(config, chatInput).catch((e): Awaited<ReturnType<typeof searchMemory>> => {
         console.error("searchMemory failed:", e);
-        return [];
+        return { results: [] };
       }),
       // Always-on regardless of memoryPolicy - directly actionable state,
       // not ambient personalization (see the architecture plan's
@@ -102,7 +102,17 @@ app.post("/webhook", async (req, res) => {
     // regardless (session-memory.appendTurn below is unconditional); this
     // just decides how much of it actually gets read into context here.
     const history = memoryPolicy === "none" ? fullHistory.slice(-6) : fullHistory;
-    const relevantMemories = memoryPolicy === "none" ? [] : memoryResults.map((m) => m.content);
+    // Prefer the synthesized compact summary (Phase 3b) when one was
+    // generated (more than one raw match); fall back to the single raw
+    // snippet verbatim when there's only one, since summarizing one item
+    // would just paraphrase it for no benefit (memory-engine's own
+    // synthesize step already skips that case and returns no summary).
+    const relevantMemories =
+      memoryPolicy === "none"
+        ? []
+        : memoryResults.summary
+          ? [memoryResults.summary]
+          : memoryResults.results.map((m) => m.content);
 
     console.log(
       `chat classify [${sessionId}]: groups=${relevantGroups.join(",") || "(none)"} ` +
@@ -230,11 +240,19 @@ app.post("/webhook", async (req, res) => {
     // sessionMemory.appendTurn - memoryPolicy only ever gates retrieval
     // into a turn's prompt, never storage, so a memoryPolicy=none turn
     // still gets recorded for a future turn's cross-conversation search.
+    // Phase 3b metadata tagging: domain = this turn's classified
+    // capability groups (comma-joined - a different vocabulary from
+    // knowledge-engine's free-text world-fact domains, see the
+    // migration's own comment); taskContextId = the most-recently-updated
+    // open task, if any was open when this turn happened. Both optional,
+    // undefined when there's nothing to tag.
+    const memoryDomain = relevantGroups.length ? relevantGroups.join(",") : undefined;
+    const memoryTaskContextId = openTasks[0]?.id;
     await Promise.all([
       honcho.storeTurn(config, sessionId, chatInput, finalText),
       sessionMemory.appendTurn(config, sessionId, chatInput, finalText),
-      ingestMemory(config, sessionId, "user", chatInput),
-      ingestMemory(config, sessionId, "assistant", finalText),
+      ingestMemory(config, sessionId, "user", chatInput, memoryDomain, memoryTaskContextId),
+      ingestMemory(config, sessionId, "assistant", finalText, memoryDomain, memoryTaskContextId),
     ]);
   } catch (e) {
     console.error(`chat turn failed for session ${sessionId}:`, e);

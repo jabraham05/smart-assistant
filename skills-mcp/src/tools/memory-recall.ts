@@ -30,18 +30,28 @@ export function registerMemoryRecall(server: McpServer, config: Config): void {
             "The specific question to look up about the user, e.g. 'what is their favorite " +
               "food' or 'what did they say about their job'. Must not be empty.",
           ),
+        taskContextId: z.coerce
+          .number()
+          .int()
+          .optional()
+          .describe(
+            "Optional: scope this recall to one specific open task's own history, from the " +
+              "open-tasks list already shown to you - use this when the question is clearly " +
+              "about one particular ongoing task rather than anything in general.",
+          ),
       },
     },
-    async ({ query }) => {
+    async ({ query, taskContextId }) => {
       const trimmed = query.trim();
       if (!trimmed) {
         return errorResult("query must not be empty or whitespace-only.");
       }
       try {
-        const results = await searchMemory(config, trimmed);
+        const { results, summary } = await searchMemory(config, trimmed, { taskContextId });
         if (results.length === 0) {
           return textResult("No relevant information found.");
         }
+        if (summary) return textResult(summary);
         return textResult(results.map((r) => `[${r.role}, ${r.createdAt}] ${r.content}`).join("\n\n"));
       } catch (e) {
         return errorResult(

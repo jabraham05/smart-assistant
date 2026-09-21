@@ -2,6 +2,7 @@ import express from "express";
 import { loadConfig } from "./config.js";
 import * as db from "./db.js";
 import { embedText } from "./lib/ollama-embeddings.js";
+import { synthesizeMemories } from "./synthesize.js";
 
 const config = loadConfig(process.env);
 
@@ -16,7 +17,7 @@ app.use(express.json({ limit: "1mb" }));
 // curation/confidence/supersession is a refinement on top of this store,
 // not a prerequisite for it being useful.
 app.post("/ingest", async (req, res) => {
-  const body = req.body as { sessionId?: string; role?: string; content?: string };
+  const body = req.body as { sessionId?: string; role?: string; content?: string; domain?: string; taskContextId?: number };
   if (!body.sessionId || typeof body.sessionId !== "string") {
     return res.status(400).json({ error: "sessionId is required" });
   }
@@ -34,6 +35,8 @@ app.post("/ingest", async (req, res) => {
       role: body.role,
       content: body.content,
       embedding,
+      domain: body.domain,
+      taskContextId: body.taskContextId,
     });
     res.status(201).json({ id: entry.id });
   } catch (e) {
@@ -51,7 +54,13 @@ app.post("/ingest", async (req, res) => {
 // endpoints in this project, even though the underlying tables are
 // deliberately separate (user memory vs. world knowledge).
 app.post("/search", async (req, res) => {
-  const body = req.body as { query?: string; topK?: number };
+  const body = req.body as {
+    query?: string;
+    topK?: number;
+    domain?: string;
+    taskContextId?: number;
+    synthesize?: boolean;
+  };
   if (!body.query || typeof body.query !== "string") {
     return res.status(400).json({ error: "query is required" });
   }
@@ -59,16 +68,34 @@ app.post("/search", async (req, res) => {
 
   try {
     const embedding = await embedText(config, body.query);
-    const rows = await db.hybridSearchMemory(config, embedding, body.query, topK);
-    res.json({
-      results: rows.map((r) => ({
-        content: r.content,
-        role: r.role,
-        sessionId: r.session_id,
-        createdAt: r.created_at,
-        score: r.rrf_score,
-      })),
+    const rows = await db.hybridSearchMemory(config, embedding, body.query, {
+      topK,
+      domain: body.domain,
+      taskContextId: body.taskContextId,
     });
+    const results = rows.map((r) => ({
+      content: r.content,
+      role: r.role,
+      sessionId: r.session_id,
+      domain: r.domain,
+      taskContextId: r.task_context_id,
+      createdAt: r.created_at,
+      score: r.rrf_score,
+    }));
+
+    // Only worth an extra LLM round-trip when there's actually something
+    // to compact - a single short snippet is already as compact as it
+    // gets, and synthesizing it would just paraphrase for no benefit.
+    let summary: string | undefined;
+    if (body.synthesize && rows.length > 1) {
+      try {
+        summary = await synthesizeMemories(config, body.query, rows);
+      } catch (e) {
+        console.error("memory synthesis failed, falling back to raw results:", e);
+      }
+    }
+
+    res.json({ results, summary });
   } catch (e) {
     console.error("failed to search memory:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
