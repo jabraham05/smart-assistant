@@ -393,10 +393,17 @@ services:
     ports:
       - "3000:3000"
     environment:
-      N8N_WEBHOOK_URL: http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat
+      # Cut over from n8n's Chat workflow to chat-orchestrator (see that
+      # service's own comment above) - identical NDJSON wire contract, so
+      # no code change was needed here, only this URL. n8n's Chat workflow
+      # is left published/importable as an instant rollback: reverting
+      # this one line to
+      # http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat
+      # is the entire rollback procedure.
+      N8N_WEBHOOK_URL: http://chat-orchestrator:3006/webhook
       HONCHO_API_KEY: ${HONCHO_API_KEY}
       HONCHO_WORKSPACE_ID: smart-assistant
-    depends_on: [n8n]
+    depends_on: [chat-orchestrator]
     networks: [assistant-net]
 
   # Discord bridge: lets the user talk to Amy from their phone over DM,
@@ -412,6 +419,10 @@ services:
     environment:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
       DISCORD_ALLOWED_USER_ID: ${DISCORD_ALLOWED_USER_ID}
-      N8N_CHAT_WEBHOOK_URL: http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat
-    depends_on: [n8n]
+      # Cut over to chat-orchestrator, same as chat-ui above - identical
+      # NDJSON contract (chat-client.ts already documents it as such), so
+      # no code change needed here either. Rollback: revert this one line
+      # to http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat.
+      N8N_CHAT_WEBHOOK_URL: http://chat-orchestrator:3006/webhook
+    depends_on: [chat-orchestrator]
     networks: [assistant-net]
