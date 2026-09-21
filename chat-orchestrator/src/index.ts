@@ -9,7 +9,14 @@ import { formatSkillsCatalog } from "./skills-catalog.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { SkillsMcpClient } from "./mcp-client.js";
 import { runAgentLoop, type AgentTool } from "./agent-loop.js";
-import { hasUnfulfilledSearchIntent, isConfabulatedAction, SEARCH_RETRY_NUDGE } from "./safety-net.js";
+import {
+  hasUnfulfilledSearchIntent,
+  isConfabulatedAction,
+  hasUnsatisfiedRequiredTool,
+  SEARCH_RETRY_NUDGE,
+  REQUIRED_TOOL_RETRY_NUDGE,
+  REQUIRED_TOOL_FAILURE_MESSAGE,
+} from "./safety-net.js";
 
 const config = loadConfig(process.env);
 
@@ -161,6 +168,24 @@ app.post("/webhook", async (req, res) => {
           "either actually call the right tool now, or answer without claiming you did.)",
       );
       if (retry.output.trim()) finalText = retry.output;
+    }
+
+    // Tool policy enforcement: toolPolicy=required means the classifier
+    // decided this message can't be answered correctly without checking a
+    // real tool first. One retry with an explicit nudge; if the required
+    // tool still wasn't called, the reply is replaced with a fixed,
+    // non-LLM template rather than whatever the model said - an
+    // LLM-generated "I failed" message can itself still confabulate
+    // (elaborate on wrong information instead of admitting it didn't
+    // check), so this is the one guarantee in this whole safety net that
+    // isn't itself model output.
+    if (hasUnsatisfiedRequiredTool(toolPolicy, boundToolNames, calledTools)) {
+      const retry = await runTurn(chatInput + REQUIRED_TOOL_RETRY_NUDGE);
+      if (retry.output.trim()) finalText = retry.output;
+
+      if (hasUnsatisfiedRequiredTool(toolPolicy, boundToolNames, calledTools)) {
+        finalText = REQUIRED_TOOL_FAILURE_MESSAGE;
+      }
     }
 
     emit("item", finalText);

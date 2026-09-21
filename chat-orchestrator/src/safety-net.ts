@@ -60,3 +60,34 @@ export const SEARCH_RETRY_NUDGE =
   "web_search, knowledge_search, or research_task again (whichever fits) right now with a " +
   "meaningfully different query before replying. Briefly let the user know you're trying a " +
   "different angle.)";
+
+// Tools that don't count toward toolPolicy=required - both are bound to
+// every turn regardless of classification (see classify-tools.ts's
+// expandGroupsToTools), so their presence says nothing about whether the
+// classifier's actual required capability was used.
+const ALWAYS_BOUND_TOOLS = ["calculate", "task_context_manage"];
+
+// True when the classifier decided this message needed live/authoritative
+// data or a real action (toolPolicy=required, see classify-tools.ts), a
+// capability-specific tool was actually bound this turn, and none of them
+// were called - the deterministic version of the old confabulation
+// heuristic: instead of waiting for the reply to *claim* an action
+// happened, this catches the model answering conversationally (or from
+// its own training data) when it was supposed to check first.
+export function hasUnsatisfiedRequiredTool(
+  toolPolicy: string,
+  boundTools: string[],
+  calledTools: string[],
+): boolean {
+  if (toolPolicy !== "required") return false;
+  const boundCapabilityTools = boundTools.filter((t) => !ALWAYS_BOUND_TOOLS.includes(t));
+  if (boundCapabilityTools.length === 0) return false;
+  return !boundCapabilityTools.some((t) => calledTools.includes(t));
+}
+
+export const REQUIRED_TOOL_RETRY_NUDGE =
+  " (This needs real, current information or an actual action, not a guess - actually call the " +
+  "relevant tool right now before replying, then answer based on what it actually returns.)";
+
+export const REQUIRED_TOOL_FAILURE_MESSAGE =
+  "I wasn't able to complete that using my tools just now — want me to try again?";
