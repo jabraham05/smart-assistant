@@ -316,6 +316,75 @@ services:
       - ./homeassistant/config:/config
     networks: [assistant-net]
 
+  # Replaces the old Chat n8n workflow's AI Agent + MCP Client Tool node for
+  # tool-calling orchestration - see docs/chat-workflow.md's documented
+  # qwen3:8b reliability history and docs/coding-agent-pipeline.md's
+  # already-proven raw-Ollama-tool-loop pattern this reuses. skills-mcp
+  # itself is unchanged; this is a second, better-behaved MCP client
+  # consuming it directly. n8n's Chat workflow is left intact/importable as
+  # an instant rollback for as long as needed - chat-ui/discord-bot only
+  # get repointed here once this is proven end-to-end (see the plan).
+  # Published on the host (unlike coding-orchestrator/knowledge-engine) so
+  # scripts/chat.mjs can be pointed at it directly for testing
+  # (N8N_CHAT_WEBHOOK_URL=http://localhost:3008/webhook) with zero script
+  # changes, since it preserves the exact same request/NDJSON contract.
+  # Host port 3008, not 3006 - 3006 is already bound by an orphaned
+  # `dashboard` container on this machine (a leftover from a service no
+  # longer in this file - see `docker ps`), unrelated to this change.
+  chat-orchestrator:
+    build:
+      context: ./chat-orchestrator
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3008:3006"
+    environment:
+      PORT: "3006"
+      OLLAMA_HOST: http://ollama:11434
+      SKILLS_MCP_URL: http://skills-mcp:3001
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # 'public' - the real views onto n8n's live personas/skills Data
+      # Tables (see postgres/init/10-add-chat-test-schema.sql).
+      CHAT_DB_SCHEMA: public
+      REDIS_HOST: redis
+      REDIS_DB: "0"
+      HONCHO_API_KEY: ${HONCHO_API_KEY}
+      HONCHO_WORKSPACE_ID: smart-assistant
+      EVENT_BUS_URL: http://event-bus:3004
+    depends_on: [postgres, redis, ollama, skills-mcp, event-bus]
+    networks: [assistant-net]
+
+  # Side-by-side test instance of the same image/codebase - differs only by
+  # env var (CHAT_DB_SCHEMA/REDIS_DB), never a per-request flag. Lets a
+  # persona/skill change be tried against chat_test.personas/chat_test.skills
+  # (edit directly via SQL) without ever touching production data, and lets
+  # tool-calling behavior be regression-tested without writing to the
+  # production Redis session buffer. Known, accepted limitation: still
+  # shares the same real Honcho workspace, skills-mcp, and Ollama as prod -
+  # a test conversation still writes to Amy's real long-term memory and can
+  # still trigger real-world tool side effects (a real calendar event, real
+  # Spotify control). Not sandboxed by this change - see the plan.
+  chat-orchestrator-test:
+    build:
+      context: ./chat-orchestrator
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3009:3006"
+    environment:
+      PORT: "3006"
+      OLLAMA_HOST: http://ollama:11434
+      SKILLS_MCP_URL: http://skills-mcp:3001
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CHAT_DB_SCHEMA: chat_test
+      REDIS_HOST: redis
+      REDIS_DB: "1"
+      HONCHO_API_KEY: ${HONCHO_API_KEY}
+      HONCHO_WORKSPACE_ID: smart-assistant
+      EVENT_BUS_URL: http://event-bus:3004
+    depends_on: [postgres, redis, ollama, skills-mcp, event-bus]
+    networks: [assistant-net]
+
   chat-ui:
     build:
       context: ./chat-ui
