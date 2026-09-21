@@ -21,7 +21,10 @@ export function registerKnowledgeSearch(server: McpServer, config: Config): void
       inputSchema: {
         query: z.string().min(1, "query must not be empty").describe("What to search for."),
         domain: z.string().optional().describe("Narrow the search to one topic area, if known (e.g. 'automotive', 'warframe')."),
-        topK: z.number().int().min(1).max(10).optional().describe("How many results to return, 1-10. Defaults to 5."),
+        // coerce, not number(): the model sometimes sends a stringified
+        // number for fields like this - see web-search.ts's maxResults for
+        // the real production failure this pattern is fixed for.
+        topK: z.coerce.number().int().min(1).max(10).optional().describe("How many results to return, 1-10. Defaults to 5."),
       },
     },
     async ({ query, domain, topK }) => {

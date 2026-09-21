@@ -28,7 +28,7 @@ function isoDateTime(homeTimezone: string) {
 // logging or far-out planning still works; only catches dates that are
 // wildly implausible, matching the actual observed failure (landing on
 // a ~2-3 year-old placeholder date instead of a real one).
-function implausibleDateError(iso: string, label: "start" | "end"): string | null {
+function implausibleDateError(iso: string, label: "start" | "end" | "timeMin" | "timeMax"): string | null {
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.getTime())) return `${label} ("${iso}") is not a valid date/time.`;
   const now = new Date();
@@ -76,7 +76,12 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
           .optional()
           .describe("list: end of the time range to search. Omit to default to 7 days from now."),
         maxResults: z
-          .number()
+          // coerce, not number(): observed live - the model sometimes sends
+          // a stringified number ("5" instead of 5) for this exact field,
+          // which z.number() rejects outright as a type mismatch instead of
+          // just using the value. coerce runs it through Number() first, so
+          // "5" still validates as 5 while genuine garbage still fails.
+          .coerce.number()
           .int()
           .positive()
           .max(50)
@@ -98,6 +103,24 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
 
       try {
         if (action === "list") {
+          // Real, observed failure: the model sometimes passes the literal
+          // word "tomorrow" (or similar) as timeMin/timeMax instead of
+          // resolving it to a real ISO datetime first, despite the schema's
+          // explicit format instructions - create/update already guard
+          // against this via implausibleDateError, but list's timeMin/
+          // timeMax had no validation at all, so an unresolved relative
+          // date went straight to Google's API and came back as an opaque
+          // "400 Bad Request" with no indication of what was actually
+          // wrong. Reusing the same check here turns that into a specific,
+          // actionable error the agent can self-correct from mid-turn.
+          if (timeMin) {
+            const err = implausibleDateError(timeMin, "timeMin");
+            if (err) return errorResult(err);
+          }
+          if (timeMax) {
+            const err = implausibleDateError(timeMax, "timeMax");
+            if (err) return errorResult(err);
+          }
           const now = new Date();
           const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
           const events = await listEvents(

@@ -34,7 +34,12 @@ export function registerWebSearch(server: McpServer, config: Config): void {
             "'news' biases results toward recent news articles (last few days); defaults to 'general'.",
           ),
         maxResults: z
-          .number()
+          // coerce, not number(): the model sometimes sends a stringified
+          // number ("5" instead of 5) for this exact field - observed live,
+          // a real production failure (MCP error -32602 rejecting the whole
+          // call outright). coerce runs it through Number() first, so a
+          // stringified number still validates while genuine garbage fails.
+          .coerce.number()
           .int()
           .min(1)
           .max(10)

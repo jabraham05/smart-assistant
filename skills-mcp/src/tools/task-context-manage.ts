@@ -28,7 +28,10 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
         "status='done' once the objective is actually met. action='list' shows tasks by status.",
       inputSchema: {
         action: z.enum(["create", "list", "update", "log"]).describe("Which task operation to perform."),
-        taskContextId: z.number().int().optional().describe("update/log: the task's id, from the open-tasks list already shown to you. Required for both."),
+        // coerce, not number(): the model sometimes sends a stringified
+        // number for id-like fields - see web-search.ts's maxResults for
+        // the real production failure this pattern is fixed for.
+        taskContextId: z.coerce.number().int().optional().describe("update/log: the task's id, from the open-tasks list already shown to you. Required for both."),
         objective: z.string().optional().describe("create: what the task is trying to accomplish (required). update: new objective, if changing."),
         capability: z.string().optional().describe("create/update: which capability this task relates to, e.g. 'research', 'automation' - metadata only."),
         domain: z.string().optional().describe("create/update: free-text domain, e.g. 'automotive' - same convention as knowledge_search's domain."),
