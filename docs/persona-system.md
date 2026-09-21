@@ -13,6 +13,15 @@ workflow's `Get Persona` node reads the `system_prompt` column for that row
 and feeds it to the AI Agent as its system message, alongside the two
 Honcho peer cards described in [`docs/honcho-memory.md`](honcho-memory.md).
 
+**2026-09-21** — `chat-orchestrator` (see
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)), which now handles
+real chat traffic instead of this workflow, reads the exact same
+`system_prompt` column via a direct Postgres view rather than n8n's Data
+Table API, and assembles the system prompt the same way (persona + date +
+peer cards + skills catalog). The persona itself is still only ever edited
+in n8n's Data Table UI — nothing about *how* Amy's identity is authored
+changed, only which running service reads it for a live turn.
+
 **2026-07-27 — the model had no way to know the actual current date,
 and silently fabricated one.** Asked to schedule a calendar event
 "tomorrow at 5pm," `calendar_event` reported success with a real event

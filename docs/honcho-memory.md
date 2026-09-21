@@ -52,3 +52,14 @@ Both HTTP nodes have `onError: continueRegularOutput` set — if Honcho is
 briefly unreachable, or a card is empty/not-yet-created, the expression that
 builds Amy's system prompt falls back to just the base persona text rather
 than breaking the chat.
+
+**2026-09-21** — `chat-orchestrator` (see
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)), which now handles
+real chat traffic instead of the `Chat` workflow, makes the identical
+calls (same workspace, same endpoints, same degrade-to-empty-string
+behavior on failure) from `src/honcho.ts` rather than n8n HTTP Request
+nodes. Both the production and test (`chat-orchestrator-test`) instances
+share this one real Honcho workspace — a test-mode conversation still
+writes to Amy's real long-term memory, a known limitation of the
+test/production split (that split only covers persona/skills reads and
+short-term Redis memory, not Honcho).

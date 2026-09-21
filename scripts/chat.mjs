@@ -1,7 +1,14 @@
 #!/usr/bin/env node
-// Quick CLI to test connectivity to the n8n chat webhook.
+// Quick CLI to test connectivity to the chat webhook - either
+// chat-orchestrator (what chat-ui/discord-bot actually use now, see
+// docs/chat-orchestrator.md) or, for rollback testing, the old n8n Chat
+// Trigger's Production URL. Both speak the identical NDJSON contract, so
+// no code here needs to know which one it's talking to.
 // Usage: node scripts/chat.mjs "your message here"
-// Requires N8N_CHAT_WEBHOOK_URL to be set to the Chat Trigger node's Production URL.
+// Requires N8N_CHAT_WEBHOOK_URL, e.g.:
+//   http://localhost:3008/webhook       (chat-orchestrator, prod)
+//   http://localhost:3009/webhook       (chat-orchestrator-test)
+//   http://localhost:5678/webhook/...   (n8n Chat workflow, rollback path)
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";

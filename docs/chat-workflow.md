@@ -53,6 +53,24 @@ HTTP Request -> Honcho /messages    Fix Postgres Memory Row
 (stores the exchange, every turn; peer_id "amy")
 ```
 
+## 2026-09-21 — replaced by `chat-orchestrator` for real traffic; kept published as the rollback
+
+`chat-ui` and `discord-bot` no longer call this workflow — both were
+repointed at a new self-hosted service, `chat-orchestrator` (see
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)), which reimplements
+this exact pipeline (persona/peer-card/skills-catalog injection, the tool-
+group classifier, Honcho storage) as real TypeScript running a raw Ollama
+tool-calling loop against a real MCP client, instead of the `AI Agent`/
+`MCP Client Tool` node combo documented as unreliable throughout this
+file. This workflow is **deliberately still published, not deleted** —
+it's the literal instant rollback for as long as it's needed (see that
+doc's "what's explicitly NOT changing" section for the exact revert
+procedure and the revisit trigger for when unpublishing it becomes safe).
+Every gotcha below is preserved for history and because n8n's Chat
+workflow itself is still live infrastructure, not because the reliability
+problems it describes are still being actively worked around in the
+user-facing path.
+
 ## Known gotchas (learned the hard way)
 
 - **Chat Trigger has two modes**: "Hosted Chat" (n8n's own widget, has its

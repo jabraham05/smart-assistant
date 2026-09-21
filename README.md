@@ -22,7 +22,12 @@ eventually tested) on its own.
   overview (n8n, skills-mcp, Ollama, Honcho, postgres, redis)
 - [`docs/chat-workflow.md`](docs/chat-workflow.md) — the main `Chat` n8n
   workflow: pipeline diagram, tool-calling reliability saga, trigger/response
-  mode gotchas
+  mode gotchas (superseded for real traffic by `chat-orchestrator`, kept
+  published as the rollback — see below)
+- [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md) — self-hosted
+  replacement for the `Chat` workflow's tool-calling: a raw Ollama
+  tool-calling loop against a real MCP client, what `chat-ui`/
+  `discord-bot` actually talk to now
 - [`docs/honcho-memory.md`](docs/honcho-memory.md) — Honcho peer cards
   (proactive memory + behavioral instructions for Amy)
 - [`docs/persona-system.md`](docs/persona-system.md) — Amy's identity,
@@ -108,6 +113,14 @@ eventually tested) on its own.
 - `scripts/start-coding-task.mjs` — explicit trigger for the coding-agent
   pipeline, mirroring `chat.mjs`'s role as a reference client for the
   `Chat` webhook.
+- `chat-orchestrator/` — self-hosted tool-calling for real chat traffic,
+  replacing the `Chat` workflow's `AI Agent`/`MCP Client Tool` node (see
+  [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)); runs as two
+  instances (`chat-orchestrator` prod, `chat-orchestrator-test`) differing
+  only by env var (Redis DB index, Postgres schema for persona/skills
+  reads). `chat.mjs` can be pointed at either directly via
+  `N8N_CHAT_WEBHOOK_URL=http://localhost:3008/webhook` (prod) or `:3009`
+  (test) with no script changes, since the NDJSON contract is identical.
 - `honcho-src/` — a clone of the Honcho OSS repo from when self-hosting was
   attempted. Unused now that Honcho runs hosted. Gitignored; safe to delete,
   kept only in case self-hosting is revisited (cost/privacy reasons).

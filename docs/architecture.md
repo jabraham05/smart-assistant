@@ -15,13 +15,20 @@ flow, garbage-output safety net, etc.), see
   Tool` node rather than as bespoke HTTP Request Tool nodes per skill.
 - **skills-mcp** — a small standalone MCP server (Node/TypeScript,
   `@modelcontextprotocol/sdk`, Streamable HTTP transport), its own
-  `docker-compose.yml` service, internal-only (no published port — n8n
-  reaches it at `http://skills-mcp:3001/mcp` over `assistant-net`). Hosts
-  agent-callable tools — see `skills-mcp/src/tools/` for the current list
-  (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
-  `code_task`, `spotify_control`, `dashboard_control`, `web_search`,
+  `docker-compose.yml` service, internal-only (no published port —
+  reached at `http://skills-mcp:3001/mcp` over `assistant-net`, now by
+  three consumers: n8n's other workflows, `coding-orchestrator`'s agent
+  loop, and `chat-orchestrator`, below). Hosts agent-callable tools — see
+  `skills-mcp/src/tools/` and `server.ts` for the authoritative
+  current list (as of this writing: `memory_recall`, `weather_get`,
+  `skill_propose`, `calendar_event`, `code_task` + its session-scoped
+  siblings `code_task_status`/`run_command`/`get_diff`/`write_file`,
+  `spotify_control`, `dashboard_control`, `web_search`,
   `knowledge_search`, `knowledge_ingest`, `research_task`,
-  `research_task_status` as of this writing)
+  `research_task_status`, `goal_manage`, `calculate` — 17 registered
+  tools total, though the `run_command`/`get_diff`/`write_file`/
+  `code_task_status` cluster is pipeline-internal, scoped to an active
+  coding-agent's own tool-calling loop, not exposed to general chat)
   — added by registering each in `server.ts` following the
   same `registerTool`/zod/`textResult` pattern. Names use a consistent
   `domain_verb` prefix convention (not the original `verb_noun` names some
@@ -31,6 +38,12 @@ flow, garbage-output safety net, etc.), see
   [`docs/chat-workflow.md`](chat-workflow.md) for the tool-calling
   reliability work this unblocked, and
   [`docs/skill-proposals.md`](skill-proposals.md) for `skill_propose`.
+- **chat-orchestrator** — self-hosted replacement for the `Chat`
+  workflow's `AI Agent`/`MCP Client Tool` tool-calling, running a raw
+  Ollama tool-calling loop against a real MCP client connected to
+  `skills-mcp` (see [`docs/chat-orchestrator.md`](chat-orchestrator.md)).
+  `chat-ui` and `discord-bot` both talk to this now, not n8n, for real
+  chat traffic — n8n's `Chat` workflow stays published as the rollback.
 - **Ollama** — local LLM inference (GPU). `OLLAMA_KEEP_ALIVE=-1` plus an
   `ollama-warmup` one-shot service keep the default model resident in VRAM
   at all times, so there's no cold-start tax after the stack comes up.
