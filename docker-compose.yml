@@ -346,3 +346,50 @@ services:
       N8N_CHAT_WEBHOOK_URL: http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat
     depends_on: [n8n]
     networks: [assistant-net]
+
+  # Single-pane-of-glass monitoring/ops UI for the whole stack: workflows,
+  # Postgres (query panel), logs, knowledge-base search, chat (iframes
+  # chat-ui, which already covers both live chat and Honcho-backed session
+  # history), agent/tool registry, and docs. LAN-only, no auth, by design -
+  # same trust boundary as every other assistant-net service. Joins
+  # assistant-net since it needs to reach postgres/n8n/knowledge-engine/
+  # event-bus/skills-mcp directly, same reasoning as chat-ui.
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3006:3006"
+    environment:
+      PORT: "3006"
+      # Reuses the one existing `assistant` role/credential across all 5
+      # databases, same as every other service. No dedicated read-only role
+      # exists; the dashboard enforces read-only at the application layer
+      # instead (statement validation + a real Postgres READ ONLY
+      # transaction) - see dashboard/src/lib/readonly-sql.ts.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: assistant
+      # Browser-facing (rendered as an <iframe src> / link href client-side),
+      # so these must be host-published addresses the user's own browser can
+      # reach, not the internal Compose service names.
+      NEXT_PUBLIC_CHAT_UI_URL: http://localhost:3000
+      N8N_PUBLIC_URL: http://localhost:5678
+      # Internal service URLs, used only from server-side API routes.
+      KNOWLEDGE_ENGINE_URL: http://knowledge-engine:3005
+      EVENT_BUS_URL: http://event-bus:3004
+      SKILLS_MCP_URL: http://skills-mcp:3001/mcp
+    volumes:
+      # Docker socket access for the Logs panel (dockerode), same precedent
+      # as sandbox-runner.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Read-only bind mounts so doc edits on the host show up without a
+      # rebuild. root-readme.md is mounted as a separate file rather than
+      # nested inside the already-read-only ./docs mount - Docker can't
+      # create a new mountpoint inside a directory that's itself a read-only
+      # bind mount (fails with "read-only file system" at container start).
+      - ./docs:/app/docs:ro
+      - ./README.md:/app/root-readme.md:ro
+    depends_on: [postgres, n8n, knowledge-engine, event-bus, skills-mcp, chat-ui]
+    networks: [assistant-net]
