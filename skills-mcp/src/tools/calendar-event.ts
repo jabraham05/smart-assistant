@@ -28,7 +28,19 @@ function isoDateTime(homeTimezone: string) {
 // logging or far-out planning still works; only catches dates that are
 // wildly implausible, matching the actual observed failure (landing on
 // a ~2-3 year-old placeholder date instead of a real one).
+const HAS_TIMEZONE_OFFSET = /(Z|[+-]\d{2}:\d{2})$/;
+
 function implausibleDateError(iso: string, label: "start" | "end" | "timeMin" | "timeMax"): string | null {
+  // A bare "2026-09-22T10:00:00" (no trailing Z or +/-HH:MM) parses just
+  // fine as a JS Date - interpreted in the server's local time - so it
+  // passes the NaN check below with no complaint at all. Google's Calendar
+  // API doesn't share that leniency: it rejects it outright with "Missing
+  // time zone definition for start/end time," observed live even after the
+  // schema's own description explicitly asks for an offset. Catch it here
+  // instead of letting a second class of malformed date reach Google.
+  if (!HAS_TIMEZONE_OFFSET.test(iso)) {
+    return `${label} ("${iso}") is missing a timezone offset (e.g. '-07:00' or 'Z') - add one before calling this tool again.`;
+  }
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.getTime())) return `${label} ("${iso}") is not a valid date/time.`;
   const now = new Date();
