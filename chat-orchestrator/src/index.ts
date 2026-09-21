@@ -8,6 +8,7 @@ import { classifyRelevantTools } from "./classify-tools.js";
 import { formatSkillsCatalog } from "./skills-catalog.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { SkillsMcpClient } from "./mcp-client.js";
+import { searchMemory, ingestMemory } from "./memory-engine-client.js";
 import { runAgentLoop, type AgentTool } from "./agent-loop.js";
 import {
   hasUnfulfilledSearchIntent,
@@ -62,7 +63,7 @@ app.post("/webhook", async (req, res) => {
 
   try {
     const classifyStartedAt = Date.now();
-    const [classification, personaSystemPrompt, activeSkills, history] = await Promise.all([
+    const [classification, personaSystemPrompt, activeSkills, fullHistory, memoryResults] = await Promise.all([
       classifyRelevantTools(config.ollamaHost, config.classifierModel, chatInput),
       db.getPersonaSystemPrompt(config).catch((e) => {
         console.error("getPersonaSystemPrompt failed:", e);
@@ -76,8 +77,25 @@ app.post("/webhook", async (req, res) => {
         console.error("getRecentHistory failed:", e);
         return [];
       }),
+      // Fetched unconditionally in parallel, same as everything else here -
+      // whether memoryPolicy actually allows using the result is decided
+      // below, once classification resolves. Gating the fetch itself would
+      // mean waiting on classification first, adding its latency as a
+      // floor before this could even start - not worth it to skip a rare,
+      // cheap call on a memoryPolicy=none turn.
+      searchMemory(config, chatInput).catch((e) => {
+        console.error("searchMemory failed:", e);
+        return [];
+      }),
     ]);
     const { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background } = classification;
+
+    // memoryPolicy only ever gates retrieval/injection into this turn's
+    // prompt - never storage. History keeps accumulating in Redis
+    // regardless (session-memory.appendTurn below is unconditional); this
+    // just decides how much of it actually gets read into context here.
+    const history = memoryPolicy === "none" ? fullHistory.slice(-6) : fullHistory;
+    const relevantMemories = memoryPolicy === "none" ? [] : memoryResults.map((m) => m.content);
 
     console.log(
       `chat classify [${sessionId}]: groups=${relevantGroups.join(",") || "(none)"} ` +
@@ -94,12 +112,17 @@ app.post("/webhook", async (req, res) => {
       classifyMs: Date.now() - classifyStartedAt,
     }).catch((e) => console.error("publishClassificationEvent failed:", e));
 
-    await honcho.ensureSessionExists(config, sessionId);
-    await honcho.setUserObserveConfig(config, sessionId);
-    const [userCard, userCardForAmy] = await Promise.all([
-      honcho.getUserCard(config),
-      honcho.getUserCardForAmy(config),
-    ]);
+    // Skip the peer-card fetch entirely (not just its injection) for
+    // memoryPolicy=none - these calls already run sequentially after
+    // classification, not in the initial parallel batch, so there's a
+    // real latency win here and no downside (unlike searchMemory above).
+    let userCard: string[] = [];
+    let userCardForAmy: string[] = [];
+    if (memoryPolicy !== "none") {
+      await honcho.ensureSessionExists(config, sessionId);
+      await honcho.setUserObserveConfig(config, sessionId);
+      [userCard, userCardForAmy] = await Promise.all([honcho.getUserCard(config), honcho.getUserCardForAmy(config)]);
+    }
 
     const systemPrompt = buildSystemPrompt({
       personaSystemPrompt: personaSystemPrompt ?? FALLBACK_PERSONA,
@@ -107,6 +130,7 @@ app.post("/webhook", async (req, res) => {
       userCard,
       userCardForAmy,
       skillsCatalogText: formatSkillsCatalog(activeSkills),
+      relevantMemories,
     });
 
     const mcp = new SkillsMcpClient(config.skillsMcpUrl, sessionId, background);
@@ -192,9 +216,15 @@ app.post("/webhook", async (req, res) => {
     emit("end");
     res.end();
 
+    // Unconditional regardless of memoryPolicy, same as honcho.storeTurn/
+    // sessionMemory.appendTurn - memoryPolicy only ever gates retrieval
+    // into a turn's prompt, never storage, so a memoryPolicy=none turn
+    // still gets recorded for a future turn's cross-conversation search.
     await Promise.all([
       honcho.storeTurn(config, sessionId, chatInput, finalText),
       sessionMemory.appendTurn(config, sessionId, chatInput, finalText),
+      ingestMemory(config, sessionId, "user", chatInput),
+      ingestMemory(config, sessionId, "assistant", finalText),
     ]);
   } catch (e) {
     console.error(`chat turn failed for session ${sessionId}:`, e);

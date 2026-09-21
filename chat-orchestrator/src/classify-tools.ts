@@ -133,11 +133,19 @@ export async function classifyRelevantTools(
       ? (parsed.memoryPolicy as MemoryPolicy)
       : "optional";
     const needsPlanning = parsed.needsPlanning === true;
-    const { background, relevantTools } = applyBackgroundOverride(
+    const { background, relevantTools: toolsAfterBackground } = applyBackgroundOverride(
       parsed.background === true,
       relevantGroups,
       expandGroupsToTools(relevantGroups),
     );
+    // Force-expose memory_recall for relevant/required memoryPolicy even
+    // if 'info' wasn't classified - same reasoning as background's
+    // research_task force-include above: the field this policy describes
+    // needs the tool actually bound to be actionable, not just logged.
+    const relevantTools =
+      memoryPolicy === "relevant" || memoryPolicy === "required"
+        ? [...new Set([...toolsAfterBackground, "memory_recall"])]
+        : toolsAfterBackground;
 
     return { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background };
   } catch (e) {

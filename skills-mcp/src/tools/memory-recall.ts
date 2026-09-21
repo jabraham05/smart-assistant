@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Config } from "../config.js";
-import { honchoDialecticChat } from "../lib/honcho.js";
+import { searchMemory } from "../lib/memory-engine-client.js";
 import { errorResult, textResult } from "../types.js";
 
 export function registerMemoryRecall(server: McpServer, config: Config): void {
@@ -38,8 +38,11 @@ export function registerMemoryRecall(server: McpServer, config: Config): void {
         return errorResult("query must not be empty or whitespace-only.");
       }
       try {
-        const answer = await honchoDialecticChat(config, trimmed);
-        return textResult(answer || "No relevant information found.");
+        const results = await searchMemory(config, trimmed);
+        if (results.length === 0) {
+          return textResult("No relevant information found.");
+        }
+        return textResult(results.map((r) => `[${r.role}, ${r.createdAt}] ${r.content}`).join("\n\n"));
       } catch (e) {
         return errorResult(
           `memory_recall failed: ${e instanceof Error ? e.message : String(e)}`,

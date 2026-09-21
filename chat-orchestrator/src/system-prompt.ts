@@ -8,6 +8,13 @@ export function buildSystemPrompt(input: {
   userCard: string[];
   userCardForAmy: string[];
   skillsCatalogText: string;
+  // Pre-filtered by the caller based on memoryPolicy (see index.ts) -
+  // this function stays policy-agnostic, same as every other section
+  // here: given something, render it; given nothing, omit the section
+  // entirely. Distinct from userCard (a general evolving profile) - these
+  // are specific past turns relevant to *this* message, from
+  // memory-engine's automatic cross-conversation retrieval.
+  relevantMemories?: string[];
 }): string {
   const dateLine = `Right now it is ${formatPacific(input.now)} (Pacific time) — use this as ground truth for any relative date/time the user mentions (today, tomorrow, next week, etc.) when creating or checking calendar events. Never guess a date or fall back to a placeholder.`;
 
@@ -19,9 +26,13 @@ export function buildSystemPrompt(input: {
     ? `Standing instructions from the user about how you should behave: ${input.userCardForAmy.join("; ")}`
     : "";
 
+  const relevantMemoriesLine = input.relevantMemories?.length
+    ? `Possibly relevant things from earlier conversations:\n${input.relevantMemories.map((m) => `- ${m}`).join("\n")}`
+    : "";
+
   const skillsLine = input.skillsCatalogText ? `Skills you have learned:\n\n${input.skillsCatalogText}` : "";
 
-  return [input.personaSystemPrompt, dateLine, userCardLine, userCardForAmyLine, skillsLine]
+  return [input.personaSystemPrompt, dateLine, userCardLine, userCardForAmyLine, relevantMemoriesLine, skillsLine]
     .filter(Boolean)
     .join("\n\n");
 }

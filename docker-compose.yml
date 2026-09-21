@@ -171,6 +171,9 @@ services:
       # RESEARCH_TASK_WEBHOOK_URL/RESEARCH_TASK_STATUS_WEBHOOK_URL/
       # RESEARCH_SEARCH_WEBHOOK_URL vars that pointed at research_pipeline.
       KNOWLEDGE_ENGINE_URL: http://knowledge-engine:3005
+      # memory_recall's manual retrieval path - same backend
+      # chat-orchestrator's automatic per-turn retrieval uses.
+      MEMORY_ENGINE_URL: http://memory-engine:3007
     networks: [assistant-net]
 
   # Docker-outside-of-Docker sandbox: spins up a fresh, disposable container
@@ -306,6 +309,29 @@ services:
     depends_on: [postgres, ollama]
     networks: [assistant-net]
 
+  # Self-hosted cross-conversation memory retrieval - deliberately its own
+  # service and its own database (`memory`), not a domain inside
+  # knowledge-engine's `research` database, since knowledge-engine's own
+  # scope explicitly excludes user-specific memory (world facts only).
+  # Replaces Honcho's dialectic API for both chat-orchestrator's automatic
+  # per-turn retrieval and the memory_recall MCP tool's manual path - one
+  # backend for both. Honcho itself is unaffected: still owns the peer-card
+  # profile summary and its own background consolidation. Internal-only,
+  # no published port, same pattern as knowledge-engine/event-bus.
+  memory-engine:
+    build:
+      context: ./memory-engine
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "3007"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MEMORY_DB_NAME: ${MEMORY_DB_NAME:-memory}
+      OLLAMA_HOST: http://ollama:11434
+      MEMORY_EMBEDDING_MODEL: ${MEMORY_EMBEDDING_MODEL:-nomic-embed-text}
+    depends_on: [postgres, ollama]
+    networks: [assistant-net]
+
   # Self-hosted Home Assistant, phone-presence-only for now (see README's
   # "Home Assistant + presence" section). No new backend service needed on
   # this side to consume it — HA's own Automations POST zone enter/leave
@@ -361,7 +387,8 @@ services:
       HONCHO_API_KEY: ${HONCHO_API_KEY}
       HONCHO_WORKSPACE_ID: smart-assistant
       EVENT_BUS_URL: http://event-bus:3004
-    depends_on: [postgres, redis, ollama, skills-mcp, event-bus]
+      MEMORY_ENGINE_URL: http://memory-engine:3007
+    depends_on: [postgres, redis, ollama, skills-mcp, event-bus, memory-engine]
     networks: [assistant-net]
 
   # Side-by-side test instance of the same image/codebase - differs only by
@@ -392,7 +419,8 @@ services:
       HONCHO_API_KEY: ${HONCHO_API_KEY}
       HONCHO_WORKSPACE_ID: smart-assistant
       EVENT_BUS_URL: http://event-bus:3004
-    depends_on: [postgres, redis, ollama, skills-mcp, event-bus]
+      MEMORY_ENGINE_URL: http://memory-engine:3007
+    depends_on: [postgres, redis, ollama, skills-mcp, event-bus, memory-engine]
     networks: [assistant-net]
 
   chat-ui:

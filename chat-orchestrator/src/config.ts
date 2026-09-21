@@ -34,6 +34,7 @@ export interface Config {
   honchoApiKey?: string;
   honchoWorkspaceId: string;
   eventBusUrl: string;
+  memoryEngineUrl: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -68,5 +69,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     honchoApiKey: env.HONCHO_API_KEY || undefined,
     honchoWorkspaceId: env.HONCHO_WORKSPACE_ID || "smart-assistant",
     eventBusUrl: env.EVENT_BUS_URL || "http://event-bus:3004",
+    memoryEngineUrl: env.MEMORY_ENGINE_URL || "http://memory-engine:3007",
   };
 }

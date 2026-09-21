@@ -19,6 +19,7 @@ export interface Config {
   eventBusUrl: string;
   tavilyApiKey?: string;
   knowledgeEngineUrl: string;
+  memoryEngineUrl: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -91,5 +92,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // config-missing error path. Replaces the old RESEARCH_*_WEBHOOK_URL
     // vars that pointed at research_pipeline's n8n webhooks.
     knowledgeEngineUrl: env.KNOWLEDGE_ENGINE_URL || "http://knowledge-engine:3005",
+    memoryEngineUrl: env.MEMORY_ENGINE_URL || "http://memory-engine:3007",
   };
 }

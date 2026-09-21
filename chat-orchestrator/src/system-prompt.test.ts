@@ -29,3 +29,28 @@ test("buildSystemPrompt includes every section when populated", () => {
   assert.ok(prompt.includes("Standing instructions from the user about how you should behave: be concise"));
   assert.ok(prompt.includes("Skills you have learned:\n\n## a-skill"));
 });
+
+test("buildSystemPrompt omits relevantMemories when absent or empty", () => {
+  const prompt = buildSystemPrompt({
+    personaSystemPrompt: "You are Amy.",
+    now: new Date("2026-09-21T12:00:00Z"),
+    userCard: [],
+    userCardForAmy: [],
+    skillsCatalogText: "",
+    relevantMemories: [],
+  });
+  assert.ok(!prompt.includes("Possibly relevant things from earlier conversations"));
+});
+
+test("buildSystemPrompt includes relevantMemories when populated", () => {
+  const prompt = buildSystemPrompt({
+    personaSystemPrompt: "You are Amy.",
+    now: new Date("2026-09-21T12:00:00Z"),
+    userCard: [],
+    userCardForAmy: [],
+    skillsCatalogText: "",
+    relevantMemories: ["mentioned a fuel sender issue on the 987"],
+  });
+  assert.ok(prompt.includes("Possibly relevant things from earlier conversations:"));
+  assert.ok(prompt.includes("- mentioned a fuel sender issue on the 987"));
+});
