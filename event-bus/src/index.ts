@@ -55,6 +55,25 @@ app.post("/events", async (req, res) => {
   }
 });
 
+// GET /events?limit=50&source=discord - recent events, newest first. Read
+// visibility into the append-only audit trail (every ingested event is
+// recorded here even when classify.ts decides not to notify on it) - no
+// dashboard has ever existed for this before now (see
+// docs/chat-orchestrator.md's dashboard fix for the consumer).
+app.get("/events", async (req, res) => {
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 50;
+  const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 50;
+  const source = typeof req.query.source === "string" ? req.query.source : undefined;
+
+  try {
+    const events = await db.listRecentEvents(config, limit, source);
+    res.json({ events });
+  } catch (e) {
+    console.error("failed to list events:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 // POST /goals - create.
 app.post("/goals", async (req, res) => {
   const body = req.body as {

@@ -97,6 +97,15 @@ directional card (see [`docs/persona-system.md`](persona-system.md)) shape
 nudge tone/frequency — e.g. a "don't nag" trait should make her back off —
 instead of one hardcoded string for everyone.
 
+**2026-09-21 — added `GET /events` (list, newest first, optional
+`?source=`/`?limit=`).** No read endpoint existed for the `events` audit
+trail before this — every event was write-only, visible only via a raw
+`psql` query. Added specifically to back `chat-ui`'s new event-bus
+visibility panel (see [`docs/chat-ui.md`](chat-ui.md)) — a plain read of
+`listRecentEvents`, no new access control, since this is a
+debugging/observability surface on a single-user internal service, not a
+consumer-facing API.
+
 **Also not yet documented here**: `event-bus/src/calendar-watch.ts` (the
 calendar poll-and-diff watcher, `CALENDAR_REMINDER_LEAD_MINUTES`/
 `CALENDAR_POLL_LOOKAHEAD_HOURS`) shares this service but doesn't have a

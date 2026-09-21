@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { HonchoSession } from "@/types/chat";
+import type { EnrichedSession } from "@/types/chat";
 
 export function useSessions() {
-  const [sessions, setSessions] = useState<HonchoSession[]>([]);
+  const [sessions, setSessions] = useState<EnrichedSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>(() => crypto.randomUUID());
   const [isLoading, setIsLoading] = useState(true);
 
@@ -13,8 +13,10 @@ export function useSessions() {
     try {
       const res = await fetch("/api/sessions");
       if (!res.ok) return;
-      const data: HonchoSession[] = await res.json();
-      data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      // Already filtered to real conversations and sorted by actual last
+      // activity server-side (see /api/sessions -> listRealSessions) -
+      // nothing left to do here.
+      const data: EnrichedSession[] = await res.json();
       setSessions(data);
     } finally {
       setIsLoading(false);

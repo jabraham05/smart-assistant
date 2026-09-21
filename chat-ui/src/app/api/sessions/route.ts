@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { listSessions } from "@/lib/honcho-client";
+import { listRealSessions } from "@/lib/honcho-client";
 
 export async function GET() {
-  const sessions = await listSessions();
+  const sessions = await listRealSessions();
   return NextResponse.json(sessions);
 }

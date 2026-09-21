@@ -50,10 +50,41 @@ export interface HonchoSession {
   created_at: string;
 }
 
+export type SessionOrigin = "discord" | "cli" | "chat";
+
+// Server-enriched session for the sidebar (see lib/honcho-client.ts's
+// listRealSessions) - raw Honcho sessions/list is unfiltered and includes
+// one-way, amy-only "sessions" from background notification paths
+// (coding-orchestrator, event-bus nudges) alongside genuine
+// conversations, and has no notion of "most recently active." Both are
+// fixed here rather than in Honcho itself.
+export interface EnrichedSession extends HonchoSession {
+  origin: SessionOrigin;
+  lastMessageAt: string;
+  preview: string;
+}
+
 export interface HonchoMessage {
   id: string;
   content: string;
   peer_id: string;
   session_id: string;
+  created_at: string;
+}
+
+// Matches event-bus's EventRow (src/db.ts) - the append-only audit trail
+// every ingested event lands in, even when classify.ts decides not to
+// notify on it. See docs/event-bus-and-goals.md.
+export interface EventBusEvent {
+  id: number;
+  source: string;
+  type: string;
+  payload: Record<string, unknown>;
+  occurred_at: string;
+  origin_session_id: string | null;
+  priority: string;
+  should_notify: boolean;
+  status: string;
+  notified_at: string | null;
   created_at: string;
 }

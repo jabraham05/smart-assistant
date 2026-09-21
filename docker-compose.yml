@@ -403,7 +403,11 @@ services:
       N8N_WEBHOOK_URL: http://chat-orchestrator:3006/webhook
       HONCHO_API_KEY: ${HONCHO_API_KEY}
       HONCHO_WORKSPACE_ID: smart-assistant
-    depends_on: [chat-orchestrator]
+      # Read-only event-bus visibility panel (see the "event-bus" toggle
+      # in ChatWindow.tsx / GET /api/events) - a debugging/observability
+      # surface, nothing here ever writes to event-bus.
+      EVENT_BUS_URL: http://event-bus:3004
+    depends_on: [chat-orchestrator, event-bus]
     networks: [assistant-net]
 
   # Discord bridge: lets the user talk to Amy from their phone over DM,

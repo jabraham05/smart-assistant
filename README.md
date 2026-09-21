@@ -28,6 +28,9 @@ eventually tested) on its own.
   replacement for the `Chat` workflow's tool-calling: a raw Ollama
   tool-calling loop against a real MCP client, what `chat-ui`/
   `discord-bot` actually talk to now
+- [`docs/chat-ui.md`](docs/chat-ui.md) — the Next.js chat client: the
+  session-sidebar fix (Discord conversations were sorting to the bottom,
+  unlabeled) and the read-only event-bus visibility panel
 - [`docs/honcho-memory.md`](docs/honcho-memory.md) — Honcho peer cards
   (proactive memory + behavioral instructions for Amy)
 - [`docs/persona-system.md`](docs/persona-system.md) — Amy's identity,

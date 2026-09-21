@@ -56,6 +56,26 @@ function getPool(config: Config): Pool {
   return pool;
 }
 
+// Used by the new GET /events endpoint (see index.ts) - a plain read of
+// the append-only audit trail, newest first. No filtering beyond an
+// optional source, since this is a debugging/visibility surface (see
+// docs/event-bus-and-goals.md), not a consumer-facing API with its own
+// access-control needs.
+export async function listRecentEvents(config: Config, limit: number, source?: string): Promise<EventRow[]> {
+  if (source) {
+    const result = await getPool(config).query<EventRow>(
+      `SELECT * FROM events WHERE source = $1 ORDER BY occurred_at DESC LIMIT $2`,
+      [source, limit],
+    );
+    return result.rows;
+  }
+  const result = await getPool(config).query<EventRow>(
+    `SELECT * FROM events ORDER BY occurred_at DESC LIMIT $1`,
+    [limit],
+  );
+  return result.rows;
+}
+
 export async function insertEvent(config: Config, input: InsertEventInput): Promise<EventRow> {
   const result = await getPool(config).query<EventRow>(
     `INSERT INTO events (source, type, payload, occurred_at, origin_session_id)
