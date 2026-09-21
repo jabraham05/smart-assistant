@@ -136,6 +136,26 @@ export async function updateTaskContext(
   return jsonOrThrow<TaskContextRecord>(res, "Task context update");
 }
 
+// Lazy resolution, not threaded through RequestContext eagerly on every
+// MCP request - the vast majority of tool calls don't run a verifier at
+// all, so paying an extra event-bus round-trip on every single call would
+// cost more than it's worth. Only called from inside a verifier wiring
+// site (see calendar-event.ts), right when there's actually something to
+// log. "Most recently updated open task" per the architecture plan's
+// resolved default - a real product decision, not an assumption: with
+// exactly one real user across every client, an ambiguous multi-task
+// case is rare enough that this is a reasonable default pending real
+// usage data suggesting otherwise.
+export async function logToMostRecentOpenTask(config: Config, note: string): Promise<void> {
+  try {
+    const openTasks = await listTaskContexts(config, "open");
+    if (openTasks.length === 0) return;
+    await logTaskContext(config, openTasks[0].id, note);
+  } catch (e) {
+    console.error("logToMostRecentOpenTask failed:", e);
+  }
+}
+
 export async function logTaskContext(config: Config, taskContextId: number, note: string): Promise<void> {
   const res = await fetch(`${config.eventBusUrl}/task-contexts/${taskContextId}/log`, {
     method: "POST",

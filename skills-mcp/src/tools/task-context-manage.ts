@@ -11,6 +11,35 @@ import {
   updateTaskContextStep,
 } from "../lib/event-bus-workflow.js";
 import { errorResult, textResult } from "../types.js";
+import { registerVerifier, verifyToolResult } from "../lib/verify-tool-result.js";
+
+// Second-priority verifier per the architecture plan (after calendar_event) -
+// closes a real confabulation-adjacent gap: confirming a write actually
+// took (the returned row genuinely reflects what was requested), not just
+// that the model correctly decided to call the tool at all (that's Phase
+// 2's job, in chat-orchestrator's safety-net.ts).
+registerVerifier("task_context_manage", (args, result) => {
+  const a = args as { action?: string; objective?: string; stepStatus?: string; stepDescriptions?: string[] };
+  if (a.action === "create" && a.objective) {
+    const r = result as { objective?: string };
+    if (r.objective !== a.objective) {
+      return { ok: false, reason: `Requested objective "${a.objective}" but got back "${r.objective}".` };
+    }
+  }
+  if (a.action === "advance_step" && a.stepStatus) {
+    const r = result as { status?: string };
+    if (r.status !== a.stepStatus) {
+      return { ok: false, reason: `Requested step status "${a.stepStatus}" but got back "${r.status}".` };
+    }
+  }
+  if (a.action === "plan" && Array.isArray(a.stepDescriptions)) {
+    const r = result as unknown[];
+    if (!Array.isArray(r) || r.length !== a.stepDescriptions.length) {
+      return { ok: false, reason: `Requested ${a.stepDescriptions.length} steps but got back ${Array.isArray(r) ? r.length : 0}.` };
+    }
+  }
+  return { ok: true };
+});
 
 // Always-on, ungated by classification (unlike every other tool, which is
 // only bound to a chat turn when the relevant capability was classified) -
@@ -81,6 +110,8 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
         if (action === "create") {
           if (!objective?.trim()) return errorResult("objective is required for action='create'.");
           const task = await createTaskContext(config, { objective, capability, domain, originSessionId: chatSessionId });
+          const verification = verifyToolResult("task_context_manage", { action, objective }, task);
+          if (!verification.ok) return errorResult(`Task was created but didn't verify: ${verification.reason}`);
           return textResult({ id: task.id, objective: task.objective, status: task.status });
         }
 
@@ -123,6 +154,8 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
             return errorResult("stepDescriptions must be a non-empty array of non-empty steps for action='plan'.");
           }
           const steps = await createTaskContextSteps(config, taskContextId, stepDescriptions);
+          const verification = verifyToolResult("task_context_manage", { action, stepDescriptions }, steps);
+          if (!verification.ok) return errorResult(`Steps were created but didn't verify: ${verification.reason}`);
           return textResult(steps.map((s) => ({ id: s.id, description: s.description, status: s.status })));
         }
 
@@ -136,6 +169,8 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
           status: stepStatus,
           failurePolicy: stepFailurePolicy,
         });
+        const verification = verifyToolResult("task_context_manage", { action, stepStatus }, step);
+        if (!verification.ok) return errorResult(`Step was updated but didn't verify: ${verification.reason}`);
         return textResult({ id: step.id, description: step.description, status: step.status });
       } catch (e) {
         return errorResult(`task_context_manage failed: ${e instanceof Error ? e.message : String(e)}`);

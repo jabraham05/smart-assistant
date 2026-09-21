@@ -1,8 +1,10 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Config } from "../config.js";
-import { createEvent, deleteEvent, listEvents, updateEvent } from "../lib/google-calendar.js";
+import { createEvent, deleteEvent, listEvents, updateEvent, type CalendarEvent } from "../lib/google-calendar.js";
 import { errorResult, textResult } from "../types.js";
+import { registerVerifier, verifyToolResult } from "../lib/verify-tool-result.js";
+import { logToMostRecentOpenTask } from "../lib/event-bus-workflow.js";
 
 // Takes homeTimezone so the description can state a concrete, unambiguous
 // offset - observed directly: given only an abstract example, the model
@@ -42,6 +44,29 @@ function implausibleDateError(iso: string, label: "start" | "end"): string | nul
   }
   return null;
 }
+
+// Deterministic post-call verification, distinct from implausibleDateError/
+// weekdayMismatchError above (those catch bad input before the call; this
+// catches a bad *result* after it - e.g. Google silently normalizing or
+// rejecting something the pre-call checks couldn't have caught). Registered
+// once at module load, called from create/update below right before they
+// decide what to return.
+registerVerifier("calendar_event", (args, result) => {
+  const a = args as { action?: string; summary?: string; start?: string; end?: string };
+  if (a.action !== "create" && a.action !== "update") return { ok: true };
+  const r = result as CalendarEvent;
+  if (!r.id) return { ok: false, reason: "Google did not return an event id." };
+  if (a.summary && r.summary !== a.summary) {
+    return { ok: false, reason: `Requested title "${a.summary}" but Google returned "${r.summary}".` };
+  }
+  if (a.start && r.start?.dateTime && new Date(a.start).getTime() !== new Date(r.start.dateTime).getTime()) {
+    return { ok: false, reason: `Requested start ${a.start} but Google returned ${r.start.dateTime}.` };
+  }
+  if (a.end && r.end?.dateTime && new Date(a.end).getTime() !== new Date(r.end.dateTime).getTime()) {
+    return { ok: false, reason: `Requested end ${a.end} but Google returned ${r.end.dateTime}.` };
+  }
+  return { ok: true };
+});
 
 function notConfiguredResult() {
   return errorResult(
@@ -164,6 +189,16 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
           const weekdayErr = weekdayMismatchError(summary, start);
           if (weekdayErr) return errorResult(weekdayErr);
           const event = await createEvent(config, { summary, start, end, description, location });
+          const verification = verifyToolResult("calendar_event", { action, summary, start, end }, event);
+          logToMostRecentOpenTask(
+            config,
+            verification.ok
+              ? `calendar_event create verified: "${event.summary}" (${event.id})`
+              : `calendar_event create FAILED verification: ${verification.reason}`,
+          ).catch(() => {});
+          if (!verification.ok) {
+            return errorResult(`Event was created but didn't verify: ${verification.reason} Check the calendar directly.`);
+          }
           return textResult({ id: event.id, summary: event.summary, htmlLink: event.htmlLink });
         }
 
@@ -182,6 +217,16 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
             if (weekdayErr) return errorResult(weekdayErr);
           }
           const event = await updateEvent(config, eventId, { summary, start, end, description, location });
+          const verification = verifyToolResult("calendar_event", { action, summary, start, end }, event);
+          logToMostRecentOpenTask(
+            config,
+            verification.ok
+              ? `calendar_event update verified: "${event.summary}" (${event.id})`
+              : `calendar_event update FAILED verification: ${verification.reason}`,
+          ).catch(() => {});
+          if (!verification.ok) {
+            return errorResult(`Event was updated but didn't verify: ${verification.reason} Check the calendar directly.`);
+          }
           return textResult({ id: event.id, summary: event.summary, htmlLink: event.htmlLink });
         }
 
