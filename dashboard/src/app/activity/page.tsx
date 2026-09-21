@@ -1,3 +1,10 @@
+import { ActivityFeed } from "@/components/activity/ActivityFeed";
+
 export default function ActivityPage() {
-  return <h1 className="text-lg font-semibold">Activity</h1>;
+  return (
+    <div>
+      <h1 className="mb-4 text-lg font-semibold">Activity</h1>
+      <ActivityFeed />
+    </div>
+  );
 }
