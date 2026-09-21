@@ -1,3 +1,10 @@
+import { QueryEditor } from "@/components/database/QueryEditor";
+
 export default function DatabasePage() {
-  return <h1 className="text-lg font-semibold">Database</h1>;
+  return (
+    <div>
+      <h1 className="mb-3 text-lg font-semibold">Database</h1>
+      <QueryEditor />
+    </div>
+  );
 }
