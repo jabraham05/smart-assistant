@@ -49,6 +49,37 @@ function notConfiguredResult() {
   );
 }
 
+const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+// Cheap defense-in-depth, same "don't trust the model's own arithmetic"
+// reasoning as implausibleDateError above - this catches the specific
+// real failure observed live: a title naming a weekday ("Resident Evil
+// Wednesday") landing on a start date that's actually a different
+// weekday, because the model computed "this Wednesday" wrong even with
+// calculate's resolve_date action available. Deliberately only checks a
+// weekday literally named in the title - it can't invent a cross-check
+// where the title gives no signal at all, that's what calculate's
+// resolve_date action is for. Calendar dates have a fixed weekday
+// regardless of timezone, so parsing just the date portion as UTC
+// midnight is always correct here, no offset math needed.
+export function weekdayMismatchError(summary: string | undefined, startIso: string): string | null {
+  if (!summary) return null;
+  const lower = summary.toLowerCase();
+  const namedIndex = WEEKDAY_NAMES.findIndex((name) => new RegExp(`\\b${name}\\b`).test(lower));
+  if (namedIndex === -1) return null;
+
+  const datePart = startIso.slice(0, 10);
+  const actualIndex = new Date(`${datePart}T00:00:00Z`).getUTCDay();
+  if (Number.isNaN(actualIndex) || actualIndex === namedIndex) return null;
+
+  const actualName = WEEKDAY_NAMES[actualIndex];
+  const capitalized = actualName[0].toUpperCase() + actualName.slice(1);
+  return (
+    `The title "${summary}" says ${WEEKDAY_NAMES[namedIndex]}, but ${datePart} is actually a ` +
+    `${capitalized}. Recompute the date (call calculate's resolve_date action) and try again.`
+  );
+}
+
 export function registerCalendarEvent(server: McpServer, config: Config): void {
   server.registerTool(
     "calendar_event",
@@ -62,9 +93,13 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
         "eventId before action='update' or action='delete'; never guess or construct an " +
         "eventId yourself. Use action='create' once you have a clear title and start/end " +
         "time, either stated directly or reasonably inferable — if genuinely ambiguous, ask " +
-        "rather than guessing. action='update' only changes the fields you provide; omitted " +
-        "fields are left as-is. action='delete' cannot be undone — confirm with the user " +
-        "which event they mean first if there's any ambiguity.",
+        "rather than guessing. For ANY relative date/time reference in what the user said " +
+        "('this Wednesday', 'next Friday', 'in 3 days', 'tomorrow at 6pm') — call calculate's " +
+        "resolve_date action first and use its exact result for start/end. Never compute a " +
+        "relative date yourself; language models are unreliable at day-of-week arithmetic, " +
+        "the same way they are at regular arithmetic. action='update' only changes the fields " +
+        "you provide; omitted fields are left as-is. action='delete' cannot be undone — " +
+        "confirm with the user which event they mean first if there's any ambiguity.",
       inputSchema: {
         action: z
           .enum(["list", "create", "update", "delete"])
@@ -126,6 +161,8 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
           if (startErr) return errorResult(startErr);
           const endErr = implausibleDateError(end, "end");
           if (endErr) return errorResult(endErr);
+          const weekdayErr = weekdayMismatchError(summary, start);
+          if (weekdayErr) return errorResult(weekdayErr);
           const event = await createEvent(config, { summary, start, end, description, location });
           return textResult({ id: event.id, summary: event.summary, htmlLink: event.htmlLink });
         }
@@ -139,6 +176,10 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
           if (end) {
             const endErr = implausibleDateError(end, "end");
             if (endErr) return errorResult(endErr);
+          }
+          if (start) {
+            const weekdayErr = weekdayMismatchError(summary, start);
+            if (weekdayErr) return errorResult(weekdayErr);
           }
           const event = await updateEvent(config, eventId, { summary, start, end, description, location });
           return textResult({ id: event.id, summary: event.summary, htmlLink: event.htmlLink });

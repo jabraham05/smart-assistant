@@ -55,6 +55,6 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerKnowledgeSearch(server, config);
   registerKnowledgeIngest(server, config);
   registerGoalManage(server, config, context.chatSessionId);
-  registerCalculate(server);
+  registerCalculate(server, config);
   return server;
 }

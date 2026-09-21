@@ -13,6 +13,47 @@ workflow's `Get Persona` node reads the `system_prompt` column for that row
 and feeds it to the AI Agent as its system message, alongside the two
 Honcho peer cards described in [`docs/honcho-memory.md`](honcho-memory.md).
 
+**2026-09-21 — `calculate` gained a `resolve_date` action, because
+relative-date arithmetic turned out to be the same class of unreliability
+as regular arithmetic.** Real, live usage through `chat-orchestrator`
+asked Amy to schedule "Resident Evil Wednesday" — she computed it onto
+**Tuesday**, September 22nd, consistently, confirmed by an independent
+reproduction on a fresh session asking for "this Wednesday" and getting
+the same one-day-early answer. The real current date/day-of-week was
+already correctly injected into the system prompt (see the entries
+below) — the failure was in the model's own *arithmetic* on top of that
+anchor, not the anchor itself, the same distinction `calculate.ts`'s own
+header comment already draws for regular math.
+
+**Fixed two ways, in `skills-mcp`**: `calculate` (always unconditionally
+bound every turn, regardless of tool-group classification — see
+`chat-orchestrator/src/classify-tools.ts`) gained `action='resolve_date'`,
+backed by a new `lib/date-resolve.ts` using `chrono-node` anchored to the
+real current instant and `config.homeTimezone`, converting its result
+into the exact ISO-with-offset shape `calendar_event` requires. Verified
+against chrono-node's *actual* reference-date handling directly (it reads
+a Date's plain/local getters, not UTC) rather than assumed, and tested
+against a real DST boundary and a non-US timezone, not just the one
+failing case. `calendar_event`'s own description now explicitly says to
+call `resolve_date` first for any relative date/time reference. Second,
+independent layer: `calendar_event` gained `weekdayMismatchError` —
+cheap, deterministic defense-in-depth for whenever the model doesn't call
+`resolve_date` anyway (it won't always) — if a title names a weekday
+("...Wednesday") and the computed `start` date doesn't actually fall on
+that weekday, the create/update is rejected with a corrective error
+before it's ever written, same "don't trust the model's own context,
+add a deterministic backstop" reasoning as `implausibleDateError` above.
+
+**Verified live, exact reproduction of the original bug**: the identical
+"watch resident evil wednesday at 6, put it on my calendar" request
+against the fixed code first attempted `create` without calling
+`resolve_date`, got caught by the new weekday guard, self-corrected by
+calling `calculate`'s `resolve_date`, and the retry landed correctly on
+Wednesday the 23rd. The real, original wrong duplicate this bug created
+live (Tuesday the 22nd) was deliberately left on the calendar rather than
+auto-deleted — a real calendar edit is the user's call, not an
+automated cleanup.
+
 **2026-09-21** — `chat-orchestrator` (see
 [`docs/chat-orchestrator.md`](chat-orchestrator.md)), which now handles
 real chat traffic instead of this workflow, reads the exact same
