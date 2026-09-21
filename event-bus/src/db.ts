@@ -195,6 +195,185 @@ export async function getProgressLog(config: Config, goalId: number, limit = 20)
   return result.rows;
 }
 
+export interface TaskContextRow {
+  id: number;
+  objective: string;
+  capability: string | null;
+  domain: string | null;
+  status: string;
+  facts: unknown[];
+  assumptions: unknown[];
+  unknowns: unknown[];
+  next_action: string | null;
+  origin_session_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InsertTaskContextInput {
+  objective: string;
+  capability?: string;
+  domain?: string;
+  originSessionId?: string;
+}
+
+export async function insertTaskContext(config: Config, input: InsertTaskContextInput): Promise<TaskContextRow> {
+  const result = await getPool(config).query<TaskContextRow>(
+    `INSERT INTO task_contexts (objective, capability, domain, origin_session_id)
+     VALUES ($1, $2, $3, $4)
+     RETURNING *`,
+    [input.objective, input.capability || null, input.domain || null, input.originSessionId || null],
+  );
+  return result.rows[0];
+}
+
+export async function getTaskContext(config: Config, taskContextId: number): Promise<TaskContextRow | undefined> {
+  const result = await getPool(config).query<TaskContextRow>(`SELECT * FROM task_contexts WHERE id = $1`, [taskContextId]);
+  return result.rows[0];
+}
+
+// status='open' is a virtual filter meaning "not yet resolved"
+// (active|waiting_for_user), matching the two non-terminal states a task
+// can be in - not a literal column value.
+export async function listTaskContexts(config: Config, status?: string): Promise<TaskContextRow[]> {
+  if (status === "open") {
+    const result = await getPool(config).query<TaskContextRow>(
+      `SELECT * FROM task_contexts WHERE status IN ('active', 'waiting_for_user') ORDER BY updated_at DESC`,
+    );
+    return result.rows;
+  }
+  if (status) {
+    const result = await getPool(config).query<TaskContextRow>(
+      `SELECT * FROM task_contexts WHERE status = $1 ORDER BY updated_at DESC`,
+      [status],
+    );
+    return result.rows;
+  }
+  const result = await getPool(config).query<TaskContextRow>(`SELECT * FROM task_contexts ORDER BY updated_at DESC`);
+  return result.rows;
+}
+
+export async function updateTaskContext(
+  config: Config,
+  taskContextId: number,
+  fields: Partial<
+    Pick<TaskContextRow, "objective" | "capability" | "domain" | "status" | "next_action"> & {
+      facts: unknown[];
+      assumptions: unknown[];
+      unknowns: unknown[];
+    }
+  >,
+): Promise<TaskContextRow | undefined> {
+  const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
+  if (entries.length === 0) return getTaskContext(config, taskContextId);
+
+  const jsonbFields = new Set(["facts", "assumptions", "unknowns"]);
+  const setClauses = entries.map(([key], i) => (jsonbFields.has(key) ? `${key} = $${i + 2}::jsonb` : `${key} = $${i + 2}`));
+  const values = entries.map(([key, value]) => (jsonbFields.has(key) ? JSON.stringify(value) : value));
+
+  const result = await getPool(config).query<TaskContextRow>(
+    `UPDATE task_contexts SET ${setClauses.join(", ")}, updated_at = now() WHERE id = $1 RETURNING *`,
+    [taskContextId, ...values],
+  );
+  return result.rows[0];
+}
+
+export interface TaskContextStepRow {
+  id: number;
+  task_context_id: number;
+  step_index: number;
+  description: string;
+  status: string;
+  failure_policy: string | null;
+  tool_result: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+// Bulk-create for action='plan' - the whole point is that the model
+// proposes every step at once rather than one at a time, since it's
+// planning the task's shape, not executing it yet.
+export async function insertTaskContextSteps(
+  config: Config,
+  taskContextId: number,
+  descriptions: string[],
+): Promise<TaskContextStepRow[]> {
+  const pool = getPool(config);
+  const rows: TaskContextStepRow[] = [];
+  for (let i = 0; i < descriptions.length; i++) {
+    const result = await pool.query<TaskContextStepRow>(
+      `INSERT INTO task_context_steps (task_context_id, step_index, description) VALUES ($1, $2, $3) RETURNING *`,
+      [taskContextId, i, descriptions[i]],
+    );
+    rows.push(result.rows[0]);
+  }
+  await pool.query(`UPDATE task_contexts SET updated_at = now() WHERE id = $1`, [taskContextId]);
+  return rows;
+}
+
+export async function listTaskContextSteps(config: Config, taskContextId: number): Promise<TaskContextStepRow[]> {
+  const result = await getPool(config).query<TaskContextStepRow>(
+    `SELECT * FROM task_context_steps WHERE task_context_id = $1 ORDER BY step_index ASC`,
+    [taskContextId],
+  );
+  return result.rows;
+}
+
+export async function updateTaskContextStep(
+  config: Config,
+  stepId: number,
+  fields: Partial<Pick<TaskContextStepRow, "status" | "failure_policy"> & { tool_result: unknown }>,
+): Promise<TaskContextStepRow | undefined> {
+  const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
+  if (entries.length === 0) {
+    const result = await getPool(config).query<TaskContextStepRow>(`SELECT * FROM task_context_steps WHERE id = $1`, [stepId]);
+    return result.rows[0];
+  }
+
+  const setClauses = entries.map(([key], i) => (key === "tool_result" ? `${key} = $${i + 2}::jsonb` : `${key} = $${i + 2}`));
+  const values = entries.map(([key, value]) => (key === "tool_result" ? JSON.stringify(value) : value));
+
+  const result = await getPool(config).query<TaskContextStepRow>(
+    `UPDATE task_context_steps SET ${setClauses.join(", ")}, updated_at = now() WHERE id = $1 RETURNING *`,
+    [stepId, ...values],
+  );
+  if (result.rows[0]) {
+    await getPool(config).query(`UPDATE task_contexts SET updated_at = now() WHERE id = $1`, [result.rows[0].task_context_id]);
+  }
+  return result.rows[0];
+}
+
+export async function insertTaskContextLog(config: Config, taskContextId: number, note: string): Promise<void> {
+  await getPool(config).query(`INSERT INTO task_context_log (task_context_id, note) VALUES ($1, $2)`, [taskContextId, note]);
+  await getPool(config).query(`UPDATE task_contexts SET updated_at = now() WHERE id = $1`, [taskContextId]);
+}
+
+export async function getTaskContextLog(config: Config, taskContextId: number): Promise<
+  { id: number; note: string; created_at: string }[]
+> {
+  const result = await getPool(config).query(
+    `SELECT id, note, created_at FROM task_context_log WHERE task_context_id = $1 ORDER BY id ASC`,
+    [taskContextId],
+  );
+  return result.rows;
+}
+
+// Backs the Chat workflow's cross-turn capability continuity (Get Last
+// Active Capability node): the most recent classification the Chat
+// workflow itself published for this session, skipping zero-group turns
+// deliberately so a plain "thanks" doesn't erase real topic continuity for
+// the next genuine follow-up.
+export async function getLastCapability(config: Config, originSessionId: string): Promise<string[]> {
+  const result = await getPool(config).query<{ groups: string[] }>(
+    `SELECT payload->'relevantGroups' AS groups FROM events
+     WHERE source = 'chat' AND type = 'message_received' AND origin_session_id = $1
+       AND jsonb_array_length(payload->'relevantGroups') > 0
+     ORDER BY occurred_at DESC LIMIT 1`,
+    [originSessionId],
+  );
+  return result.rows[0]?.groups ?? [];
+}
+
 export async function getStaleGoals(config: Config, staleDays: number): Promise<GoalRow[]> {
   const result = await getPool(config).query<GoalRow>(
     `SELECT * FROM goals WHERE status = 'active' AND updated_at < now() - ($1 || ' days')::interval`,

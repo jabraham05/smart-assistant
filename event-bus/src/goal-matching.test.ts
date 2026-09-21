@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { matchKeywords } from "./goal-matching.js";
+import { matchKeywords, matchGoalsToText } from "./goal-matching.js";
 
 test("matchKeywords: matches a keyword found in the event type", () => {
   const goal = { keywords: ["muscle", "weight loss"] };
@@ -49,4 +49,25 @@ test("matchKeywords: source and type are searched too, not just the payload", ()
   const goal = { keywords: ["home_assistant"] };
   const event = { type: "arrived_home", source: "home_assistant", payload: {} };
   assert.deepEqual(matchKeywords(goal, event), ["home_assistant"]);
+});
+
+test("matchGoalsToText: returns goals whose keywords appear in the message text", () => {
+  const goals = [
+    { id: 1, title: "Daily news", status: "active", keywords: ["news", "knowledge"] },
+    { id: 2, title: "Job search", status: "active", keywords: ["job", "resume"] },
+  ];
+  assert.deepEqual(matchGoalsToText(goals, "give me the latest news please"), [goals[0]]);
+});
+
+test("matchGoalsToText: returns an empty array when no goal matches", () => {
+  const goals = [{ id: 1, title: "Daily news", status: "active", keywords: ["news"] }];
+  assert.deepEqual(matchGoalsToText(goals, "what's my calendar look like today"), []);
+});
+
+test("matchGoalsToText: can match multiple goals at once", () => {
+  const goals = [
+    { id: 1, title: "Daily news", status: "active", keywords: ["news"] },
+    { id: 2, title: "Fitness", status: "active", keywords: ["news", "workout"] },
+  ];
+  assert.deepEqual(matchGoalsToText(goals, "any news today"), goals);
 });

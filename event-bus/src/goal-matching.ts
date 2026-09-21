@@ -12,6 +12,21 @@ export function matchKeywords(goal: Pick<GoalRow, "keywords">, event: Pick<Event
   return goal.keywords.filter((kw) => kw && haystack.includes(kw.toLowerCase()));
 }
 
+// Reuses matchKeywords for the context-assembly pipeline's "relevant
+// goals" injection (see the architecture plan's Phase 4) by wrapping a
+// chat message in the same {type, source, payload} shape matchKeywords
+// already expects - a chat message and an ingested event are both just
+// "some text a goal's keywords might match," no reason for a second
+// matcher.
+export function matchGoalsToText(goals: Pick<GoalRow, "id" | "title" | "status" | "keywords">[], text: string): Pick<GoalRow, "id" | "title" | "status" | "keywords">[] {
+  const pseudoEvent: Pick<EventRow, "type" | "source" | "payload"> = {
+    type: "chat_message",
+    source: "chat",
+    payload: { text },
+  };
+  return goals.filter((goal) => matchKeywords(goal, pseudoEvent).length > 0);
+}
+
 // Runs unconditionally on every ingested event, independent of whether
 // classify.ts decided to notify.
 export async function matchEventToGoals(config: Config, event: EventRow): Promise<void> {

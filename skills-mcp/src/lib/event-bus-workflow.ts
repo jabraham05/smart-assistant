@@ -80,3 +80,113 @@ export async function getGoalProgress(
   const res = await fetch(`${config.eventBusUrl}/goals/${goalId}/progress`);
   return jsonOrThrow(res, "Goal progress lookup");
 }
+
+export interface TaskContextRecord {
+  id: number;
+  objective: string;
+  capability: string | null;
+  domain: string | null;
+  status: string;
+  origin_session_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateTaskContextInput {
+  objective: string;
+  capability?: string;
+  domain?: string;
+  originSessionId?: string;
+}
+
+export interface UpdateTaskContextInput {
+  objective?: string;
+  capability?: string;
+  domain?: string;
+  status?: string;
+}
+
+export async function createTaskContext(config: Config, input: CreateTaskContextInput): Promise<TaskContextRecord> {
+  const res = await fetch(`${config.eventBusUrl}/task-contexts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return jsonOrThrow<TaskContextRecord>(res, "Task context creation");
+}
+
+export async function listTaskContexts(config: Config, status?: string): Promise<TaskContextRecord[]> {
+  const url = new URL(`${config.eventBusUrl}/task-contexts`);
+  if (status) url.searchParams.set("status", status);
+  const res = await fetch(url.toString());
+  const data = await jsonOrThrow<{ taskContexts: TaskContextRecord[] }>(res, "Task context list");
+  return data.taskContexts;
+}
+
+export async function updateTaskContext(
+  config: Config,
+  taskContextId: number,
+  fields: UpdateTaskContextInput,
+): Promise<TaskContextRecord> {
+  const res = await fetch(`${config.eventBusUrl}/task-contexts/${taskContextId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+  return jsonOrThrow<TaskContextRecord>(res, "Task context update");
+}
+
+export async function logTaskContext(config: Config, taskContextId: number, note: string): Promise<void> {
+  const res = await fetch(`${config.eventBusUrl}/task-contexts/${taskContextId}/log`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+  await jsonOrThrow(res, "Task context log");
+}
+
+export interface TaskContextStepRecord {
+  id: number;
+  task_context_id: number;
+  step_index: number;
+  description: string;
+  status: string;
+  failure_policy: string | null;
+  tool_result: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createTaskContextSteps(
+  config: Config,
+  taskContextId: number,
+  descriptions: string[],
+): Promise<TaskContextStepRecord[]> {
+  const res = await fetch(`${config.eventBusUrl}/task-contexts/${taskContextId}/steps`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ descriptions }),
+  });
+  const data = await jsonOrThrow<{ steps: TaskContextStepRecord[] }>(res, "Task context step creation");
+  return data.steps;
+}
+
+export async function listTaskContextSteps(config: Config, taskContextId: number): Promise<TaskContextStepRecord[]> {
+  const res = await fetch(`${config.eventBusUrl}/task-contexts/${taskContextId}/steps`);
+  const data = await jsonOrThrow<{ steps: TaskContextStepRecord[] }>(res, "Task context step list");
+  return data.steps;
+}
+
+export async function updateTaskContextStep(
+  config: Config,
+  taskContextId: number,
+  stepId: number,
+  fields: { status?: string; failurePolicy?: string; toolResult?: unknown },
+): Promise<TaskContextStepRecord> {
+  const res = await fetch(`${config.eventBusUrl}/task-contexts/${taskContextId}/steps/${stepId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+  return jsonOrThrow<TaskContextStepRecord>(res, "Task context step update");
+}

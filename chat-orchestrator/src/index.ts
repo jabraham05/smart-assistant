@@ -9,6 +9,7 @@ import { formatSkillsCatalog } from "./skills-catalog.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { SkillsMcpClient } from "./mcp-client.js";
 import { searchMemory, ingestMemory } from "./memory-engine-client.js";
+import { getOpenTaskContexts, matchGoals } from "./event-bus-client.js";
 import { runAgentLoop, type AgentTool } from "./agent-loop.js";
 import {
   hasUnfulfilledSearchIntent,
@@ -63,7 +64,7 @@ app.post("/webhook", async (req, res) => {
 
   try {
     const classifyStartedAt = Date.now();
-    const [classification, personaSystemPrompt, activeSkills, fullHistory, memoryResults] = await Promise.all([
+    const [classification, personaSystemPrompt, activeSkills, fullHistory, memoryResults, openTasks, relevantGoals] = await Promise.all([
       classifyRelevantTools(config.ollamaHost, config.classifierModel, chatInput),
       db.getPersonaSystemPrompt(config).catch((e) => {
         console.error("getPersonaSystemPrompt failed:", e);
@@ -87,6 +88,12 @@ app.post("/webhook", async (req, res) => {
         console.error("searchMemory failed:", e);
         return [];
       }),
+      // Always-on regardless of memoryPolicy - directly actionable state,
+      // not ambient personalization (see the architecture plan's
+      // context-assembly pipeline). Fetched here, in parallel with
+      // everything else, same reasoning as searchMemory above.
+      getOpenTaskContexts(config),
+      matchGoals(config, chatInput),
     ]);
     const { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background } = classification;
 
@@ -131,6 +138,9 @@ app.post("/webhook", async (req, res) => {
       userCardForAmy,
       skillsCatalogText: formatSkillsCatalog(activeSkills),
       relevantMemories,
+      openTasks,
+      relevantGoals,
+      needsPlanningNudge: needsPlanning,
     });
 
     const mcp = new SkillsMcpClient(config.skillsMcpUrl, sessionId, background);

@@ -3,6 +3,7 @@ import { loadConfig } from "./config.js";
 import * as db from "./db.js";
 import { notifySession } from "./notify.js";
 import { ingestEvent } from "./ingest.js";
+import { matchGoalsToText } from "./goal-matching.js";
 import { pollCalendar } from "./calendar-watch.js";
 import { getWorkLevel } from "./work-level.js";
 import { runOvernightDigest } from "./digest.js";
@@ -152,6 +153,198 @@ app.get("/goals/:id/progress", async (req, res) => {
     res.json({ goal, progress });
   } catch (e) {
     console.error(`failed to get progress for goal ${goalId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /task-contexts - create. Homed in General (always-on, ungated by
+// classification) since a task can span multiple capabilities - see
+// docs/chat-workflow.md.
+app.post("/task-contexts", async (req, res) => {
+  const body = req.body as { objective?: string; capability?: string; domain?: string; originSessionId?: string };
+
+  if (!body.objective || typeof body.objective !== "string") {
+    return res.status(400).json({ error: "objective is required" });
+  }
+
+  try {
+    const taskContext = await db.insertTaskContext(config, {
+      objective: body.objective,
+      capability: body.capability,
+      domain: body.domain,
+      originSessionId: body.originSessionId,
+    });
+    res.status(201).json(taskContext);
+  } catch (e) {
+    console.error("failed to create task context:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// GET /task-contexts?status=open - list. status=open means active or
+// waiting_for_user (not yet resolved) - this is what the Chat workflow's
+// Get Open Task Contexts node calls on every turn.
+app.get("/task-contexts", async (req, res) => {
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  try {
+    const taskContexts = await db.listTaskContexts(config, status);
+    res.json({ taskContexts });
+  } catch (e) {
+    console.error("failed to list task contexts:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// PATCH /task-contexts/:id - update; only provided fields change.
+app.patch("/task-contexts/:id", async (req, res) => {
+  const taskContextId = Number(req.params.id);
+  if (!Number.isInteger(taskContextId)) {
+    return res.status(400).json({ error: "invalid task context id" });
+  }
+  const body = req.body as { objective?: string; capability?: string; domain?: string; status?: string };
+
+  try {
+    const existing = await db.getTaskContext(config, taskContextId);
+    if (!existing) {
+      return res.status(404).json({ error: `task context ${taskContextId} not found` });
+    }
+    const updated = await db.updateTaskContext(config, taskContextId, body);
+    res.json(updated);
+  } catch (e) {
+    console.error(`failed to update task context ${taskContextId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /task-contexts/:id/log - append a note, unlike goal_progress_log
+// (system-written only via deterministic keyword matching) this is written
+// directly by the agent as a task develops.
+app.post("/task-contexts/:id/log", async (req, res) => {
+  const taskContextId = Number(req.params.id);
+  if (!Number.isInteger(taskContextId)) {
+    return res.status(400).json({ error: "invalid task context id" });
+  }
+  const body = req.body as { note?: string };
+  if (!body.note || typeof body.note !== "string") {
+    return res.status(400).json({ error: "note is required" });
+  }
+
+  try {
+    const existing = await db.getTaskContext(config, taskContextId);
+    if (!existing) {
+      return res.status(404).json({ error: `task context ${taskContextId} not found` });
+    }
+    await db.insertTaskContextLog(config, taskContextId, body.note);
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    console.error(`failed to log task context ${taskContextId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /task-contexts/:id/steps - bulk-create for action='plan'. The
+// model proposes every step at once when it decides a task needs
+// planning (needsPlanning, see classify-tools.ts), not one at a time.
+app.post("/task-contexts/:id/steps", async (req, res) => {
+  const taskContextId = Number(req.params.id);
+  if (!Number.isInteger(taskContextId)) {
+    return res.status(400).json({ error: "invalid task context id" });
+  }
+  const body = req.body as { descriptions?: string[] };
+  if (!Array.isArray(body.descriptions) || body.descriptions.length === 0 || !body.descriptions.every((d) => typeof d === "string" && d.trim())) {
+    return res.status(400).json({ error: "descriptions must be a non-empty array of non-empty strings" });
+  }
+
+  try {
+    const existing = await db.getTaskContext(config, taskContextId);
+    if (!existing) {
+      return res.status(404).json({ error: `task context ${taskContextId} not found` });
+    }
+    const steps = await db.insertTaskContextSteps(config, taskContextId, body.descriptions);
+    res.status(201).json({ steps });
+  } catch (e) {
+    console.error(`failed to create steps for task context ${taskContextId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+app.get("/task-contexts/:id/steps", async (req, res) => {
+  const taskContextId = Number(req.params.id);
+  if (!Number.isInteger(taskContextId)) {
+    return res.status(400).json({ error: "invalid task context id" });
+  }
+  try {
+    const steps = await db.listTaskContextSteps(config, taskContextId);
+    res.json({ steps });
+  } catch (e) {
+    console.error(`failed to list steps for task context ${taskContextId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// PATCH /task-contexts/:id/steps/:stepId - action='advance_step'. The
+// :id segment isn't just a path convention - it's checked against the
+// step's actual task_context_id, so a stale/wrong id from the model
+// can't silently update a step under a different task.
+app.patch("/task-contexts/:id/steps/:stepId", async (req, res) => {
+  const taskContextId = Number(req.params.id);
+  const stepId = Number(req.params.stepId);
+  if (!Number.isInteger(taskContextId) || !Number.isInteger(stepId)) {
+    return res.status(400).json({ error: "invalid task context id or step id" });
+  }
+  const body = req.body as { status?: string; failurePolicy?: string; toolResult?: unknown };
+
+  try {
+    const updated = await db.updateTaskContextStep(config, stepId, {
+      status: body.status,
+      failure_policy: body.failurePolicy,
+      tool_result: body.toolResult,
+    });
+    if (!updated) {
+      return res.status(404).json({ error: `step ${stepId} not found` });
+    }
+    if (updated.task_context_id !== taskContextId) {
+      return res.status(404).json({ error: `step ${stepId} does not belong to task context ${taskContextId}` });
+    }
+    res.json(updated);
+  } catch (e) {
+    console.error(`failed to update step ${stepId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// GET /goals/match?text=... - part of the context-assembly pipeline's
+// "relevant goals" injection (see the architecture plan's Phase 4):
+// which active goals does this message's text actually match, via the
+// same deterministic keyword matcher matchEventToGoals already uses for
+// auto-progress-logging. No LLM call - this is a simple string check,
+// not a judgment call.
+app.get("/goals/match", async (req, res) => {
+  const text = typeof req.query.text === "string" ? req.query.text : undefined;
+  if (!text) {
+    return res.status(400).json({ error: "text query param is required" });
+  }
+  try {
+    const goals = await db.listActiveGoals(config);
+    const matched = matchGoalsToText(goals, text);
+    res.json({ goals: matched.map((g) => ({ id: g.id, title: g.title, status: g.status })) });
+  } catch (e) {
+    console.error("failed to match goals to text:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// GET /sessions/:sessionId/last-capability - the Chat workflow's Get Last
+// Active Capability node calls this before classification, so an ambiguous
+// topic-less follow-up can be kept under the same capability as the
+// previous turn. Purely a deterministic read of what the Chat workflow
+// itself already published to /events - see db.ts's getLastCapability.
+app.get("/sessions/:sessionId/last-capability", async (req, res) => {
+  try {
+    const capabilities = await db.getLastCapability(config, req.params.sessionId);
+    res.json({ capabilities });
+  } catch (e) {
+    console.error(`failed to get last capability for session ${req.params.sessionId}:`, e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
