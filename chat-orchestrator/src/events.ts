@@ -16,3 +16,25 @@ export async function publishMessageEvent(config: Config, sessionId: string, cha
     }),
   });
 }
+
+// Real equivalent of the old n8n Chat workflow's "Publish Classification
+// Event" node - gives the eval harness (scripts/eval-harness.mjs) and the
+// ops dashboard a queryable record of what each turn actually classified
+// to, since chat-orchestrator itself never returns that to the caller.
+// Fire-and-forget like publishMessageEvent above, for the same reason.
+export async function publishClassificationEvent(
+  config: Config,
+  sessionId: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await fetch(`${config.eventBusUrl}/events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source: "chat",
+      type: "message_classified",
+      payload,
+      originSessionId: sessionId,
+    }),
+  });
+}

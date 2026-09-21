@@ -3,7 +3,7 @@ import { loadConfig } from "./config.js";
 import * as db from "./db.js";
 import * as honcho from "./honcho.js";
 import * as sessionMemory from "./session-memory.js";
-import { publishMessageEvent } from "./events.js";
+import { publishMessageEvent, publishClassificationEvent } from "./events.js";
 import { classifyRelevantTools } from "./classify-tools.js";
 import { formatSkillsCatalog } from "./skills-catalog.js";
 import { buildSystemPrompt } from "./system-prompt.js";
@@ -54,7 +54,8 @@ app.post("/webhook", async (req, res) => {
   publishMessageEvent(config, sessionId, chatInput).catch((e) => console.error("publishMessageEvent failed:", e));
 
   try {
-    const [relevantTools, personaSystemPrompt, activeSkills, history] = await Promise.all([
+    const classifyStartedAt = Date.now();
+    const [classification, personaSystemPrompt, activeSkills, history] = await Promise.all([
       classifyRelevantTools(config.ollamaHost, config.classifierModel, chatInput),
       db.getPersonaSystemPrompt(config).catch((e) => {
         console.error("getPersonaSystemPrompt failed:", e);
@@ -69,6 +70,17 @@ app.post("/webhook", async (req, res) => {
         return [];
       }),
     ]);
+    const { relevantGroups, relevantTools } = classification;
+
+    console.log(
+      `chat classify [${sessionId}]: groups=${relevantGroups.join(",") || "(none)"} ` +
+        `tools=${relevantTools.join(",")} (${Date.now() - classifyStartedAt}ms)`,
+    );
+    publishClassificationEvent(config, sessionId, {
+      relevantGroups,
+      relevantTools,
+      classifyMs: Date.now() - classifyStartedAt,
+    }).catch((e) => console.error("publishClassificationEvent failed:", e));
 
     await honcho.ensureSessionExists(config, sessionId);
     await honcho.setUserObserveConfig(config, sessionId);

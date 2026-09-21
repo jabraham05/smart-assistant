@@ -64,11 +64,16 @@ const CLASSIFIER_FORMAT = {
   required: ["relevantGroups"],
 };
 
+export interface ClassificationResult {
+  relevantGroups: string[];
+  relevantTools: string[];
+}
+
 export async function classifyRelevantTools(
   ollamaHost: string,
   model: string,
   chatInput: string,
-): Promise<string[]> {
+): Promise<ClassificationResult> {
   try {
     const { message } = await ollamaChat(ollamaHost, {
       model,
@@ -84,18 +89,26 @@ export async function classifyRelevantTools(
     const relevantGroups = (parsed.relevantGroups ?? []).filter((g): g is ToolGroup =>
       (TOOL_GROUPS as readonly string[]).includes(g),
     );
-    return expandGroupsToTools(relevantGroups);
+    return { relevantGroups, relevantTools: expandGroupsToTools(relevantGroups) };
   } catch (e) {
     // Classifier failure degrades to "only calculate" rather than "all
     // tools" - a classifier hiccup can't reintroduce the exact
     // large-tool-set failure mode this step exists to avoid.
     console.error("classifyRelevantTools failed, falling back to calculate-only:", e);
-    return expandGroupsToTools([]);
+    return { relevantGroups: [], relevantTools: expandGroupsToTools([]) };
   }
 }
 
+// "calculate" and "task_context_manage" are always exposed regardless of
+// classification: calculate because a classifier miss can't be allowed to
+// silently drop arithmetic/date-resolution (see docs/chat-workflow.md),
+// and task_context_manage because an open cross-session task can be
+// resumed by a message that doesn't obviously name any capability at all
+// (matches the old n8n workflow's "Expand Groups To Tools" node - this
+// port had dropped task_context_manage from the always-on set, a real
+// regression fixed here).
 export function expandGroupsToTools(relevantGroups: string[]): string[] {
-  const tools = new Set<string>(["calculate"]);
+  const tools = new Set<string>(["calculate", "task_context_manage"]);
   for (const g of relevantGroups) {
     const members = GROUPS[g as ToolGroup];
     if (members) for (const m of members) tools.add(m);
