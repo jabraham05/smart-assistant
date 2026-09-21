@@ -51,7 +51,24 @@ const CLASSIFIER_SYSTEM_PROMPT =
   "a topic not already known, that should be saved for later, or checking a research task's progress), " +
   "'goals' (creating, listing, updating, or checking progress on the user's persistent personal " +
   "objectives, e.g. job search, fitness, savings). Most messages need none at all - only include a " +
-  "category if it's genuinely likely needed.";
+  "category if it's genuinely likely needed.\n\n" +
+  "Also classify four independent policy fields:\n" +
+  "- toolPolicy: 'required' if answering correctly depends on live/authoritative data or performing a " +
+  "real action (e.g. anything calendar, weather, goals, Spotify, dashboard, research, or coding-task " +
+  "related) - the assistant must not guess or answer from memory here. 'optional' for general " +
+  "conversation, opinions, or facts that don't depend on the user's actual live state.\n" +
+  "- memoryPolicy: 'none' for a message with no personal relevance at all (a trivia question, small " +
+  "talk with no follow-up value). 'required' when the user explicitly asks about their own past " +
+  "statements, preferences, or history ('what did I tell you about X', 'what do you remember about " +
+  "me'). 'relevant' when personal context would materially improve the answer even though it wasn't " +
+  "explicitly asked for. 'optional' otherwise (the default for most ordinary conversation).\n" +
+  "- needsPlanning: true only for a genuinely multi-step request that should be broken into tracked " +
+  "steps rather than answered in one shot (e.g. 'plan my trip', 'help me reorganize my week around my " +
+  "calendar'). False for anything answerable or doable in this one turn.\n" +
+  "- background: true only when the user explicitly wants something done later/in the background " +
+  "without waiting for it now (e.g. 'look into X overnight and let me know', 'do some deep research on " +
+  "this and get back to me'). False otherwise, including for normal 'research' requests where the user " +
+  "is waiting on the reply.";
 
 const CLASSIFIER_FORMAT = {
   type: "object",
@@ -60,14 +77,28 @@ const CLASSIFIER_FORMAT = {
       type: "array",
       items: { type: "string", enum: TOOL_GROUPS },
     },
+    toolPolicy: { type: "string", enum: ["required", "optional"] },
+    memoryPolicy: { type: "string", enum: ["none", "optional", "relevant", "required"] },
+    needsPlanning: { type: "boolean" },
+    background: { type: "boolean" },
   },
-  required: ["relevantGroups"],
+  required: ["relevantGroups", "toolPolicy", "memoryPolicy", "needsPlanning", "background"],
 };
+
+export type ToolPolicy = "required" | "optional";
+export type MemoryPolicy = "none" | "optional" | "relevant" | "required";
 
 export interface ClassificationResult {
   relevantGroups: string[];
   relevantTools: string[];
+  toolPolicy: ToolPolicy;
+  memoryPolicy: MemoryPolicy;
+  needsPlanning: boolean;
+  background: boolean;
 }
+
+const TOOL_POLICIES: readonly ToolPolicy[] = ["required", "optional"];
+const MEMORY_POLICIES: readonly MemoryPolicy[] = ["none", "optional", "relevant", "required"];
 
 export async function classifyRelevantTools(
   ollamaHost: string,
@@ -85,17 +116,44 @@ export async function classifyRelevantTools(
         { role: "user", content: chatInput },
       ],
     });
-    const parsed = parseJsonContent<{ relevantGroups?: string[] }>(message.content, {});
+    const parsed = parseJsonContent<{
+      relevantGroups?: string[];
+      toolPolicy?: string;
+      memoryPolicy?: string;
+      needsPlanning?: boolean;
+      background?: boolean;
+    }>(message.content, {});
     const relevantGroups = (parsed.relevantGroups ?? []).filter((g): g is ToolGroup =>
       (TOOL_GROUPS as readonly string[]).includes(g),
     );
-    return { relevantGroups, relevantTools: expandGroupsToTools(relevantGroups) };
+    const toolPolicy: ToolPolicy = TOOL_POLICIES.includes(parsed.toolPolicy as ToolPolicy)
+      ? (parsed.toolPolicy as ToolPolicy)
+      : "optional";
+    const memoryPolicy: MemoryPolicy = MEMORY_POLICIES.includes(parsed.memoryPolicy as MemoryPolicy)
+      ? (parsed.memoryPolicy as MemoryPolicy)
+      : "optional";
+    const needsPlanning = parsed.needsPlanning === true;
+    const { background, relevantTools } = applyBackgroundOverride(
+      parsed.background === true,
+      relevantGroups,
+      expandGroupsToTools(relevantGroups),
+    );
+
+    return { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background };
   } catch (e) {
     // Classifier failure degrades to "only calculate" rather than "all
     // tools" - a classifier hiccup can't reintroduce the exact
-    // large-tool-set failure mode this step exists to avoid.
+    // large-tool-set failure mode this step exists to avoid. Policy
+    // fields degrade to their safest defaults: optional/optional/false/false.
     console.error("classifyRelevantTools failed, falling back to calculate-only:", e);
-    return { relevantGroups: [], relevantTools: expandGroupsToTools([]) };
+    return {
+      relevantGroups: [],
+      relevantTools: expandGroupsToTools([]),
+      toolPolicy: "optional",
+      memoryPolicy: "optional",
+      needsPlanning: false,
+      background: false,
+    };
   }
 }
 
@@ -114,4 +172,23 @@ export function expandGroupsToTools(relevantGroups: string[]): string[] {
     if (members) for (const m of members) tools.add(m);
   }
   return [...tools];
+}
+
+// Force-expose research_task/research_task_status for a background
+// request even if 'research' wasn't classified - the model still needs
+// the tool bound to actually act on the user's "do this later" intent.
+// A background request that's actually about something else entirely
+// (Spotify, the calendar) has nothing to hand off to yet - there is no
+// generic background-any-tool executor - so it silently falls back to
+// the normal synchronous path rather than claiming a background mode
+// that can't do anything differently.
+export function applyBackgroundOverride(
+  background: boolean,
+  relevantGroups: string[],
+  relevantTools: string[],
+): { background: boolean; relevantTools: string[] } {
+  if (!background) return { background: false, relevantTools };
+  const hasBackgroundableWork = relevantGroups.includes("research") || relevantGroups.includes("web");
+  if (!hasBackgroundableWork) return { background: false, relevantTools };
+  return { background: true, relevantTools: [...new Set([...relevantTools, "research_task", "research_task_status"])] };
 }

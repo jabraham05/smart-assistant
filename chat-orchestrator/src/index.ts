@@ -70,15 +70,20 @@ app.post("/webhook", async (req, res) => {
         return [];
       }),
     ]);
-    const { relevantGroups, relevantTools } = classification;
+    const { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background } = classification;
 
     console.log(
       `chat classify [${sessionId}]: groups=${relevantGroups.join(",") || "(none)"} ` +
-        `tools=${relevantTools.join(",")} (${Date.now() - classifyStartedAt}ms)`,
+        `tools=${relevantTools.join(",")} toolPolicy=${toolPolicy} memoryPolicy=${memoryPolicy} ` +
+        `needsPlanning=${needsPlanning} background=${background} (${Date.now() - classifyStartedAt}ms)`,
     );
     publishClassificationEvent(config, sessionId, {
       relevantGroups,
       relevantTools,
+      toolPolicy,
+      memoryPolicy,
+      needsPlanning,
+      background,
       classifyMs: Date.now() - classifyStartedAt,
     }).catch((e) => console.error("publishClassificationEvent failed:", e));
 
