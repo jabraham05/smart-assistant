@@ -28,7 +28,10 @@ export function registerGoalManage(server: McpServer, config: Config, chatSessio
         "its title/description/keywords.",
       inputSchema: {
         action: z.enum(["create", "list", "update", "progress"]).describe("Which goal operation to perform."),
-        goalId: z.number().int().optional().describe("update/progress: the goal's id, from a prior action='list' call. Required for both."),
+        // coerce, not number(): the model sometimes sends a stringified
+        // number for id-like fields - see web-search.ts's maxResults for
+        // the real production failure this pattern is fixed for.
+        goalId: z.coerce.number().int().optional().describe("update/progress: the goal's id, from a prior action='list' call. Required for both."),
         title: z.string().optional().describe("create: goal title (required). update: new title, if changing."),
         description: z.string().optional().describe("create/update: more detail on what the goal actually means."),
         keywords: z
