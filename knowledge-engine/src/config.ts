@@ -47,6 +47,10 @@ export interface Config {
   n8nDatabase: string;
   honchoApiKey?: string;
   honchoWorkspaceId: string;
+  // Only used by notify.ts's logAwaitingDigest (deferred-notify path for
+  // background-classified research) - the overnight digest scanner reads
+  // this back later. See event-bus/src/index.ts's /overnight-digest-check.
+  eventBusUrl: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -82,5 +86,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     n8nDatabase: env.N8N_DB_NAME || "n8n",
     honchoApiKey: env.HONCHO_API_KEY || undefined,
     honchoWorkspaceId: env.HONCHO_WORKSPACE_ID || "smart-assistant",
+    eventBusUrl: env.EVENT_BUS_URL || "http://event-bus:3004",
   };
 }

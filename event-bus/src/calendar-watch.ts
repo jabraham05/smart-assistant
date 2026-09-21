@@ -13,12 +13,26 @@ interface CalendarEventsResponse {
   events: CalendarEvent[];
 }
 
+// Deliberately narrow, deterministic keyword match (no LLM) - deciding
+// "is this my wake-up marker" from a calendar event's own title is a
+// simple string check, not a judgment call. Matches the whole word
+// "wake" case-insensitively so "Wake Up" and "wake-up call" both count
+// without also matching an unrelated event that merely mentions waking
+// something else up in passing.
+const WAKE_EVENT_PATTERN = /\bwake\b/i;
+
+export function isWakeEvent(summary: string | null | undefined): boolean {
+  return !!summary && WAKE_EVENT_PATTERN.test(summary);
+}
+
 // Deterministic poll-and-diff, no LLM - same house style as classify.ts.
 // Calls skills-mcp instead of talking to Google Calendar directly, reusing
 // its already-baked-in service-account auth (see
 // skills-mcp/src/routes/calendar-events.ts) rather than duplicating that
 // key into this image too.
-export async function pollCalendar(config: Config): Promise<{ detected: number; reminded: number }> {
+export async function pollCalendar(
+  config: Config,
+): Promise<{ detected: number; reminded: number; wakeEventDetected: boolean }> {
   const res = await fetch(
     `${config.skillsMcpUrl}/internal/calendar-events?lookaheadHours=${config.calendarPollLookaheadHours}`,
   );
@@ -29,6 +43,7 @@ export async function pollCalendar(config: Config): Promise<{ detected: number; 
 
   let detected = 0;
   let reminded = 0;
+  let wakeEventDetected = false;
 
   if (data.configured) {
     for (const event of data.events) {
@@ -60,6 +75,7 @@ export async function pollCalendar(config: Config): Promise<{ detected: number; 
           });
           await db.markCalendarReminded(config, event.id);
           reminded++;
+          if (isWakeEvent(event.summary)) wakeEventDetected = true;
         }
       }
     }
@@ -67,5 +83,5 @@ export async function pollCalendar(config: Config): Promise<{ detected: number; 
 
   await db.pruneOldCalendarWatcherState(config);
 
-  return { detected, reminded };
+  return { detected, reminded, wakeEventDetected };
 }

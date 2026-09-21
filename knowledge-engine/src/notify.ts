@@ -88,3 +88,32 @@ export async function notifyResearchComplete(
     }
   }
 }
+
+// Used instead of notifyResearchComplete when the triggering message
+// classified background=true (see chat-orchestrator/classify-tools.ts) -
+// a task explicitly started "for later" shouldn't ping the user the
+// moment it happens to finish, possibly overnight. Logs an event instead
+// for event-bus's /overnight-digest-check to pick up and deliver as one
+// consolidated summary at the right time - see the architecture plan's
+// Phase 1b.
+export async function logAwaitingDigest(
+  config: Config,
+  info: ResearchCompletionInfo,
+  findings: VerifiedFinding[],
+  failed: boolean,
+): Promise<void> {
+  try {
+    await fetch(`${config.eventBusUrl}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source: "research",
+        type: "research_completed_awaiting_digest",
+        payload: { topic: info.topic, summary: buildSummary(info.topic, findings, failed), failed },
+        originSessionId: info.originSessionId,
+      }),
+    });
+  } catch (e) {
+    console.error(`logAwaitingDigest: failed to publish event for session ${info.sessionId}:`, e);
+  }
+}

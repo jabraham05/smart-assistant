@@ -72,12 +72,18 @@ export interface ResearchStartResult {
 export async function startResearch(
   config: Config,
   query: string,
-  options: { domain?: string; originSessionId?: string } = {},
+  options: { domain?: string; originSessionId?: string; deferNotify?: boolean } = {},
 ): Promise<ResearchStartResult> {
   const res = await fetch(`${config.knowledgeEngineUrl}/research`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, domain: options.domain, triggerSource: "chat", originSessionId: options.originSessionId }),
+    body: JSON.stringify({
+      query,
+      domain: options.domain,
+      triggerSource: "chat",
+      originSessionId: options.originSessionId,
+      deferNotify: options.deferNotify,
+    }),
   });
   return jsonOrThrow<ResearchStartResult>(res, "Research start");
 }

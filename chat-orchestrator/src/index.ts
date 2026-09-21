@@ -102,7 +102,7 @@ app.post("/webhook", async (req, res) => {
       skillsCatalogText: formatSkillsCatalog(activeSkills),
     });
 
-    const mcp = new SkillsMcpClient(config.skillsMcpUrl, sessionId);
+    const mcp = new SkillsMcpClient(config.skillsMcpUrl, sessionId, background);
     const mcpTools = await mcp.listTools();
     const tools: AgentTool[] = mcpTools
       .filter((t) => relevantTools.includes(t.name))

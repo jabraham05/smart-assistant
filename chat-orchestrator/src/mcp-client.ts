@@ -28,6 +28,11 @@ export class SkillsMcpClient {
     // transport layer, not from a tool argument, so the model can't spoof
     // or omit it.
     private readonly chatSessionId: string,
+    // Same correlation mechanism, threaded when this turn classified
+    // background=true - lets research_task know to defer its completion
+    // notify into the overnight digest queue instead of pinging the
+    // session immediately (see skills-mcp/src/server.ts's RequestContext).
+    private readonly background: boolean = false,
   ) {
     this.client = new Client({ name: "chat-orchestrator", version: "1.0.0" });
   }
@@ -36,6 +41,7 @@ export class SkillsMcpClient {
     if (this.connected) return;
     const url = new URL(`${this.skillsMcpUrl}/mcp`);
     url.searchParams.set("chatSessionId", this.chatSessionId);
+    if (this.background) url.searchParams.set("background", "true");
     const transport = new StreamableHTTPClientTransport(url);
     await this.client.connect(transport);
     this.connected = true;

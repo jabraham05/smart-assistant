@@ -109,7 +109,13 @@ app.post("/search", async (req, res) => {
 // keep working after" shape research_pipeline's own onReceived webhook
 // trigger used. Callers poll GET /research/status for completion.
 app.post("/research", async (req, res) => {
-  const body = req.body as { query?: string; domain?: string; triggerSource?: string; originSessionId?: string };
+  const body = req.body as {
+    query?: string;
+    domain?: string;
+    triggerSource?: string;
+    originSessionId?: string;
+    deferNotify?: boolean;
+  };
 
   if (!body.query || typeof body.query !== "string") {
     return res.status(400).json({ error: "query is required" });
@@ -120,6 +126,7 @@ app.post("/research", async (req, res) => {
     domain: body.domain,
     triggerSource: body.triggerSource,
     originSessionId: body.originSessionId,
+    deferNotify: body.deferNotify === true,
   };
 
   try {

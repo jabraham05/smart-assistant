@@ -10,7 +10,7 @@ import { errorResult, textResult } from "../types.js";
 // escalation - knowledge-engine acks immediately and keeps working in the
 // background (see its own engine/research.ts) - so this call is safe to
 // await directly without risking a long-hanging tool call.
-export function registerResearchTask(server: McpServer, config: Config, chatSessionId?: string): void {
+export function registerResearchTask(server: McpServer, config: Config, chatSessionId?: string, background?: boolean): void {
   server.registerTool(
     "research_task",
     {
@@ -30,7 +30,7 @@ export function registerResearchTask(server: McpServer, config: Config, chatSess
     },
     async ({ topic, domain }) => {
       try {
-        const result = await startResearch(config, topic, { domain, originSessionId: chatSessionId });
+        const result = await startResearch(config, topic, { domain, originSessionId: chatSessionId, deferNotify: background });
 
         if (result.route.source === "knowledge") {
           // Return the actual top result content inline rather than telling
@@ -55,6 +55,9 @@ export function registerResearchTask(server: McpServer, config: Config, chatSess
           return textResult(`Already have background on this in the knowledge base:\n\n${excerpts}`);
         }
 
+        if (background) {
+          return textResult("Started researching this in the background — I'll include it in your next digest once it's done.");
+        }
         return textResult(
           chatSessionId
             ? "Started researching this in the background — I'll post an update right here in " +

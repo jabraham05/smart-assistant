@@ -52,6 +52,13 @@ export interface Config {
   // idleReflectionMinHours so silent skill proposals can still queue up
   // more often than proactive DMs are allowed to fire.
   idleReflectionMessageMinHours: number;
+  // Overnight digest (see digest.ts): minimum hours between proactive
+  // digest DMs - deliberately independent of any calendar-side cadence,
+  // so a mis-detected "wake" event or a poll re-run can never double-send.
+  overnightDigestMinHours: number;
+  ollamaHost: string;
+  digestModel: string;
+  tavilyApiKey?: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -93,5 +100,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     idleReflectionMessageMinHours: env.IDLE_REFLECTION_MESSAGE_MIN_HOURS
       ? Number(env.IDLE_REFLECTION_MESSAGE_MIN_HOURS)
       : 24,
+    overnightDigestMinHours: env.OVERNIGHT_DIGEST_MIN_HOURS ? Number(env.OVERNIGHT_DIGEST_MIN_HOURS) : 20,
+    ollamaHost: env.OLLAMA_HOST || "http://ollama:11434",
+    digestModel: env.DIGEST_MODEL || "qwen3:8b",
+    tavilyApiKey: env.TAVILY_API_KEY || undefined,
   };
 }

@@ -6,13 +6,18 @@ import { runResearchAgent } from "./research-agent.js";
 import { clusterFindings } from "./cluster-findings.js";
 import { verifyClusters, type VerifiedFinding } from "./verify.js";
 import { persistResearch } from "./persist-research.js";
-import { notifyResearchComplete } from "../notify.js";
+import { notifyResearchComplete, logAwaitingDigest } from "../notify.js";
 
 export interface ResearchInput {
   query: string;
   domain?: string;
   triggerSource?: string;
   originSessionId?: string;
+  // Set when the triggering chat message classified background=true -
+  // defers the completion notification into event-bus's digest queue
+  // instead of pinging the session immediately. See notify.ts's
+  // logAwaitingDigest.
+  deferNotify?: boolean;
 }
 
 export interface ResearchResult {
@@ -64,11 +69,19 @@ export async function runWebResearchAndPersist(config: Config, input: ResearchIn
     // originating conversation once a background run finishes - this is
     // what actually keeps that promise, the same lesson already learned
     // once for the coding-agent pipeline (see notify.ts's own comment).
-    await notifyResearchComplete(config, notifyInfo, findings, false);
+    if (input.deferNotify) {
+      await logAwaitingDigest(config, notifyInfo, findings, false);
+    } else {
+      await notifyResearchComplete(config, notifyInfo, findings, false);
+    }
   } catch (e) {
     console.error(`background research failed (session ${sessionId}):`, e);
     await db.updateResearchSessionStatus(config, sessionId, "failed");
-    await notifyResearchComplete(config, notifyInfo, [], true);
+    if (input.deferNotify) {
+      await logAwaitingDigest(config, notifyInfo, [], true);
+    } else {
+      await notifyResearchComplete(config, notifyInfo, [], true);
+    }
   }
 }
 

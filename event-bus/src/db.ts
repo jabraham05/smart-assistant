@@ -98,6 +98,16 @@ export async function updateEventClassification(
   ]);
 }
 
+// Events logged via knowledge-engine's logAwaitingDigest (deferred
+// research-completion notify, see notify.ts) that the overnight digest
+// scanner hasn't delivered yet - see event-bus's digest.ts.
+export async function getPendingDigestEvents(config: Config): Promise<EventRow[]> {
+  const result = await getPool(config).query<EventRow>(
+    `SELECT * FROM events WHERE type = 'research_completed_awaiting_digest' AND status != 'notified' ORDER BY occurred_at ASC`,
+  );
+  return result.rows;
+}
+
 export async function markEventStatus(config: Config, eventId: number, status: string, notified = false): Promise<void> {
   await getPool(config).query(
     `UPDATE events SET status = $2, notified_at = CASE WHEN $3 THEN now() ELSE notified_at END WHERE id = $1`,

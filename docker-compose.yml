@@ -263,6 +263,13 @@ services:
       RESEARCH_DB_NAME: ${RESEARCH_DB_NAME:-research}
       IDLE_REFLECTION_MIN_HOURS: ${IDLE_REFLECTION_MIN_HOURS:-4}
       IDLE_REFLECTION_MESSAGE_MIN_HOURS: ${IDLE_REFLECTION_MESSAGE_MIN_HOURS:-24}
+      # Overnight digest (digest.ts) - fires when calendar-watch.ts detects
+      # a wake-marker calendar event starting soon. News section is
+      # skipped (not an error) if TAVILY_API_KEY is unset.
+      OVERNIGHT_DIGEST_MIN_HOURS: ${OVERNIGHT_DIGEST_MIN_HOURS:-20}
+      OLLAMA_HOST: http://ollama:11434
+      DIGEST_MODEL: ${DIGEST_MODEL:-qwen3:8b}
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
     depends_on: [postgres]
     networks: [assistant-net]
 
@@ -293,6 +300,9 @@ services:
       # fields/pattern as coding-orchestrator's own notify.ts.
       HONCHO_API_KEY: ${HONCHO_API_KEY}
       HONCHO_WORKSPACE_ID: smart-assistant
+      # notify.ts's logAwaitingDigest (deferred-notify path for
+      # background=true research) - see event-bus's /overnight-digest-check.
+      EVENT_BUS_URL: http://event-bus:3004
     depends_on: [postgres, ollama]
     networks: [assistant-net]
 

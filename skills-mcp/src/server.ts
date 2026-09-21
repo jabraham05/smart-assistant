@@ -34,6 +34,11 @@ export interface RequestContext {
   // container it talks to.
   taskContainerId?: string;
   taskWorkingDir?: string;
+  // Threaded the same way as chatSessionId (?background=true) - set when
+  // the triggering chat message classified background=true, so
+  // research_task can defer its completion notify into the overnight
+  // digest queue instead of pinging the session immediately.
+  background?: boolean;
 }
 
 export function createServer(config: Config, context: RequestContext = {}): McpServer {
@@ -50,7 +55,7 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerSpotifyControl(server, config);
   registerDashboardControl(server, config);
   registerWebSearch(server, config);
-  registerResearchTask(server, config, context.chatSessionId);
+  registerResearchTask(server, config, context.chatSessionId, context.background);
   registerResearchTaskStatus(server, config, context.chatSessionId);
   registerKnowledgeSearch(server, config);
   registerKnowledgeIngest(server, config);

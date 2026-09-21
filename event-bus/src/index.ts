@@ -5,6 +5,7 @@ import { notifySession } from "./notify.js";
 import { ingestEvent } from "./ingest.js";
 import { pollCalendar } from "./calendar-watch.js";
 import { getWorkLevel } from "./work-level.js";
+import { runOvernightDigest } from "./digest.js";
 
 const config = loadConfig(process.env);
 
@@ -266,9 +267,27 @@ app.post("/idle-reflection-messaged", async (_req, res) => {
 app.post("/calendar/poll-check", async (_req, res) => {
   try {
     const result = await pollCalendar(config);
-    res.json(result);
+    let digest;
+    if (result.wakeEventDetected) {
+      digest = await runOvernightDigest(config);
+    }
+    res.json({ ...result, digest });
   } catch (e) {
     console.error("failed to run calendar poll-check:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// Manual trigger for testing/verification - the real path is
+// /calendar/poll-check firing this automatically when a wake-marker
+// calendar event is detected starting soon (see calendar-watch.ts's
+// isWakeEvent), not a schedule of its own.
+app.post("/overnight-digest-check", async (_req, res) => {
+  try {
+    const result = await runOvernightDigest(config);
+    res.json(result);
+  } catch (e) {
+    console.error("failed to run overnight-digest-check:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
