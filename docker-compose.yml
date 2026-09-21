@@ -371,10 +371,15 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_HOST: postgres
       POSTGRES_USER: assistant
-      # Browser-facing (rendered as an <iframe src> / link href client-side),
-      # so these must be host-published addresses the user's own browser can
-      # reach, not the internal Compose service names.
-      NEXT_PUBLIC_CHAT_UI_URL: http://localhost:3000
+      # Browser-facing (rendered as an <iframe src> / link href), so these
+      # must be host-published addresses the user's own browser can reach,
+      # not the internal Compose service names. Deliberately NOT prefixed
+      # NEXT_PUBLIC_ - that inlines a value at `next build` time (baked into
+      # the image), but these are only known at container runtime via
+      # docker-compose `environment:`. Read server-side (a Server Component
+      # or route handler sees live process.env on every request) and passed
+      # to the client as a prop instead - see dashboard/src/app/chat/page.tsx.
+      CHAT_UI_PUBLIC_URL: http://localhost:3000
       N8N_PUBLIC_URL: http://localhost:5678
       # Internal service URLs, used only from server-side API routes.
       KNOWLEDGE_ENGINE_URL: http://knowledge-engine:3005
