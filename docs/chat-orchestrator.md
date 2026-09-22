@@ -389,3 +389,20 @@ self-limit.
   (leaked-tool-call recovery) stays open until that rollback path is
   formally retired, even though the failure class it recovers from can't
   occur in `chat-orchestrator`'s own architecture.
+
+### 2026-09-22 — a real fix stranded on a branch, and where it actually needed to land
+
+A separate commit, `97e7a99` ("Fix three real production bugs found via
+live user testing" — calendar `list`'s missing date validation, a
+shopping/product-lookup classifier gap, and a `z.coerce.number()` fix
+across five `skills-mcp` tool schemas), existed only on the
+`worktree-knowledge-engine` branch and had never been merged into `main`
+— found via a cherry-pick conflict, not reported. Brought in directly.
+One piece needed a second fix on top: that commit's classifier widening
+("look up earring for men and give me some links amazon" classifying to
+zero capabilities, so `web_search` never got bound) only ever touched the
+old n8n `Chat` workflow's own classifier prompt — the rollback path, not
+live traffic. `chat-orchestrator/src/classify-tools.ts` is what actually
+serves real messages and never received the fix, so the bug was still
+live. Same widening ported here. Verified live: the exact original
+message now correctly binds `web_search`.
