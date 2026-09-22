@@ -42,16 +42,22 @@ export const GROUPS: Record<ToolGroup, string[]> = {
 const CLASSIFIER_SYSTEM_PROMPT =
   "Classify which capability categories (zero, one, or a few) might be needed to respond to the user's " +
   "message. Categories: 'media' (music/Spotify playback control), 'scheduling' (calendar events), " +
-  "'info' (weather, or recalling facts/preferences about the user), 'self-growth' (proposing a new " +
-  "skill/tool, starting a coding task on a repo, or checking on a coding task's progress), 'dashboard' " +
-  "(moving, resizing, showing, or hiding widgets on the smart-mirror dashboard), 'web' (searching the " +
-  "live web for current information, news, or facts that could have changed since training), " +
-  "'knowledge' (searching Amy's existing knowledge base/past research for something already known, or " +
-  "saving a specific web page for later recall), 'research' (starting in-depth background research on " +
-  "a topic not already known, that should be saved for later, or checking a research task's progress), " +
-  "'goals' (creating, listing, updating, or checking progress on the user's persistent personal " +
-  "objectives, e.g. job search, fitness, savings). Most messages need none at all - only include a " +
-  "category if it's genuinely likely needed.\n\n" +
+  "'info' (weather, or recalling facts/preferences ABOUT THE USER THEMSELVES specifically - their " +
+  "traits, likes, past statements - never a document, manual, or reference material), 'self-growth' " +
+  "(proposing a new skill/tool, starting a coding task on a repo, or checking on a coding task's " +
+  "progress), 'dashboard' (moving, resizing, showing, or hiding widgets on the smart-mirror dashboard), " +
+  "'web' (searching the live web for current information, news, or facts that could have changed since " +
+  "training), 'knowledge' (looking up or searching within a specific document/manual/guide Amy has " +
+  "stored, or anything else already saved in Amy's knowledge base/past research - e.g. 'do you have " +
+  "the manual for my car', 'what does the guide say about X', 'look up Y in what we saved', 'what have " +
+  "you already learned about X' where X is a topic and not the user themselves - or saving a specific " +
+  "web page for later recall), 'research' (starting in-depth background research on a topic " +
+  "not already known, that should be saved for later, or checking a research task's progress), 'goals' " +
+  "(creating, listing, updating, or checking progress on the user's persistent personal objectives, " +
+  "e.g. job search, fitness, savings). A question about a specific named document, manual, or guide is " +
+  "always 'knowledge', never 'info' - 'info' is only for facts about the user as a person, not things " +
+  "Amy has stored. Most messages need none at all - only include a category if it's genuinely likely " +
+  "needed.\n\n" +
   "Also classify four independent policy fields:\n" +
   "- toolPolicy: 'required' if answering correctly depends on live/authoritative data or performing a " +
   "real action (e.g. anything calendar, weather, goals, Spotify, dashboard, research, or coding-task " +
