@@ -406,3 +406,47 @@ live traffic. `chat-orchestrator/src/classify-tools.ts` is what actually
 serves real messages and never received the fix, so the bug was still
 live. Same widening ported here. Verified live: the exact original
 message now correctly binds `web_search`.
+
+### 2026-09-22 — feedback-capture: the first building block of Amy's self-improvement loop
+
+Not "projects" (see `docs/knowledge-engine.md`'s dated entry) - a
+different, smaller piece the user asked for right after that shipped:
+before any investigation/experiment/consolidation machinery can exist for
+behavioral self-improvement, the raw signal needs to be captured
+reliably. Nothing captured it before this.
+
+Extended the Coordinator's existing per-turn classification call (same
+mechanical pattern as `knowledgeGapTopic` from the research-queue work -
+no new LLM call) with `behaviorFeedbackCategory`/`behaviorFeedbackNote`,
+combined into `ClassificationResult.behaviorFeedback: {category, note} |
+null`. Fires ONLY when the user describes a *repeated pattern* in Amy's
+own behavior ("you keep giving me too much detail", "you have trouble
+remembering our past conversations") - explicitly not a one-off
+correction to the current turn (those stay `null`; the prompt gives both
+positive and negative examples). `category` is one of `communication` /
+`tool_selection` / `memory_retrieval` / `planning` / `proactivity` /
+`other`. When set, `index.ts` fire-and-forgets a `behavior_feedback`
+event to event-bus's plain `events` table via a new
+`publishBehaviorFeedbackEvent` (`events.ts`) - deliberately no new table;
+this is exactly the "raw, append-only record" tier, nothing more, until
+there's a second real signal source to justify more structure.
+
+**Real false positive found via live testing, fixed same session**: the
+first test (`node scripts/chat.mjs` reusing one persisted `cli-*` session
+id) sent real feedback ("you always give me way too much detail..."),
+then an unrelated follow-up ("what's 15 times 6") - and the classifier
+re-emitted the *same* feedback note on the unrelated turn, pulled from
+the `recentContext` field the classifier is also given (for resolving
+anaphoric follow-ups like "fix that"). The prompt didn't say this field
+should ignore prior context, so the model happily carried it forward.
+Fixed by adding an explicit line: base `behaviorFeedback` only on the
+current message, never the prior exchange, even if the prior exchange had
+real feedback. Re-tested the identical two-message sequence live:
+feedback captured once, the unrelated follow-up produced no event.
+
+**Consumption**: none yet, deliberately - this only captures the signal.
+A read-only "Feedback" card was added to chat-ui's `/amy` page (see
+`docs/chat-ui.md`) so it's actually visible, but no
+investigation/experiment/consolidation loop reads it automatically. That
+loop is real, wanted future work - not built until this capture path has
+some real data behind it.

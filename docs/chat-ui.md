@@ -218,3 +218,15 @@ alongside Home/Chat.
 (rendered via the existing `MarkdownContent` component) that shows once a
 linked project has consolidated that session's findings into a write-up —
 otherwise there was nowhere in the UI to actually read one.
+
+## 2026-09-22 — a "Feedback" card on `/amy`
+
+Full design/verification in
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)'s dated entry - this
+covers only the chat-ui half. `/amy`'s `ProjectsDashboard.tsx` gained a
+third, read-only card listing recent `behavior_feedback` events (via
+`GET /api/events?type=behavior_feedback`, which needed a `type` param
+added alongside the existing `source` one - both here and in
+`event-bus`'s own `GET /events`). No actions on this card yet - it exists
+purely so captured feedback is actually visible somewhere, not just a row
+in Postgres.

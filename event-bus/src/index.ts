@@ -67,9 +67,10 @@ app.get("/events", async (req, res) => {
   const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 50;
   const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 50;
   const source = typeof req.query.source === "string" ? req.query.source : undefined;
+  const type = typeof req.query.type === "string" ? req.query.type : undefined;
 
   try {
-    const events = await db.listRecentEvents(config, limit, source);
+    const events = await db.listRecentEvents(config, limit, source, type);
     res.json({ events });
   } catch (e) {
     console.error("failed to list events:", e);

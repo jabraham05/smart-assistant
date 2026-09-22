@@ -38,3 +38,27 @@ export async function publishClassificationEvent(
     }),
   });
 }
+
+// First building block of the self-improvement loop discussed alongside
+// the /amy projects feature (see docs/chat-orchestrator.md's dated entry):
+// just capturing the raw signal reliably, with no investigation/experiment
+// machinery yet. Deliberately reuses the plain events table rather than a
+// new one - this is exactly the "raw, append-only record" tier, same
+// reasoning as every other publish* function here. Fire-and-forget, same
+// reason as the others.
+export async function publishBehaviorFeedbackEvent(
+  config: Config,
+  sessionId: string,
+  feedback: { category: string; note: string },
+): Promise<void> {
+  await fetch(`${config.eventBusUrl}/events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source: "chat",
+      type: "behavior_feedback",
+      payload: feedback,
+      originSessionId: sessionId,
+    }),
+  });
+}

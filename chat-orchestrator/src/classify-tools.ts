@@ -91,7 +91,20 @@ const CLASSIFIER_SYSTEM_PROMPT =
   "and construction\". null for everything else, including: a direct question expecting an immediate " +
   "answer (that's 'web'/'knowledge' - answered now, not queued for later), small talk, or anything " +
   "already covered earlier in this same conversation. When genuinely unsure, use null - this is for " +
-  "clear, specific new interests, not a guess on every message.\n\n" +
+  "clear, specific new interests, not a guess on every message.\n" +
+  "- behaviorFeedbackCategory/behaviorFeedbackNote: capture ONLY when the user is giving feedback about " +
+  "a REPEATED pattern in Amy's own behavior or approach across conversations - e.g. 'you keep giving me " +
+  "too much detail', 'you have trouble remembering our past conversations', 'you always use the wrong " +
+  "tool for this'. This is NOT the same as correcting a single mistake in the current turn (e.g. 'no, I " +
+  "meant tomorrow', 'that's not what I asked for') - those are ordinary corrections, not behavior " +
+  "feedback; use null for them. category is one of: 'communication' (tone, verbosity, clarity), " +
+  "'tool_selection' (using the wrong tool or unnecessary tool use), 'memory_retrieval' (failing to " +
+  "recall past context), 'planning' (over/under-complicating multi-step work), 'proactivity' (not " +
+  "noticing or acting on something it should have), 'other' for anything not covered by these. note is " +
+  "a short paraphrase of what the user actually said. Both null when no such feedback is present - most " +
+  "messages have none. Base this ONLY on the CURRENT message below, never on the prior exchange shown " +
+  "for context - if the current message doesn't itself contain feedback, use null even if the prior " +
+  "exchange did.\n\n" +
   "You may also be given the single most recent exchange as brief prior context, labeled 'Prior " +
   "exchange (for reference only)'. Use it ONLY to resolve what a vague follow-up refers to (\"fix " +
   "that\", \"change it to 11am today\", \"actually make it Tuesday\", \"delete it\") - classify based " +
@@ -111,8 +124,22 @@ const CLASSIFIER_FORMAT = {
     needsPlanning: { type: "boolean" },
     background: { type: "boolean" },
     knowledgeGapTopic: { type: ["string", "null"] },
+    behaviorFeedbackCategory: {
+      type: ["string", "null"],
+      enum: ["communication", "tool_selection", "memory_retrieval", "planning", "proactivity", "other", null],
+    },
+    behaviorFeedbackNote: { type: ["string", "null"] },
   },
-  required: ["relevantGroups", "toolPolicy", "memoryPolicy", "needsPlanning", "background", "knowledgeGapTopic"],
+  required: [
+    "relevantGroups",
+    "toolPolicy",
+    "memoryPolicy",
+    "needsPlanning",
+    "background",
+    "knowledgeGapTopic",
+    "behaviorFeedbackCategory",
+    "behaviorFeedbackNote",
+  ],
 };
 
 export type ToolPolicy = "required" | "optional";
@@ -132,10 +159,25 @@ export interface ClassificationResult {
   // null otherwise. Never gates tool binding the way the other fields do;
   // consumed by index.ts as a fire-and-forget enqueue after classification.
   knowledgeGapTopic: string | null;
+  // Feedback-capture: set when the user described a REPEATED pattern in
+  // Amy's own behavior, not a one-off correction (see the prompt's own
+  // distinction). Never gates tool binding; consumed by index.ts as a
+  // fire-and-forget event-bus log after classification - the first
+  // building block of the self-improvement loop discussed alongside the
+  // /amy projects feature (see docs/chat-orchestrator.md's dated entry).
+  behaviorFeedback: { category: string; note: string } | null;
 }
 
 const TOOL_POLICIES: readonly ToolPolicy[] = ["required", "optional"];
 const MEMORY_POLICIES: readonly MemoryPolicy[] = ["none", "optional", "relevant", "required"];
+const BEHAVIOR_FEEDBACK_CATEGORIES = [
+  "communication",
+  "tool_selection",
+  "memory_retrieval",
+  "planning",
+  "proactivity",
+  "other",
+];
 
 export async function classifyRelevantTools(
   ollamaHost: string,
@@ -171,6 +213,8 @@ export async function classifyRelevantTools(
       needsPlanning?: boolean;
       background?: boolean;
       knowledgeGapTopic?: string | null;
+      behaviorFeedbackCategory?: string | null;
+      behaviorFeedbackNote?: string | null;
     }>(message.content, {});
     const relevantGroups = (parsed.relevantGroups ?? []).filter((g): g is ToolGroup =>
       (TOOL_GROUPS as readonly string[]).includes(g),
@@ -201,7 +245,24 @@ export async function classifyRelevantTools(
         ? parsed.knowledgeGapTopic.trim()
         : null;
 
-    return { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background, knowledgeGapTopic };
+    const behaviorFeedback =
+      typeof parsed.behaviorFeedbackCategory === "string" &&
+      BEHAVIOR_FEEDBACK_CATEGORIES.includes(parsed.behaviorFeedbackCategory) &&
+      typeof parsed.behaviorFeedbackNote === "string" &&
+      parsed.behaviorFeedbackNote.trim()
+        ? { category: parsed.behaviorFeedbackCategory, note: parsed.behaviorFeedbackNote.trim() }
+        : null;
+
+    return {
+      relevantGroups,
+      relevantTools,
+      toolPolicy,
+      memoryPolicy,
+      needsPlanning,
+      background,
+      knowledgeGapTopic,
+      behaviorFeedback,
+    };
   } catch (e) {
     // Classifier failure degrades to "only calculate" rather than "all
     // tools" - a classifier hiccup can't reintroduce the exact
@@ -216,6 +277,7 @@ export async function classifyRelevantTools(
       needsPlanning: false,
       background: false,
       knowledgeGapTopic: null,
+      behaviorFeedback: null,
     };
   }
 }

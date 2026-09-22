@@ -61,17 +61,22 @@ function getPool(config: Config): Pool {
 // optional source, since this is a debugging/visibility surface (see
 // docs/event-bus-and-goals.md), not a consumer-facing API with its own
 // access-control needs.
-export async function listRecentEvents(config: Config, limit: number, source?: string): Promise<EventRow[]> {
+export async function listRecentEvents(config: Config, limit: number, source?: string, type?: string): Promise<EventRow[]> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
   if (source) {
-    const result = await getPool(config).query<EventRow>(
-      `SELECT * FROM events WHERE source = $1 ORDER BY occurred_at DESC LIMIT $2`,
-      [source, limit],
-    );
-    return result.rows;
+    params.push(source);
+    conditions.push(`source = $${params.length}`);
   }
+  if (type) {
+    params.push(type);
+    conditions.push(`type = $${params.length}`);
+  }
+  params.push(limit);
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const result = await getPool(config).query<EventRow>(
-    `SELECT * FROM events ORDER BY occurred_at DESC LIMIT $1`,
-    [limit],
+    `SELECT * FROM events ${where} ORDER BY occurred_at DESC LIMIT $${params.length}`,
+    params,
   );
   return result.rows;
 }

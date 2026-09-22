@@ -5,10 +5,11 @@ import type { EventBusEvent, HomeSummary } from "@/types/chat";
 // this only ever runs from a Next.js API route, never the browser.
 const EVENT_BUS_URL = process.env.EVENT_BUS_URL ?? "http://event-bus:3004";
 
-export async function listRecentEvents(limit = 50, source?: string): Promise<EventBusEvent[]> {
+export async function listRecentEvents(limit = 50, source?: string, type?: string): Promise<EventBusEvent[]> {
   const url = new URL(`${EVENT_BUS_URL}/events`);
   url.searchParams.set("limit", String(limit));
   if (source) url.searchParams.set("source", source);
+  if (type) url.searchParams.set("type", type);
 
   const res = await fetch(url);
   if (!res.ok) {

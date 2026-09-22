@@ -3,7 +3,7 @@ import { loadConfig } from "./config.js";
 import * as db from "./db.js";
 import * as honcho from "./honcho.js";
 import * as sessionMemory from "./session-memory.js";
-import { publishMessageEvent, publishClassificationEvent } from "./events.js";
+import { publishMessageEvent, publishClassificationEvent, publishBehaviorFeedbackEvent } from "./events.js";
 import { classifyRelevantTools } from "./classify-tools.js";
 import { formatSkillsCatalog } from "./skills-catalog.js";
 import { buildSystemPrompt } from "./system-prompt.js";
@@ -134,7 +134,8 @@ app.post("/webhook", async (req, res) => {
       getOpenTaskContexts(config),
       matchGoals(config, chatInput),
     ]);
-    const { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background, knowledgeGapTopic } = classification;
+    const { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background, knowledgeGapTopic, behaviorFeedback } =
+      classification;
 
     // memoryPolicy only ever gates retrieval/injection into this turn's
     // prompt - never storage. History keeps accumulating in Redis
@@ -164,6 +165,15 @@ app.post("/webhook", async (req, res) => {
     // gating all happen inside knowledge-engine's own enqueueTopic.
     if (knowledgeGapTopic) {
       enqueueResearchTopic(config, knowledgeGapTopic, { sessionId });
+    }
+
+    // Feedback-capture - fire-and-forget, same reasoning as the enqueue
+    // above. Just logs the raw signal; nothing reads it automatically yet
+    // (see docs/chat-orchestrator.md's dated entry).
+    if (behaviorFeedback) {
+      publishBehaviorFeedbackEvent(config, sessionId, behaviorFeedback).catch((e) =>
+        console.error("publishBehaviorFeedbackEvent failed:", e),
+      );
     }
 
     // Skip the peer-card fetch entirely (not just its injection) for

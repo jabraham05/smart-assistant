@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useProjects } from "@/hooks/useProjects";
 import type { Project } from "@/lib/knowledge-engine-client";
+import type { EventBusEvent } from "@/types/chat";
 
 function Card({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   return (
@@ -92,12 +93,42 @@ function ActiveRow({ project, onComplete }: { project: Project; onComplete: () =
   );
 }
 
+function FeedbackRow({ event }: { event: EventBusEvent }) {
+  const category = typeof event.payload?.category === "string" ? event.payload.category : "other";
+  const note = typeof event.payload?.note === "string" ? event.payload.note : "";
+  return (
+    <li className="rounded border border-gray-200 p-2 dark:border-gray-700">
+      <div className="flex items-center justify-between gap-2">
+        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+          {category.replace("_", " ")}
+        </span>
+        <span className="shrink-0 text-[10px] text-gray-400">
+          {new Date(event.occurred_at).toLocaleDateString()}
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{note}</p>
+    </li>
+  );
+}
+
 export function ProjectsDashboard() {
   const { projects, isLoading, error, actionError, refresh, approve, reject, complete } = useProjects();
+  const [feedback, setFeedback] = useState<EventBusEvent[]>([]);
+
+  const refreshFeedback = useCallback(async () => {
+    try {
+      const res = await fetch("/api/events?type=behavior_feedback&limit=20");
+      if (res.ok) setFeedback(await res.json());
+    } catch {
+      // Non-critical, read-only view - a failed fetch just leaves the
+      // card showing its previous (or empty) state.
+    }
+  }, []);
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    refreshFeedback();
+  }, [refresh, refreshFeedback]);
 
   const proposed = projects.filter((p) => p.status === "proposed");
   const active = projects.filter((p) => p.status === "active");
@@ -118,7 +149,7 @@ export function ProjectsDashboard() {
       {error && <p className="mb-3 text-xs text-red-500">{error}</p>}
       {actionError && <p className="mb-3 text-xs text-red-500">{actionError}</p>}
 
-      <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
         <Card title="Proposed" count={proposed.length}>
           {!isLoading && proposed.length === 0 && <EmptyRow text="Nothing proposed right now." />}
           <ul className="space-y-2">
@@ -133,6 +164,17 @@ export function ProjectsDashboard() {
           <ul className="space-y-2">
             {active.map((p) => (
               <ActiveRow key={p.id} project={p} onComplete={() => complete(p.id)} />
+            ))}
+          </ul>
+        </Card>
+
+        <Card title="Feedback" count={feedback.length}>
+          {feedback.length === 0 && (
+            <EmptyRow text="No behavior feedback captured yet - tell Amy when she keeps doing something, and it'll show up here." />
+          )}
+          <ul className="space-y-2">
+            {feedback.map((e) => (
+              <FeedbackRow key={e.id} event={e} />
             ))}
           </ul>
         </Card>
