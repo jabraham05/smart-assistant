@@ -74,7 +74,13 @@ const CLASSIFIER_SYSTEM_PROMPT =
   "- background: true only when the user explicitly wants something done later/in the background " +
   "without waiting for it now (e.g. 'look into X overnight and let me know', 'do some deep research on " +
   "this and get back to me'). False otherwise, including for normal 'research' requests where the user " +
-  "is waiting on the reply.";
+  "is waiting on the reply.\n\n" +
+  "You may also be given the single most recent exchange as brief prior context, labeled 'Prior " +
+  "exchange (for reference only)'. Use it ONLY to resolve what a vague follow-up refers to (\"fix " +
+  "that\", \"change it to 11am today\", \"actually make it Tuesday\", \"delete it\") - classify based " +
+  "on what the user is actually asking for once resolved, not the prior exchange's own content. A " +
+  "correction to something just scheduled is still 'scheduling'; a correction to a task just created " +
+  "is still whatever category the task itself was.";
 
 const CLASSIFIER_FORMAT = {
   type: "object",
@@ -110,6 +116,14 @@ export async function classifyRelevantTools(
   ollamaHost: string,
   model: string,
   chatInput: string,
+  // Last exchange only (not full history) - just enough to resolve an
+  // anaphoric follow-up ("fix that", "delete it"), kept short since this
+  // call is latency-sensitive and runs on every single message. See
+  // classify-tools.ts's header comment on the real bug this fixes: a
+  // context-free classifier can't tell a correction to a just-created
+  // calendar event apart from an unrelated 'info' message, so the
+  // required tool never even gets bound for the model to call.
+  recentContext?: string,
 ): Promise<ClassificationResult> {
   try {
     const { message } = await ollamaChat(ollamaHost, {
@@ -119,6 +133,9 @@ export async function classifyRelevantTools(
       format: CLASSIFIER_FORMAT,
       messages: [
         { role: "system", content: CLASSIFIER_SYSTEM_PROMPT },
+        ...(recentContext
+          ? [{ role: "user" as const, content: `Prior exchange (for reference only):\n${recentContext}` }]
+          : []),
         { role: "user", content: chatInput },
       ],
     });

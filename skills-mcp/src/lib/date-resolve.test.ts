@@ -75,3 +75,32 @@ test("resolves correctly for a non-US timezone too (not hardcoded to Pacific)", 
   assert.ok(r);
   assert.equal(r!.resolved, "2026-09-23T02:00:00+09:00");
 });
+
+// Real, live-observed bug: user said "tmrw at 11am" late at night having
+// not slept yet, meant 11am *today* - see date-resolve.ts's
+// lateNightTomorrowNote comment.
+const REF_LATE_NIGHT = new Date(Date.UTC(2026, 8, 22, 9, 30, 0)); // 2:30 AM PDT
+
+test("'tomorrow' late at night (00:00-05:59 local) gets an ambiguity note", () => {
+  const r = resolveDate("tomorrow at 11am", TZ, REF_LATE_NIGHT);
+  assert.ok(r);
+  assert.match(r!.ambiguityNote ?? "", /haven't slept|today/i);
+});
+
+test("'tmrw' (slang) also triggers the late-night ambiguity note", () => {
+  const r = resolveDate("tmrw at 11am", TZ, REF_LATE_NIGHT);
+  assert.ok(r);
+  assert.match(r!.ambiguityNote ?? "", /haven't slept|today/i);
+});
+
+test("'tomorrow' during normal daytime hours gets no ambiguity note", () => {
+  const r = resolveDate("tomorrow at 11am", TZ, REF_PACIFIC); // 10am local
+  assert.ok(r);
+  assert.equal(r!.ambiguityNote, undefined);
+});
+
+test("a non-'tomorrow' phrase gets no ambiguity note even late at night", () => {
+  const r = resolveDate("next Friday at 11am", TZ, REF_LATE_NIGHT);
+  assert.ok(r);
+  assert.equal(r!.ambiguityNote, undefined);
+});

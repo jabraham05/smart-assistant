@@ -84,6 +84,37 @@ export interface ResolvedDate {
   resolved: string;
   weekday: string;
   humanReadable: string;
+  // Present only for the specific real ambiguity this was added for - see
+  // lateNightTomorrowNote below. Deliberately not a hard error: this is a
+  // genuine human-intent question (has the user slept yet?) no amount of
+  // date math can answer, so the fix is surfacing it for the model to ask
+  // about, not guessing either way.
+  ambiguityNote?: string;
+}
+
+const TOMORROW_RE = /\b(tomorrow|tmrw|tmr)\b/i;
+
+// Real, live-observed gap: the user said "tmrw at 11am" late at night,
+// having not slept yet, and meant 11am *today* (their subjective day
+// hasn't rolled over) - chrono correctly resolved "tomorrow" to the
+// literal next calendar day, which is technically correct arithmetic but
+// not what was meant. No deterministic rule can know whether the user has
+// actually slept; the only honest fix is flagging the ambiguity rather
+// than silently picking one interpretation. Window is 00:00-05:59 local -
+// narrow and specific to the actual failure, not "any night-time use of
+// the word tomorrow" (e.g. "let's talk tomorrow" said at 9pm isn't
+// ambiguous - the day has plausibly not been an unbroken wakeful stretch
+// yet at that hour the way very-late-night/early-morning is).
+function lateNightTomorrowNote(phrase: string, wallClock: WallClock): string | null {
+  if (!TOMORROW_RE.test(phrase)) return null;
+  if (wallClock.hour >= 6) return null;
+  return (
+    `It's currently ${pad(wallClock.hour)}:${pad(wallClock.minute)} in the user's local time, and ` +
+    `the phrase said "tomorrow"/"tmrw". If the user has been up since yesterday and hasn't slept yet, ` +
+    `they may mean later *today* (the current calendar date), not the literal next calendar day this ` +
+    `resolved to. Before creating or updating anything with this date, confirm with the user which ` +
+    `actual date they mean if there's any real doubt.`
+  );
 }
 
 // Returns null if chrono couldn't parse the phrase at all - a genuinely
@@ -147,5 +178,7 @@ export function resolveDate(phrase: string, timeZone: string, now: Date = new Da
     `${weekday}, ${MONTHS[resultWallClock.month - 1]} ${resultWallClock.day}, ${resultWallClock.year} ` +
     `at ${hour12}:${pad(resultWallClock.minute)} ${ampm}`;
 
-  return { resolved, weekday, humanReadable };
+  const ambiguityNote = lateNightTomorrowNote(phrase, nowWallClock) ?? undefined;
+
+  return { resolved, weekday, humanReadable, ...(ambiguityNote ? { ambiguityNote } : {}) };
 }

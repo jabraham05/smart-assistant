@@ -62,7 +62,11 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
         "answers or advances one, use action='log' (and action='update' to change its status) " +
         "rather than starting a disconnected new task or asking what task the user means. " +
         "action='update' status='waiting_for_user' when the ball is in the user's court; " +
-        "status='done' once the objective is actually met. action='list' shows tasks by status. " +
+        "status='done' once the objective is actually met. There is no separate delete action - " +
+        "if the user says to cancel, drop, delete, or forget about a task, use action='update' " +
+        "status='abandoned', never status='done' (that specifically means the objective was " +
+        "actually achieved, not that tracking stopped). An 'abandoned' task no longer shows up in " +
+        "the open-tasks list you're shown each turn, the same as 'done'. action='list' shows tasks by status. " +
         "For a genuinely multi-step task, use action='plan' once, right after action='create', " +
         "to break it into an explicit ordered list of steps - then action='advance_step' each " +
         "time a step actually completes, fails, or gets blocked, so progress stays accurate " +

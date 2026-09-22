@@ -88,18 +88,32 @@ app.post("/webhook", async (req, res) => {
 
   try {
     const classifyStartedAt = Date.now();
-    const [classification, personaSystemPrompt, activeSkills, fullHistory, memoryResults, openTasks, relevantGoals] = await Promise.all([
-      classifyRelevantTools(config.ollamaHost, config.classifierModel, chatInput),
+    // fullHistory is awaited before classification fires (not fully
+    // parallel with it, unlike the other fetches below) specifically so
+    // the classifier can see the single most recent exchange - a real bug
+    // found via live testing: a context-free classifier saw "fix that" /
+    // "delete it" in isolation and couldn't tell it was a follow-up to a
+    // just-created calendar event or task, so the wrong tool group (and
+    // therefore the wrong bound tools) got classified. Redis is fast
+    // enough that this adds negligible latency ahead of the ~1-2s
+    // classification call itself.
+    const fullHistory = await sessionMemory.getRecentHistory(config, sessionId).catch((e) => {
+      console.error("getRecentHistory failed:", e);
+      return [];
+    });
+    const lastExchange = fullHistory.slice(-2);
+    const recentContext = lastExchange.length
+      ? lastExchange.map((m) => `${m.role}: ${m.content}`).join("\n")
+      : undefined;
+
+    const [classification, personaSystemPrompt, activeSkills, memoryResults, openTasks, relevantGoals] = await Promise.all([
+      classifyRelevantTools(config.ollamaHost, config.classifierModel, chatInput, recentContext),
       db.getPersonaSystemPrompt(config).catch((e) => {
         console.error("getPersonaSystemPrompt failed:", e);
         return undefined;
       }),
       db.getActiveInstructionSkills(config).catch((e) => {
         console.error("getActiveInstructionSkills failed:", e);
-        return [];
-      }),
-      sessionMemory.getRecentHistory(config, sessionId).catch((e) => {
-        console.error("getRecentHistory failed:", e);
         return [];
       }),
       // Fetched unconditionally in parallel, same as everything else here -
