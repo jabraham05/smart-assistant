@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ChatMessage, HonchoMessage, N8nStreamEvent, StepEvent } from "@/types/chat";
-import { classifyNode } from "@/lib/step-classifier";
+import type { ChatMessage, HonchoMessage, N8nStreamEvent } from "@/types/chat";
+import { classifyTool } from "@/lib/step-classifier";
 
 function honchoMessagesToChat(messages: HonchoMessage[]): ChatMessage[] {
   return messages.map((m) => ({
@@ -46,14 +46,14 @@ export function useChat(sessionId: string) {
         content: "",
         steps: [],
         rawEvents: [],
+        trace: [],
       };
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setIsSending(true);
 
       // Tracks which step index is currently "open" (running) for a given
-      // nodeId, so a second begin/end cycle for the same node (e.g. the AI
-      // Agent thinking again after a tool call) becomes a new step entry
-      // instead of overwriting the first.
+      // tool call, keyed by attempt:iteration:name, so its matching
+      // tool_result (not a later call to the same tool) closes it out.
       const openSteps = new Map<string, number>();
       // Tracked separately from React state (which updates async via the
       // functional setMessages below) so the post-stream check can read a
@@ -69,60 +69,60 @@ export function useChat(sessionId: string) {
             const rawEvents = [...(m.rawEvents ?? []), event];
             const { nodeId, nodeName, timestamp } = event.metadata;
 
-            if (event.type === "begin") {
-              const { kind, label } = classifyNode(nodeName);
-              const step: StepEvent = {
-                nodeId,
-                nodeName,
-                kind,
-                label,
-                status: "running",
-                startedAt: timestamp,
-              };
-              openSteps.set(nodeId, steps.length);
-              steps.push(step);
-              return { ...m, steps, rawEvents };
-            }
-
             if (event.type === "item") {
               // AI Agent's streamed tokens are the actual reply text.
               if (nodeName === "AI Agent" && event.content) {
                 accumulatedContent += event.content;
-                return { ...m, content: m.content + event.content, steps, rawEvents };
+                return { ...m, content: m.content + event.content, rawEvents };
               }
               return { ...m, rawEvents };
             }
 
-            if (event.type === "end") {
-              const idx = openSteps.get(nodeId);
-              if (idx !== undefined && steps[idx]) {
-                steps[idx] = { ...steps[idx], status: "done", finishedAt: timestamp };
-                openSteps.delete(nodeId);
+            if (event.type === "trace" && event.trace) {
+              const trace = [...(m.trace ?? []), event.trace];
+
+              if (event.trace.kind === "tool_call") {
+                const { attempt, iteration, name } = event.trace;
+                const key = `${attempt}:${iteration}:${name}`;
+                const { kind, label } = classifyTool(name);
+                openSteps.set(key, steps.length);
+                steps.push({
+                  nodeId: key,
+                  nodeName: name,
+                  kind,
+                  label,
+                  status: "running",
+                  startedAt: timestamp,
+                });
               }
-              return { ...m, steps, rawEvents };
+
+              if (event.trace.kind === "tool_result") {
+                const { attempt, iteration, name, isError } = event.trace;
+                const key = `${attempt}:${iteration}:${name}`;
+                const idx = openSteps.get(key);
+                if (idx !== undefined && steps[idx]) {
+                  steps[idx] = { ...steps[idx], status: isError ? "error" : "done", finishedAt: timestamp };
+                  openSteps.delete(key);
+                }
+              }
+
+              return { ...m, steps, rawEvents, trace };
             }
 
             if (event.type === "error") {
-              const idx = openSteps.get(nodeId);
-              if (idx !== undefined && steps[idx]) {
-                steps[idx] = { ...steps[idx], status: "error", finishedAt: timestamp };
-                openSteps.delete(nodeId);
-              } else {
-                const { kind, label } = classifyNode(nodeName);
-                steps.push({
-                  nodeId,
-                  nodeName,
-                  kind,
-                  label,
-                  status: "error",
-                  startedAt: timestamp,
-                  finishedAt: timestamp,
-                });
-              }
+              steps.push({
+                nodeId,
+                nodeName,
+                kind: "other",
+                label: "Something went wrong",
+                status: "error",
+                startedAt: timestamp,
+                finishedAt: timestamp,
+              });
               return { ...m, steps, rawEvents };
             }
 
-            return m;
+            return { ...m, rawEvents };
           })
         );
       };

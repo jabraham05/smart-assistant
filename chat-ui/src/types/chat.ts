@@ -4,6 +4,10 @@ export interface ChatMessage {
   content: string;
   steps?: StepEvent[];
   rawEvents?: N8nStreamEvent[];
+  // Readable turn trace (tool-group classification, each tool call/result,
+  // retries) - see ChatTraceEvent. Empty/undefined for plain replies with no
+  // tool calls or retries.
+  trace?: ChatTraceEvent[];
   // True when the AI Agent's stream ended with zero tokens (a known,
   // documented reliability gap - see README's tool-calling gotcha section).
   // The fallback chain still corrects Honcho/Postgres memory for future
@@ -18,10 +22,15 @@ export interface ChatRequest {
   sessionId: string;
 }
 
-// Raw event shape streamed by n8n's Chat Trigger (responseMode: "streaming").
+// Raw event shape streamed by chat-orchestrator (and, before it, n8n's Chat
+// Trigger with responseMode: "streaming" - the wire contract was kept
+// identical on purpose, see docs/chat-orchestrator.md). "trace" is the one
+// addition chat-orchestrator makes on top of that original contract -
+// discord-bot ignores it safely since it only ever looks for type:"item".
 export interface N8nStreamEvent {
-  type: "begin" | "item" | "end" | "error";
+  type: "begin" | "item" | "end" | "error" | "trace";
   content?: string;
+  trace?: ChatTraceEvent;
   metadata: {
     nodeId: string;
     nodeName: string;
@@ -30,6 +39,27 @@ export interface N8nStreamEvent {
     timestamp: number;
   };
 }
+
+// A readable account of what chat-orchestrator actually did for a turn -
+// which tools it decided were relevant, each tool it called (with args and
+// the result that came back), and any retry it had to trigger. Mirrors
+// chat-orchestrator's own ChatTraceEvent (src/index.ts) field-for-field.
+export type ChatTraceEvent =
+  | {
+      kind: "classify";
+      boundTools: string[];
+      relevantGroups: string[];
+      toolPolicy: string;
+      memoryPolicy: string;
+      needsPlanning: boolean;
+      background: boolean;
+      openTasks: { id: number; objective: string; status: string }[];
+      relevantGoals: { id: number; title: string; status: string }[];
+      memories: { content: string; domain: string | null; score: number }[];
+    }
+  | { kind: "tool_call"; attempt: number; iteration: number; name: string; args: Record<string, unknown> }
+  | { kind: "tool_result"; attempt: number; iteration: number; name: string; result: string; isError: boolean }
+  | { kind: "retry"; attempt: number; reason: "empty_output" | "search_intent" | "confabulation" | "required_tool" };
 
 export type StepKind = "thinking" | "tool_call" | "message_sent" | "data_saved" | "other";
 

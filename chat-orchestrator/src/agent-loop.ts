@@ -26,6 +26,9 @@ export interface AgentLoopOptions {
   // genuinely invoked this turn (see safety-net.ts's confabulation check),
   // without agent-loop.ts itself needing to know what an "action tool" is.
   onToolCalls?: (names: string[]) => void;
+  // Fired around each individual tool call (before execute, then after with
+  // the result) for a client-facing readable trace - see AgentTraceEvent.
+  onTrace?: (event: AgentTraceEvent) => void;
 }
 
 export interface AgentLoopResult {
@@ -33,6 +36,13 @@ export interface AgentLoopResult {
   iterations: number;
   exhaustedIterations: boolean;
 }
+
+// Emitted around each tool the model actually invokes, so a caller (chat-orchestrator's
+// index.ts) can relay a human-readable trace of "what happened this turn" to clients,
+// separately from onToolCalls (which only tracks names, for the safety net).
+export type AgentTraceEvent =
+  | { kind: "tool_call"; iteration: number; name: string; args: Record<string, unknown> }
+  | { kind: "tool_result"; iteration: number; name: string; result: string; isError: boolean };
 
 // Caps a single tool result before it ever enters the message history -
 // same reasoning as coding-orchestrator's own agent-loop.ts: keeps head and
@@ -152,13 +162,21 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     );
 
     for (const call of toolCalls) {
+      options.onTrace?.({ kind: "tool_call", iteration, name: call.function.name, args: call.function.arguments });
+
       const tool = toolsByName.get(call.function.name);
+      let isError = false;
       const resultText = tool
         ? await tool
             .execute(call.function.arguments)
             .then((r) => truncateToolResult(r))
-            .catch((e) => `Error: ${e instanceof Error ? e.message : String(e)}`)
-        : `Error: unknown tool "${call.function.name}"`;
+            .catch((e) => {
+              isError = true;
+              return `Error: ${e instanceof Error ? e.message : String(e)}`;
+            })
+        : ((isError = true), `Error: unknown tool "${call.function.name}"`);
+
+      options.onTrace?.({ kind: "tool_result", iteration, name: call.function.name, result: resultText, isError });
       messages.push({ role: "tool", content: resultText });
     }
   }
