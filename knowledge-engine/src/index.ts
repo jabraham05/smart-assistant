@@ -6,6 +6,8 @@ import {
   getLatestResearchSessionByOriginSession,
   insertResearchSession,
   listResearchQueue,
+  findResearchQueueByTopic,
+  findResearchSessionByTopic,
 } from "./db.js";
 import { ingestDocument } from "./engine/ingest.js";
 import { search } from "./engine/search.js";
@@ -164,7 +166,17 @@ app.post("/research", async (req, res) => {
 
 // GET /research/status?sessionId=<chat session id> - same pattern as the
 // old research_task_status: latest research run started from this chat
-// session, for a mid-conversation progress check.
+// session, for a mid-conversation progress check. OR
+// GET /research/status?topic=<topic> - real gap found via live testing:
+// background research queued ambiently (research-queue.ts) and drained
+// hours/overnight later is invisible to a session-scoped lookup once the
+// user asks about it from a different or later conversation, even though
+// the research genuinely completed. topic search checks research_queue
+// first (covers pending/researching/failed, and done items via their
+// research_session_id), falling back to research_sessions directly for
+// anything researched via the older research_task path that never went
+// through the queue at all. sessionId and topic are mutually exclusive;
+// topic wins if both are somehow given.
 //
 // Registered BEFORE /research/:id deliberately - Express matches routes in
 // registration order, and a parameterized /research/:id would otherwise
@@ -173,13 +185,43 @@ app.post("/research", async (req, res) => {
 // returned {"error":"invalid research session id"} (the OTHER handler's
 // error) instead of ever running its own body, until the order was fixed.
 app.get("/research/status", async (req, res) => {
+  const topic = typeof req.query.topic === "string" ? req.query.topic : undefined;
   const originSessionId = typeof req.query.sessionId === "string" ? req.query.sessionId : undefined;
-  if (!originSessionId) {
-    return res.status(400).json({ error: "sessionId query param is required" });
+  if (!topic && !originSessionId) {
+    return res.status(400).json({ error: "sessionId or topic query param is required" });
   }
 
   try {
-    const session = await getLatestResearchSessionByOriginSession(config, originSessionId);
+    if (topic) {
+      const queueMatch = await findResearchQueueByTopic(config, topic, config.researchQueueDedupMinOverlap);
+      if (queueMatch) {
+        if (queueMatch.status === "done" && queueMatch.research_session_id) {
+          const detail = await getResearchSessionDetail(config, queueMatch.research_session_id);
+          if (detail) {
+            return res.json({
+              found: true,
+              status: detail.session.status,
+              topic: detail.session.topic,
+              sessionId: detail.session.id,
+              documentId: detail.session.document_id,
+              findings: detail.findings,
+            });
+          }
+        }
+        return res.json({ found: true, status: queueMatch.status, topic: queueMatch.topic });
+      }
+      const sessionMatch = await findResearchSessionByTopic(config, topic, config.researchQueueDedupMinOverlap);
+      if (!sessionMatch) return res.json({ found: false });
+      return res.json({
+        found: true,
+        status: sessionMatch.status,
+        topic: sessionMatch.topic,
+        sessionId: sessionMatch.id,
+        documentId: sessionMatch.document_id,
+      });
+    }
+
+    const session = await getLatestResearchSessionByOriginSession(config, originSessionId!);
     if (!session) return res.json({ found: false });
     res.json({ found: true, status: session.status, topic: session.topic, sessionId: session.id, documentId: session.document_id });
   } catch (e) {

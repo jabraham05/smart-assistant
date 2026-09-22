@@ -94,11 +94,28 @@ export interface ResearchStatus {
   topic?: string;
   sessionId?: number;
   documentId?: number;
+  // Only present for a topic lookup that resolved to a completed session -
+  // lets research_task_status answer "what did you find out" directly,
+  // without a second GET /research/:id round trip.
+  findings?: { id: number; claim: string; confidence: string }[];
 }
 
 export async function getResearchStatus(config: Config, originSessionId: string): Promise<ResearchStatus> {
   const url = new URL(`${config.knowledgeEngineUrl}/research/status`);
   url.searchParams.set("sessionId", originSessionId);
+  const res = await fetch(url.toString());
+  return jsonOrThrow<ResearchStatus>(res, "Research status lookup");
+}
+
+// Real gap found via live testing: getResearchStatus above only ever finds
+// a session tied to *this exact chat session* - background research
+// queued ambiently and drained hours/overnight later is invisible to a
+// "what have you found out about X" question asked from a different or
+// later conversation. This checks by topic instead (any session, any
+// status, most recent lexeme-overlap match on knowledge-engine's side).
+export async function getResearchStatusByTopic(config: Config, topic: string): Promise<ResearchStatus> {
+  const url = new URL(`${config.knowledgeEngineUrl}/research/status`);
+  url.searchParams.set("topic", topic);
   const res = await fetch(url.toString());
   return jsonOrThrow<ResearchStatus>(res, "Research status lookup");
 }

@@ -607,3 +607,70 @@ export async function updateResearchQueueStatus(
     [id, status, researchSessionId ?? null],
   );
 }
+
+// Real gap found via live testing: research_task_status only ever checked
+// for a session tied to *this exact chat session* - background research
+// queued ambiently (research-queue.ts) or drained hours/overnight later is
+// invisible to a "what have you found out about X" follow-up asked from a
+// different or later conversation, even though the research genuinely
+// completed. These two lookups (any status, any session, most recent
+// lexeme-overlap match) are the fix - same technique as
+// findOverlappingPendingTopic above, generalized to search regardless of
+// status/session.
+export async function findResearchQueueByTopic(
+  config: Config,
+  topic: string,
+  minOverlap: number,
+): Promise<ResearchQueueRow | undefined> {
+  const result = await getPool(config).query<ResearchQueueRow>(
+    `WITH query_lexemes AS (
+       SELECT ARRAY(
+         SELECT lex FROM unnest(tsvector_to_array(to_tsvector('english', $1))) AS lex
+         WHERE length(lex) >= 3
+       ) AS lexemes
+     ),
+     scored AS (
+       SELECT rq.*, COALESCE(array_length(ARRAY(
+         SELECT unnest(query_lexemes.lexemes)
+         INTERSECT
+         SELECT unnest(tsvector_to_array(rq.topic_tsv))
+       ), 1), 0) AS overlap_count
+       FROM research_queue rq
+       CROSS JOIN query_lexemes
+     )
+     SELECT id, topic, domain, origin_session_id, trigger_source, status, research_session_id, created_at, updated_at
+     FROM scored WHERE overlap_count >= $2
+     ORDER BY overlap_count DESC, updated_at DESC LIMIT 1`,
+    [topic, minOverlap],
+  );
+  return result.rows[0];
+}
+
+export async function findResearchSessionByTopic(
+  config: Config,
+  topic: string,
+  minOverlap: number,
+): Promise<ResearchSessionRow | undefined> {
+  const result = await getPool(config).query<ResearchSessionRow>(
+    `WITH query_lexemes AS (
+       SELECT ARRAY(
+         SELECT lex FROM unnest(tsvector_to_array(to_tsvector('english', $1))) AS lex
+         WHERE length(lex) >= 3
+       ) AS lexemes
+     ),
+     scored AS (
+       SELECT rs.*, COALESCE(array_length(ARRAY(
+         SELECT unnest(query_lexemes.lexemes)
+         INTERSECT
+         SELECT unnest(tsvector_to_array(to_tsvector('english', rs.topic)))
+       ), 1), 0) AS overlap_count
+       FROM research_sessions rs
+       CROSS JOIN query_lexemes
+     )
+     SELECT id, topic, domain, status, trigger_source, origin_session_id, document_id, created_at, updated_at
+     FROM scored WHERE overlap_count >= $2
+     ORDER BY overlap_count DESC, updated_at DESC LIMIT 1`,
+    [topic, minOverlap],
+  );
+  return result.rows[0];
+}
