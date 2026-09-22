@@ -10,7 +10,7 @@ import { buildSystemPrompt } from "./system-prompt.js";
 import { SkillsMcpClient } from "./mcp-client.js";
 import { searchMemory, ingestMemory } from "./memory-engine-client.js";
 import { getOpenTaskContexts, matchGoals } from "./event-bus-client.js";
-import { runAgentLoop, type AgentTool } from "./agent-loop.js";
+import { runAgentLoop, type AgentTool, type AgentTraceEvent } from "./agent-loop.js";
 import {
   hasUnfulfilledSearchIntent,
   isConfabulatedAction,
@@ -38,12 +38,36 @@ app.use(express.json({ limit: "2mb" }));
 // pointed at.
 const NODE_NAME = "AI Agent";
 
+// Readable, client-facing trace of what happened this turn - additive to the
+// begin/item/end/error contract above (both real clients only ever look for
+// type:"item", so a new type:"trace" line is silently ignored by discord-bot
+// and safely opt-in for chat-ui). "classify" fires once, before the agent
+// loop starts; "tool_call"/"tool_result"/"retry" fire per attempt (a turn
+// can run more than once - see the retry block below), tagged with which
+// attempt they belong to so the client can group them.
+export type ChatTraceEvent =
+  | {
+      kind: "classify";
+      boundTools: string[];
+      relevantGroups: string[];
+      toolPolicy: string;
+      memoryPolicy: string;
+      needsPlanning: boolean;
+      background: boolean;
+      openTasks: { id: number; objective: string; status: string }[];
+      relevantGoals: { id: number; title: string; status: string }[];
+      memories: { content: string; domain: string | null; score: number }[];
+    }
+  | ({ attempt: number } & AgentTraceEvent)
+  | { kind: "retry"; attempt: number; reason: "empty_output" | "search_intent" | "confabulation" | "required_tool" };
+
 function makeEmitter(res: express.Response) {
   let itemIndex = 0;
-  return (type: "begin" | "item" | "end" | "error", content?: string) => {
+  return (type: "begin" | "item" | "end" | "error" | "trace", content?: string, trace?: ChatTraceEvent) => {
     const event = {
       type,
       ...(content !== undefined ? { content } : {}),
+      ...(trace !== undefined ? { trace } : {}),
       metadata: { nodeId: "chat-orchestrator", nodeName: NODE_NAME, itemIndex: itemIndex++, runIndex: 0, timestamp: Date.now() },
     };
     res.write(JSON.stringify(event) + "\n");
@@ -161,11 +185,28 @@ app.post("/webhook", async (req, res) => {
         execute: (args) => mcp.callTool(t.name, args),
       }));
 
+    const boundToolNames = tools.map((t) => t.name);
+    emit("trace", undefined, {
+      kind: "classify",
+      boundTools: boundToolNames,
+      relevantGroups,
+      toolPolicy,
+      memoryPolicy,
+      needsPlanning,
+      background,
+      openTasks,
+      relevantGoals,
+      memories: memoryResults.map((m) => ({ content: m.content, domain: m.domain, score: m.score })),
+    });
+
     emit("begin");
 
     const calledTools: string[] = [];
-    const runTurn = (userPrompt: string) =>
-      runAgentLoop({
+    let attempt = 0;
+    const runTurn = (userPrompt: string) => {
+      attempt++;
+      const thisAttempt = attempt;
+      return runAgentLoop({
         ollamaHost: config.ollamaHost,
         model: config.chatModel,
         systemPrompt,
@@ -176,7 +217,9 @@ app.post("/webhook", async (req, res) => {
         numCtx: config.numCtx,
         label: sessionId,
         onToolCalls: (names) => calledTools.push(...names),
+        onTrace: (event) => emit("trace", undefined, { ...event, attempt: thisAttempt }),
       });
+    };
 
     let result = await runTurn(chatInput);
 
@@ -184,6 +227,7 @@ app.post("/webhook", async (req, res) => {
     // own runCoderRound retry, applied here since a raw tool-calling loop
     // can still occasionally return nothing on a given attempt.
     if (!result.output.trim()) {
+      emit("trace", undefined, { kind: "retry", attempt: attempt + 1, reason: "empty_output" });
       result = await runTurn(chatInput);
     }
 
@@ -191,10 +235,9 @@ app.post("/webhook", async (req, res) => {
       ? result.output
       : "No response was generated for that message — try asking again.";
 
-    const boundToolNames = tools.map((t) => t.name);
-
     // One-shot unfulfilled-search-intent retry.
     if (hasUnfulfilledSearchIntent(finalText, boundToolNames, calledTools)) {
+      emit("trace", undefined, { kind: "retry", attempt: attempt + 1, reason: "search_intent" });
       const retry = await runTurn(chatInput + SEARCH_RETRY_NUDGE);
       if (retry.output.trim()) finalText = retry.output;
     }
@@ -203,6 +246,7 @@ app.post("/webhook", async (req, res) => {
     // claimed a completed action without calling the tool that would
     // actually do it, and to either really call it or stop claiming it did.
     if (isConfabulatedAction(finalText, boundToolNames, calledTools)) {
+      emit("trace", undefined, { kind: "retry", attempt: attempt + 1, reason: "confabulation" });
       const retry = await runTurn(
         chatInput +
           " (Your last reply claimed to have done something, but no matching tool was actually called - " +
@@ -221,6 +265,7 @@ app.post("/webhook", async (req, res) => {
     // check), so this is the one guarantee in this whole safety net that
     // isn't itself model output.
     if (hasUnsatisfiedRequiredTool(toolPolicy, boundToolNames, calledTools)) {
+      emit("trace", undefined, { kind: "retry", attempt: attempt + 1, reason: "required_tool" });
       const retry = await runTurn(chatInput + REQUIRED_TOOL_RETRY_NUDGE);
       if (retry.output.trim()) finalText = retry.output;
 

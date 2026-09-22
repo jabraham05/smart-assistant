@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { ChatMessage } from "@/types/chat";
 import { useChat } from "@/hooks/useChat";
 import { useSessions } from "@/hooks/useSessions";
 import { useEvents } from "@/hooks/useEvents";
@@ -8,13 +9,14 @@ import { MessageBubble } from "./MessageBubble";
 import { InputBar } from "./InputBar";
 import { SessionList } from "./SessionList";
 import { EventLogPanel } from "./EventLogPanel";
+import { TurnDebugPanel } from "./TurnDebugPanel";
 
 export function ChatWindow() {
   const { sessions, activeSessionId, setActiveSessionId, startNewSession, isLoading, refresh } =
     useSessions();
   const { messages, isSending, isLoadingHistory, sendMessage } = useChat(activeSessionId);
-  const [debugMode, setDebugMode] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
+  const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
   const eventsState = useEvents();
 
   useEffect(() => {
@@ -29,6 +31,20 @@ export function ChatWindow() {
     await sendMessage(content);
     if (isNewSession) refresh();
   };
+
+  // A "turn" is a user message + the assistant reply that followed it -
+  // clicking either bubble in the pair opens the same debug panel, keyed
+  // off the assistant message id (that's where the trace data lives).
+  const handleSelectTurn = (message: ChatMessage, index: number) => {
+    const assistantId =
+      message.role === "assistant" ? message.id : messages[index + 1]?.role === "assistant" ? messages[index + 1].id : null;
+    if (!assistantId) return;
+    setSelectedTurnId((prev) => (prev === assistantId ? null : assistantId));
+  };
+
+  const selectedIndex = selectedTurnId ? messages.findIndex((m) => m.id === selectedTurnId) : -1;
+  const selectedAssistant = selectedIndex >= 0 ? messages[selectedIndex] : undefined;
+  const selectedUser = selectedIndex > 0 ? messages[selectedIndex - 1] : undefined;
 
   return (
     <div className="flex h-screen w-full">
@@ -49,32 +65,41 @@ export function ChatWindow() {
             />
             event-bus
           </label>
-          <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-            <input
-              type="checkbox"
-              checked={debugMode}
-              onChange={(e) => setDebugMode(e.target.checked)}
-            />
-            Debug mode
-          </label>
+          <span className="text-xs text-gray-400 dark:text-gray-500">Click a message for turn detail</span>
         </div>
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
           {isLoadingHistory && (
             <p className="text-center text-xs text-gray-400">Loading conversation…</p>
           )}
-          {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} debugMode={debugMode} />
+          {messages.map((message, index) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              isSelected={
+                selectedTurnId !== null &&
+                (message.id === selectedTurnId || messages[index + 1]?.id === selectedTurnId)
+              }
+              onSelect={() => handleSelectTurn(message, index)}
+            />
           ))}
         </div>
         <InputBar onSend={handleSend} disabled={isSending} />
       </div>
-      {showEvents && (
-        <EventLogPanel
-          events={eventsState.events}
-          isLoading={eventsState.isLoading}
-          error={eventsState.error}
-          onRefresh={eventsState.refresh}
+      {selectedAssistant ? (
+        <TurnDebugPanel
+          userMessage={selectedUser}
+          assistantMessage={selectedAssistant}
+          onClose={() => setSelectedTurnId(null)}
         />
+      ) : (
+        showEvents && (
+          <EventLogPanel
+            events={eventsState.events}
+            isLoading={eventsState.isLoading}
+            error={eventsState.error}
+            onRefresh={eventsState.refresh}
+          />
+        )
       )}
     </div>
   );
