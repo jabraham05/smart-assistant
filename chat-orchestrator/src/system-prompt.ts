@@ -41,6 +41,21 @@ export function buildSystemPrompt(input: {
 }): string {
   const dateLine = `Right now it is ${formatPacific(input.now)} (Pacific time) — use this as ground truth for any relative date/time the user mentions (today, tomorrow, next week, etc.) when creating or checking calendar events. Never guess a date or fall back to a placeholder.`;
 
+  // Real gap found via live testing: a tool result full of structured
+  // findings (e.g. research_task_status) got pasted back nearly verbatim
+  // as a long, unstructured wall of text - technically complete, not
+  // actually useful. This is a standing response-style rule, not
+  // conditional on anything this turn, since the underlying problem
+  // (dumping raw tool output instead of synthesizing it) can happen with
+  // any tool, not just research.
+  const responseStyleLine =
+    "Default to concise: lead with the 2-3 most important points in your own words, not a raw dump " +
+    "of everything a tool returned. Consolidate related information rather than listing it item by " +
+    "item. Only go into full detail when the user actually asks for more/an explanation - and even " +
+    "then, organize and summarize rather than pasting raw data. If a tool result includes a " +
+    "documentUrl (or similar link to fuller detail), mention it so the user can read more if they " +
+    "want to, instead of trying to fit everything into the chat reply itself.";
+
   const userCardLine = input.userCard.length
     ? `What you know about the user: ${input.userCard.join("; ")}`
     : "";
@@ -80,6 +95,7 @@ export function buildSystemPrompt(input: {
   return [
     input.personaSystemPrompt,
     dateLine,
+    responseStyleLine,
     userCardLine,
     userCardForAmyLine,
     relevantMemoriesLine,

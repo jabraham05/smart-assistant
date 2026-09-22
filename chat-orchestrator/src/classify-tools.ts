@@ -52,7 +52,11 @@ const CLASSIFIER_SYSTEM_PROMPT =
   "the manual for my car', 'what does the guide say about X', 'look up Y in what we saved', 'what have " +
   "you already learned about X' where X is a topic and not the user themselves - or saving a specific " +
   "web page for later recall), 'research' (starting in-depth background research on a topic " +
-  "not already known, that should be saved for later, or checking a research task's progress), 'goals' " +
+  "not already known, that should be saved for later, OR checking on/asking about findings from " +
+  "research that may have already happened - 'what have you found out about X', 'any updates on the " +
+  "research', 'how's that going' - include 'research' for these EVEN IF X also matches an existing " +
+  "goal or project; the two aren't mutually exclusive, and research about a goal's topic is common), " +
+  "'goals' " +
   "(creating, listing, updating, or checking progress on the user's persistent personal objectives - " +
   "life goals like job search/fitness/savings, but just as much a new hobby/technical/creative project " +
   "the user mentions wanting to start or work on, e.g. 'I have a new project idea, I want to build a " +

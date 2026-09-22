@@ -20,6 +20,13 @@ export interface Config {
   tavilyApiKey?: string;
   knowledgeEngineUrl: string;
   memoryEngineUrl: string;
+  // Unlike every other *Url field above, this must be reachable from the
+  // user's own browser, not just from inside the Docker network - it's
+  // used to build a real clickable link (research_task_status's
+  // documentUrl) that Amy includes in a chat reply, not a server-to-server
+  // call. Defaults to localhost since this is a single-machine personal
+  // setup; override if chat-ui is reachable at a LAN IP or domain instead.
+  chatUiUrl: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -93,5 +100,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // vars that pointed at research_pipeline's n8n webhooks.
     knowledgeEngineUrl: env.KNOWLEDGE_ENGINE_URL || "http://knowledge-engine:3005",
     memoryEngineUrl: env.MEMORY_ENGINE_URL || "http://memory-engine:3007",
+    chatUiUrl: env.CHAT_UI_URL || "http://localhost:3000",
   };
 }

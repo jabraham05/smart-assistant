@@ -1,8 +1,19 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Config } from "../config.js";
-import { getResearchStatus, getResearchStatusByTopic } from "../lib/knowledge-engine-client.js";
+import { getResearchStatus, getResearchStatusByTopic, type ResearchStatus } from "../lib/knowledge-engine-client.js";
 import { errorResult, textResult } from "../types.js";
+
+// Real gap found via live testing: a chat reply with every finding pasted
+// in verbatim reads as an unstructured wall of text. The fix isn't just
+// "tell the model to summarize" - it's giving the model somewhere to point
+// people who want the full detail (chat-ui/src/app/research/[id]/page.tsx
+// renders the same findings/citations neatly), so a short chat summary
+// doesn't have to also be the only place to read the whole thing.
+function withDocumentUrl(config: Config, result: ResearchStatus): ResearchStatus & { documentUrl?: string } {
+  if (!result.sessionId) return result;
+  return { ...result, documentUrl: `${config.chatUiUrl}/research/${result.sessionId}` };
+}
 
 // chatSessionId comes from the MCP transport layer (see server.ts's
 // RequestContext), same as research_task itself — it's how this resolves
@@ -22,7 +33,11 @@ export function registerResearchTaskStatus(server: McpServer, config: Config, ch
         "and drains them during idle/overnight time, so \"what have you found out about the " +
         "robotic arm\" can be true even if no research_task was ever explicitly started here. " +
         "When genuinely unsure which to use, pass `topic` — it also finds tasks started in this " +
-        "conversation if the topic matches closely enough.",
+        "conversation if the topic matches closely enough. When the result includes findings, " +
+        "answer with a SHORT summary (the 2-3 most important points, in your own words, not a " +
+        "list of every finding verbatim) and include the `documentUrl` link if present so the " +
+        "user can read the full write-up if they want more than the summary — never paste every " +
+        "finding into the chat reply.",
       inputSchema: {
         topic: z
           .string()
@@ -40,7 +55,7 @@ export function registerResearchTaskStatus(server: McpServer, config: Config, ch
           if (!result.found) {
             return textResult(`No research found on "${topic}".`);
           }
-          return textResult(result);
+          return textResult(withDocumentUrl(config, result));
         }
 
         if (!chatSessionId) {
@@ -50,7 +65,7 @@ export function registerResearchTaskStatus(server: McpServer, config: Config, ch
         if (!result.found) {
           return textResult("No research task found for this conversation.");
         }
-        return textResult(result);
+        return textResult(withDocumentUrl(config, result));
       } catch (e) {
         return errorResult(`research_task_status failed: ${e instanceof Error ? e.message : String(e)}`);
       }
