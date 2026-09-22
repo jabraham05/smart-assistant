@@ -202,3 +202,30 @@ JS strings — the comparison always failed, so `advance_step` reported
 failure back to the model even when the underlying `UPDATE` succeeded.
 Fixed with `Number(updated.task_context_id) !== taskContextId` on both
 sides of the check.
+
+## 2026-09-22 — event-bus's two hooks into the self-learning research queue
+
+Full design/verification in [`docs/knowledge-engine.md`](knowledge-engine.md)'s
+own dated entry — this covers only the two things that actually live here.
+
+**`POST /goals`** (deterministic backstop): after a goal is created, a
+fire-and-forget call to knowledge-engine's `POST /research-queue` seeds a
+queue entry from the goal's own title (`triggerSource: 'goal_created'`),
+after the HTTP response already went out — a slow/unreachable
+knowledge-engine must never delay or break goal creation itself.
+
+**`POST /calendar/poll-check`**: alongside the existing
+`runOvernightDigest` call on a detected wake event, now also calls
+`drainResearchQueueIfIdle` — gated on `getWorkLevel(config)` exactly like
+`/idle-reflection-check` already is (skips draining, same as idle-reflection
+skips its own reasoning pass, whenever a coding task or research session is
+already running). `POST /research-queue-check` is the standalone manual
+test entry point for this gate specifically (knowledge-engine's own `POST
+/research-queue/drain`, which this calls, has no work-level awareness of
+its own — that check only makes sense here, where `getWorkLevel` already
+lives).
+
+New config: `knowledgeEngineUrl` (`KNOWLEDGE_ENGINE_URL`, default
+`http://knowledge-engine:3005`) — confirmed absent from this service's
+config before this, only `skillsMcpUrl` existed as a cross-service URL
+here previously.

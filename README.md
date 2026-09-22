@@ -58,8 +58,9 @@ eventually tested) on its own.
   Assistant, phone-presence tracking
 - [`docs/discord-bridge.md`](docs/discord-bridge.md) — Discord DM client
 - [`docs/knowledge-engine.md`](docs/knowledge-engine.md) — document
-  ingestion, hybrid retrieval + citations, and web research (replaces the
-  old research workflow)
+  ingestion, hybrid retrieval + citations, web research (replaces the old
+  research workflow), and the self-learning research queue that drains
+  during idle/overnight time
 - [`docs/research-workflow.md`](docs/research-workflow.md) — superseded,
   kept for history
 - [`docs/known-gotchas.md`](docs/known-gotchas.md) — generic n8n/Docker/

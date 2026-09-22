@@ -381,6 +381,94 @@ topic. All test data (the throwaway GT-R research session and document)
 was cleaned up afterward; the two real Cayman documents from the earlier
 dogfooding round were kept.
 
+## 2026-09-22 — self-learning research queue: ambient knowledge-gap detection, drained during idle/overnight time
+
+**Real gap found via live testing**: the user said "I have a new project
+idea of building a robotics arm." Amy did nothing with it — not tracked as
+a goal, not recognized as a topic worth researching. The user's own
+framing: *"anything it is iffy about needs to be researched on offline
+times."* Rather than building new research/notify machinery, this reuses
+three already-proven pieces verbatim: `checkKnowledge`/
+`runWebResearchAndPersist` (this file's own Phase 2/3 pipeline) do the
+actual research; `event-bus`'s calendar wake-event trigger
+(`calendar-watch.ts`'s `isWakeEvent`) is the existing idle/awake signal;
+`deferNotify`/`logAwaitingDigest`/`runOvernightDigest` already folds
+background completions into one consolidated Discord message. See
+[`docs/event-bus-and-goals.md`](event-bus-and-goals.md) for the drain
+trigger's own side.
+
+**New table `research_queue`** (`postgres/init/16-create-research-queue-table.sql`,
+same `research` database, co-located with `research_sessions` since a
+queue row graduates directly into one): `topic`, `domain`,
+`origin_session_id`, `trigger_source`, `status`
+(`pending`/`researching`/`done`/`failed`), `research_session_id`. Generated
+`topic_tsv` + GIN index reuses `hybridSearchChunks()`'s `query_lexemes`
+lexeme-overlap technique for dedup, rather than a second embedding-similarity
+codepath — topic strings are short enough that this is cheaper and
+sufficient.
+
+**`engine/research-queue.ts`**:
+- `enqueueTopic(config, {topic, domain?, originSessionId?, triggerSource?})`
+  — dedup gate, cheapest-first: (1) exact case-insensitive match against
+  pending/researching rows; (2) lexeme-overlap ≥
+  `RESEARCH_QUEUE_DEDUP_MIN_OVERLAP` (default 2, higher than document
+  search's default of 1 since topic strings are short and generic); (3)
+  `checkKnowledge()` — if already well covered, skip entirely, nothing to
+  queue (verified live: a Porsche-brake-fluid-style query correctly
+  returned `"already known: top knowledge-base match scored 0.0164, met
+  the 0.012 threshold"` without ever reaching the table); (4) a max-pending
+  cap (`RESEARCH_QUEUE_MAX_PENDING`, default 50) — rejects rather than
+  evicts, since a full queue means the drain rate needs attention, not
+  silent data loss.
+- `drainQueue(config, limit)` — claims up to `limit` oldest `pending` rows
+  atomically (`UPDATE ... WHERE id IN (SELECT ...)`), then **sequentially**
+  (not parallel, to bound Ollama load) runs each through the same
+  `checkKnowledge` → `insertResearchSession` → `runWebResearchAndPersist`
+  path `POST /research`'s handler already uses, with `deferNotify: true`
+  and `triggerSource: 'research_queue'`.
+
+**New routes**: `POST /research-queue` (enqueue), `GET /research-queue?status=`
+(list, debugging/ops only — no chat-invoked tool wraps this yet), `POST
+/research-queue/drain` (the real drain, also a manual test entry point).
+
+**Two independent write paths, deliberately not just one**:
+1. **Ambient, classifier-driven** (`chat-orchestrator`'s Coordinator —
+   see [`docs/chat-orchestrator.md`](chat-orchestrator.md)): the
+   classification call that already runs every turn gained
+   `knowledgeGapTopic: string | null`, fire-and-forget enqueued when
+   non-null. No new LLM call.
+2. **Deterministic backstop** (`event-bus`'s `POST /goals` — see
+   [`docs/event-bus-and-goals.md`](event-bus-and-goals.md)): every newly
+   created goal unconditionally seeds a queue entry from its title,
+   `triggerSource: 'goal_created'`, independent of whether the classifier
+   caught the moment.
+
+**No human-approval gate**, unlike `skill_gap_scanner`'s proposal table
+(the closest existing precedent for "something autonomous decides X is
+worth doing"). That flow requires a human to flip a Data Table row to
+`active` because *acting* on a skill proposal has real consequences
+(system-prompt injection or new code). Queuing/running background research
+is comparatively low-stakes and reversible — it only enriches the
+knowledge base — so this goes straight from queued to auto-drained.
+
+**Verified live end-to-end (2026-09-22)**, real data, not synthetic
+fixtures: "I have a new project idea, I want to build a robotics arm" sent
+through live `chat-orchestrator` correctly created goal #16 ("Build a
+robotic arm") **and** queued `"robotics arm design and construction"`
+(`trigger_source: chat`). A second real message ("I want to build a
+submarine") queued `"Build a submarine"` via the `goal_created` backstop
+even though the classifier itself didn't set `knowledgeGapTopic` that
+turn — confirming the two paths genuinely cover for each other. Manually
+draining both (gated on work level, same check `/idle-reflection-check`
+already uses) ran two real multi-source research agent loops end to end:
+both `research_sessions` rows landed `status: 'complete'`, 9 real
+`findings` each (confirmed confidence — e.g. real claims about kinematic
+chains, degrees of freedom, servo motor control), both correctly deferred
+into `events` as `research_completed_awaiting_digest` rather than an
+immediate Discord ping, and both `research_queue` rows flipped to `done`
+with `research_session_id` populated. Exact-match and lexeme-overlap dedup
+both independently verified against the live queue afterward.
+
 ## Not built yet
 
 - Reranking (a cross-encoder model) — deferred until hybrid retrieval is
@@ -403,3 +491,10 @@ dogfooding round were kept.
   "nothing concrete enough to record" outcome, not silently making
   something up — but a Readability-only extractor is a real ceiling worth
   knowing about.
+- Research-queue per-session/per-day enqueue rate limiting — not built
+  until real usage shows the classifier's `knowledgeGapTopic` field
+  producing a genuine false-positive spam problem, not speculatively.
+- A chat-invoked tool to list/manage the research queue directly —
+  `GET /research-queue` exists for debugging/ops from day one; no MCP tool
+  wraps it until real usage shows people want to inspect/cancel queued
+  topics themselves.

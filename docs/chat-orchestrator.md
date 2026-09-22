@@ -331,6 +331,24 @@ watching.
   excerpts (seat memory settings, tire pressure, fuel tank capacity)
   returned correctly through Discord afterward.
 
+### 2026-09-22 — self-learning research queue: `knowledgeGapTopic`
+
+`classify-tools.ts`'s classification call (the same one from Phase 1, no
+new LLM call) gained a fifth field: `knowledgeGapTopic: string | null` — a
+short topic string when the message reveals a genuine ongoing interest Amy
+likely knows little about, extracted for the new research-queue system
+(full design in [`docs/knowledge-engine.md`](knowledge-engine.md)'s own
+dated entry). When non-null, `index.ts` fire-and-forget enqueues it to
+knowledge-engine's `POST /research-queue` — never blocks the reply, never
+gates tool binding the way the other four fields do. Built alongside a
+prompting-only fix to the `'goals'` category description (broadened beyond
+job-search/fitness/savings to cover new hobby/technical/creative
+projects) and `goal_manage`'s own tool description, since the real gap
+that surfaced this ("I have a new project idea of building a robotics
+arm") was two separate misses at once — neither tracked as a goal nor
+recognized as worth researching. Verified live: the exact message above
+now creates a real goal **and** queues the topic in the same turn.
+
 ### Known rough edges, not yet fixed
 
 - `dashboard_control`'s 90–107s latency outlier — flagged repeatedly during
