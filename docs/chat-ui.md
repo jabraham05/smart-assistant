@@ -126,3 +126,42 @@ a `div role="button"` — a real `<a>` can't validly nest inside a
 `<button>` (nested interactive elements), which would have kept the link
 visible but unreliable to click; the link's own `onClick` stops
 propagation so clicking it doesn't also toggle turn detail underneath it.
+
+## 2026-09-22 — two more real regressions, found via the user reporting "that problem shows up again"
+
+**Session sidebar silently broke again**: a separate branch,
+`fix-session-list-max-size` (never merged — found the same way as
+`docs/chat-orchestrator.md`'s stranded-fix entry, this time via the user
+directly reporting the symptom), had already fixed and *live-deployed* a
+real outage: `listSessions()`'s `size=200` query param gets rejected
+outright by Honcho with a 422 ("must be ≤ 100"), not clamped — taking
+`/api/sessions` from "silently drops new sessions" (the original
+2026-09-21 bug above) to "returns nothing at all." This session's own
+`chat-ui` rebuilds (for the markdown-rendering fix) rebuilt from the
+git-tracked source, which never had the fix, silently re-deploying the
+outage over the top of the live patch. Brought the real fix
+(`size=100`) into `main` and redeployed; verified live,
+`GET /api/sessions` returns real session data again.
+
+**`MessageBubble`'s hydration mismatch**: yet another stranded branch,
+`fix-message-bubble-hydration`, independently found the same underlying
+constraint this session's markdown-rendering fix already worked around
+for a different reason: a `<button>` can only contain phrasing content,
+and `StepIndicator` renders a `<ul>`/`<li>` list inside the bubble
+whenever a message has tool-call steps — invalid nesting, which made the
+browser reparent the DOM and mismatch React's SSR output on essentially
+every tool-call turn. The button→div structural fix was already in place
+(same fix, arrived at independently for the `<a>`-nesting reason); adopted
+the one genuine improvement their version had that this session's didn't
+— `preventDefault()` on the Enter/Space handler, so Space doesn't also
+scroll the page.
+
+**Broader pattern worth naming**: this is now the third time in one
+session that real, live-verified work turned out to be sitting on a
+branch that never reached `main` — `97e7a99` (see
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)), and these two. A
+full remote-branch audit at this point found several more
+(`worktree-fix-classifier-bug`, `worktree-self-improvement-cycle`,
+`worktree-fix-pr-push-large-diff`) not yet reviewed — real work is
+accumulating across concurrent sessions faster than it's landing on
+`main`.
