@@ -19,9 +19,12 @@ export function registerMemoryRecall(server: McpServer, config: Config): void {
         "vague or open-ended query. Do NOT use this for greetings (hi, hey, hello), small " +
         "talk, general knowledge questions unrelated to the user, or anything already visible " +
         "in the current conversation (recent turns are already provided as context — you " +
-        "don't need this tool to remember what was just said). If you're not sure whether " +
-        "recalling something would actually help, don't call it — answer directly or ask a " +
-        "clarifying question instead.",
+        "don't need this tool to remember what was just said). Do NOT use this for a document, " +
+        "manual, or guide, even when the user phrases it possessively (\"my manual\", \"my " +
+        "car's manual\") — that's knowledge_search, since the manual itself isn't a fact about " +
+        "the user, it's a stored document. If you're not sure whether recalling something " +
+        "would actually help, don't call it — answer directly or ask a clarifying question " +
+        "instead.",
       inputSchema: {
         query: z
           .string()
