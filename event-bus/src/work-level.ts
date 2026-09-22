@@ -44,13 +44,16 @@ export interface WorkLevel {
 
 // "Actively in progress" per each database's own status model: coding_tasks
 // has no separate queued state (running from the moment it's inserted, see
-// postgres/init/03-create-coding-tasks-db.sql), research_documents likewise
-// (running | complete | failed, see postgres/init/02-create-research-db.sql).
+// postgres/init/03-create-coding-tasks-db.sql), research_sessions likewise
+// (running | complete | failed, see postgres/init/08-create-knowledge-tables.sql).
+// research_sessions replaces the old research_documents table, which the
+// knowledge-engine cutover left dead - nothing has written to it since, so
+// this query was silently reporting 0 unconditionally until this fix.
 export async function getWorkLevel(config: Config): Promise<WorkLevel> {
   const [codingResult, researchResult] = await Promise.all([
     getCodingTasksPool(config).query<{ count: string }>(`SELECT count(*) FROM coding_tasks WHERE status = 'running'`),
     getResearchPool(config).query<{ count: string }>(
-      `SELECT count(*) FROM research_documents WHERE status = 'running'`,
+      `SELECT count(*) FROM research_sessions WHERE status = 'running'`,
     ),
   ]);
 
