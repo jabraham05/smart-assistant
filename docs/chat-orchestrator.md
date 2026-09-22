@@ -183,3 +183,167 @@ trim/truncate, `skills-catalog`, `system-prompt`):
 - `skills-mcp` — unchanged; now a shared tool host for three consumers
   (`coding-orchestrator`, `knowledge-engine`, `chat-orchestrator`) instead
   of two.
+
+## 2026-09-22 — Coordinator: classification drives tool/memory/planning policy, not just tool groups
+
+`chat-orchestrator` merged to `main` (Phase -1 of the plan below) shortly
+after the section above was written. Everything from here documents a
+second, larger project built directly on top of it: turning
+`classify-tools.ts`'s one-purpose tool-group classifier into a full
+**Coordinator** that also decides, per message, whether a tool call is
+mandatory, whether memory should be searched, whether the message needs a
+real multi-step plan, and whether it should run in the background — all
+enforced in code, not left to the prompt. Full design record:
+`~/.claude/plans/bubbly-bouncing-starfish.md` (the user's own architecture
+doc, phased and discussed before any of this was built). Built and
+live-verified phase by phase against real Discord/`chat-ui` traffic, not
+just unit tests.
+
+**Phase 0 — eval harness.** `scripts/eval-harness.mjs` +
+`scripts/eval-fixtures/v0-baseline.json` fire real messages at
+`chat-orchestrator`'s live `/webhook` and record `relevantGroups`,
+retry-flag firings, latency — a real before/after baseline every phase
+below diffs against, rather than trusting "it feels the same."
+
+**Phase 1 — Coordinator schema.** `classify-tools.ts`'s existing
+structured-output Ollama call now returns `toolPolicy`
+(`required`/`optional`), `memoryPolicy`
+(`none`/`optional`/`relevant`/`required`), `needsPlanning` (bool), and
+`background` (bool), alongside the original `capabilities` array.
+**Deliberately no `executionMode` enum** — the original design doc
+proposed one (fast/tool_required/plan/research/overnight), but a single
+mode enum forces a false choice on a message that genuinely needs research
+*and* planning at once; four independent flags, each driving exactly one
+real behavior, don't have that problem. `background: true` force-includes
+`research_task`/`research_task_status` in the bound tool list, the same
+always-on pattern `calculate` and `task_context_manage` already used.
+
+**Phase 1b — overnight digest + calendar-triggered wake-up.**
+`event-bus/src/digest.ts`'s `runOvernightDigest`, triggered off
+`event-bus/src/calendar-watch.ts`'s `isWakeEvent` (a plain case-insensitive
+"wake" keyword match against `event_starting_soon` detections — no cron,
+the user's own recurring "Wake Up" calendar event is the trigger).
+`research_task` completions classified `background: true` get tagged
+`awaiting_digest` instead of notifying immediately (`deferNotify`); the
+digest bundles those plus a two-query (global + US) `web_search`
+news-and-synthesis pass into one consolidated Discord DM via
+`event-bus/src/discord-notify.ts`'s existing `notifyOwnerDirect`, gated by
+the same `canMessageUser` cooldown pattern `idle-reflection` already uses
+so a re-poll can't double-send.
+
+**Phase 2 — tool policy enforcement.** `safety-net.ts` gained
+`hasUnsatisfiedRequiredTool(toolPolicy, calledTools, boundActionTools)`,
+wired into the same one-shot-retry mechanism `hasUnfulfilledSearchIntent`/
+`isConfabulatedAction` already used — no new retry infrastructure. If
+`toolPolicy === 'required'` and the retry still comes back without any
+bound action tool called, the response is a **fixed template string**
+("I wasn't able to complete that using my tools just now — want me to try
+again?"), never the model's own text — the model is never allowed to
+generate its own "I failed" message, since that's exactly the shape that
+can still confabulate.
+
+**Phase 3 — `memory_policy` gating + new `memory-engine` service.** See
+[`docs/memory-engine.md`](memory-engine.md) for the new service itself.
+`memoryPolicy` now throttles Honcho peer-card injection and
+`session-memory.ts`'s Redis turn-history window (`none` caps it low,
+`optional` keeps current behavior); `relevant`/`required` force-include
+`memory_recall` in the bound tool list even without `personal` classified,
+mirroring Phase 1's `research_task` force-include.
+
+**Phase 3b — memory-engine metadata + a reverted synthesis step.**
+`domain`/`task_context_id` columns added to `memory_entries` at ingest, so
+`/search` can optionally scope retrieval to one topic or one open task's
+own history. **An LLM-based compact-summary synthesis step
+(`memory-engine/src/synthesize.ts`) was built, then removed entirely**
+per direct user feedback: *"I don't think llm is needed for this memory
+engine but it should be classifications, relevance ranks and such."*
+Real, measured cost of the reversal: `memory_recall`'s response time
+dropped from several seconds (with synthesis) to **71ms** (plain ranked
+results). This is now the standing principle for `memory-engine` — see
+that doc's own note on it.
+
+**Phase 4 — TaskContext expansion + goals/tasks context injection.**
+`task_contexts` gained `facts`/`assumptions`/`unknowns`/`next_action`; new
+`task_context_steps` table (`step_index`, `description`, `status`,
+`failure_policy`, `tool_result`); `task_context_manage` gained
+`action: "plan"` (bulk-create steps) and `action: "advance_step"`. Any open
+task context, and any active goal whose keywords match the current message
+(`goal-matching.ts`'s new `matchGoalsToText`, reusing the same deterministic
+matcher that already auto-logs goal progress), get injected into
+`system-prompt.ts`'s context **unconditionally, independent of
+`memoryPolicy`** — both are directly actionable state the model needs
+regardless of this turn's memory-relevance classification, not ambient
+personalization. See [`docs/event-bus-and-goals.md`](event-bus-and-goals.md)
+for the schema/endpoint detail.
+
+**Phase 5 — deterministic post-tool verification.** New registry,
+`skills-mcp/src/lib/verify-tool-result.ts` (args + result →
+`{ok, reason?}`), called from inside each tool's own handler right before
+returning. Wired into `calendar_event.ts` (compares requested vs. actual
+Google Calendar response fields) and `task_context_manage.ts` (checks
+objective/step-count/step-status actually match the request). Verification
+results land in `task_context_steps.tool_result` via an auto-resolved
+`activeTaskContextId` threaded through `RequestContext`
+(`skills-mcp/src/server.ts`) — the model never has to pass a task ID
+explicitly, removing a confabulation surface.
+
+**Phase 6 — streaming/progress narration.** **6a**: a prompt-only nudge
+(`narrateBeforeSlowAnswer` in `system-prompt.ts`), gated on
+`needsPlanning`/background research, telling the model to briefly narrate
+before a slower answer. **6b**: real per-step Discord/session
+notifications once a plan's steps exist, via `event-bus/src/notify.ts`'s
+existing `notifySession`, filtered by the new, unit-tested
+`event-bus/src/step-notifications.ts`'s `stepTransitionNotification` —
+`failed`/`blocked` notify immediately, `completed` only notifies once
+**every** step in the plan is done (skipped steps count as done for that
+check), `pending`/`running` never notify. Deliberately narrow: notifying on
+every intermediate step would be noise for a plan the user isn't actively
+watching.
+
+### Real bugs found and fixed via live testing (not caught by unit tests)
+
+- **`task_context_manage` was never registered on `main` at all.** The
+  entire original TaskContext feature had only ever existed on the
+  `worktree-knowledge-engine` branch — a merge-time fix never got
+  cherry-picked into `skills-mcp/src/server.ts`. Root-caused by diffing the
+  worktree's `server.ts` against `main`'s and copying the two missing
+  lines directly.
+- **BIGINT-vs-Number comparison bug.** `PATCH
+  /task-contexts/:id/steps/:stepId` compared `task_context_id` via strict
+  `!==` against a parsed `Number`, but Postgres `BIGINT` columns come back
+  from `node-pg` as JS strings — the comparison always failed, so
+  `advance_step` silently reported failure even when the underlying
+  `UPDATE` succeeded. Fixed with `Number(updated.task_context_id) !==
+  taskContextId`. Found via live Discord testing, not a unit test.
+- **Classifier misclassification, reported live via Discord**: "do you
+  have my Porsche manual" classified `info` instead of `knowledge` because
+  the two category descriptions in `CLASSIFIER_SYSTEM_PROMPT` were too
+  similar. Fixed by rewriting the prompt to explicitly exclude documents/
+  manuals/reference material from `info` and adding explicit `knowledge`
+  examples ("do you have the manual for my car", "what does the guide say
+  about X"). Verified 6/6 consistent runs afterward (previously variable).
+- **Second-layer bug, same root cause, one level deeper**: even once
+  classification was fixed, the model still called `memory_recall` instead
+  of `knowledge_search` because of the possessive phrasing ("**my**
+  manual"). Fixed via an explicit exclusion added to `memory-recall.ts`'s
+  own tool description ("Do NOT use this for a document, manual, or guide,
+  even when the user phrases it possessively"). Verified live: real manual
+  excerpts (seat memory settings, tire pressure, fuel tank capacity)
+  returned correctly through Discord afterward.
+
+### Known rough edges, not yet fixed
+
+- `dashboard_control`'s 90–107s latency outlier — flagged repeatedly during
+  Phase 0–6 testing, never root-caused.
+- `task_context_manage` is excluded from `toolPolicy: required`'s
+  bound-tool counting (it's always-on, not gated by capability
+  classification) — this can cause a false-positive enforcement retry when
+  the model reasonably checks task state before answering. Not fixed.
+- Phase 7 (deterministic-only confidence/supersession refinement for
+  `memory-engine`) and Phase 8 (sub-workflow decomposition) remain tabled
+  pending real evidence of need — see the plan doc.
+- The n8n `Chat` workflow is still published as the literal rollback path
+  (see "What's explicitly NOT changing (yet)" above) — task #59
+  (leaked-tool-call recovery) stays open until that rollback path is
+  formally retired, even though the failure class it recovers from can't
+  occur in `chat-orchestrator`'s own architecture.

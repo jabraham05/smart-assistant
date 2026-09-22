@@ -63,3 +63,18 @@ share this one real Honcho workspace — a test-mode conversation still
 writes to Amy's real long-term memory, a known limitation of the
 test/production split (that split only covers persona/skills reads and
 short-term Redis memory, not Honcho).
+
+**2026-09-22 — scope narrowed: cross-conversation retrieval moved to
+`memory-engine`.** The peer cards described above (durable profile +
+`user`→`amy` directional instructions) still live here, unchanged. What
+moved: the reactive "remember something specific from a different
+conversation" path — previously Honcho's hosted dialectic API, called ad
+hoc by `memory_recall` — is now backed by the new self-hosted
+[`docs/memory-engine.md`](memory-engine.md) instead, a deliberate move off
+a hosted third party for this one capability. Honcho keeps the job it's
+actually suited for (background profile consolidation/"dreaming"); raw
+hybrid search over every past turn doesn't need to depend on it anymore.
+`chat-orchestrator`'s `memoryPolicy` classification (see
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)'s Coordinator section)
+gates both mechanisms together, in parallel, on the same turn — Honcho's
+peer-card injection and `memory-engine`'s `/search`.

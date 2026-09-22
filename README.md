@@ -25,14 +25,21 @@ eventually tested) on its own.
   mode gotchas (superseded for real traffic by `chat-orchestrator`, kept
   published as the rollback — see below)
 - [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md) — self-hosted
-  replacement for the `Chat` workflow's tool-calling: a raw Ollama
+  replacement for the `Chat` workflow's tool-calling (a raw Ollama
   tool-calling loop against a real MCP client, what `chat-ui`/
-  `discord-bot` actually talk to now
+  `discord-bot` actually talk to now) and the **Coordinator** built on top
+  of it: classification-driven tool/memory/planning policy, enforcement,
+  verification, and progress narration
+- [`docs/memory-engine.md`](docs/memory-engine.md) — self-hosted
+  cross-conversation memory (hybrid ranked search, no LLM in the hot
+  path), the Coordinator's `memoryPolicy` backend
 - [`docs/chat-ui.md`](docs/chat-ui.md) — the Next.js chat client: the
   session-sidebar fix (Discord conversations were sorting to the bottom,
   unlabeled) and the read-only event-bus visibility panel
 - [`docs/honcho-memory.md`](docs/honcho-memory.md) — Honcho peer cards
-  (proactive memory + behavioral instructions for Amy)
+  (proactive memory + behavioral instructions for Amy); narrowed to
+  profile/consolidation only now that cross-conversation retrieval lives
+  in `memory-engine`
 - [`docs/persona-system.md`](docs/persona-system.md) — Amy's identity,
   tool-count/naming decisions, persona-prompt fixes
 - [`docs/event-bus-and-goals.md`](docs/event-bus-and-goals.md) — event
@@ -84,8 +91,8 @@ eventually tested) on its own.
   (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
   `code_task`, `spotify_control`, `dashboard_control`, `web_search`,
   `knowledge_search`, `knowledge_ingest`, `research_task`,
-  `research_task_status`, `goal_manage`, `calculate`),
-  plus internal (non-MCP) routes `/internal/dashboard-data` and
+  `research_task_status`, `goal_manage`, `task_context_manage`,
+  `calculate`), plus internal (non-MCP) routes `/internal/dashboard-data` and
   `/internal/spotify-action` (see
   [`docs/smart-mirror-dashboard.md`](docs/smart-mirror-dashboard.md)),
   wired into `docker-compose.yml` (builds from `skills-mcp/Dockerfile`,
@@ -95,10 +102,15 @@ eventually tested) on its own.
   retrieval with first-class citations, and web research (see
   [`docs/knowledge-engine.md`](docs/knowledge-engine.md)); reuses the
   `research` Postgres database, internal-only, no published port.
-- `event-bus/` — event ingestion, deterministic classification, and
-  deterministic goal-matching (see
+- `event-bus/` — event ingestion, deterministic classification,
+  deterministic goal-matching, TaskContext steps, and the overnight
+  digest/calendar-wake pipeline (see
   [`docs/event-bus-and-goals.md`](docs/event-bus-and-goals.md)); its own
   dedicated `events` Postgres database, internal-only, no published port.
+- `memory-engine/` — self-hosted cross-conversation memory: hybrid
+  (vector + keyword + recency) ranked search, no LLM anywhere in its hot
+  path (see [`docs/memory-engine.md`](docs/memory-engine.md)); its own
+  dedicated `memory` Postgres database, internal-only, no published port.
 - `homeassistant/` — self-hosted Home Assistant config (see
   [`docs/home-assistant.md`](docs/home-assistant.md)); only
   `configuration.yaml`/`automations.yaml`/`scripts.yaml`/`scenes.yaml`/
@@ -258,12 +270,27 @@ prototype's shape held up unchanged.
 - Goal-completion detection and persona-driven nudge tone/frequency for
   the stale-goal nudge — see
   [`docs/event-bus-and-goals.md`](docs/event-bus-and-goals.md).
-- Documentation for `event-bus/src/calendar-watch.ts` (the calendar
-  poll-and-diff watcher) — a known gap, not a sign it's unused.
-- Automated test suites for most services. `event-bus` has a first one now
-  (`classify.ts`/`goal-matching.ts`'s pure logic, via Node's built-in test
-  runner — see [`docs/event-bus-and-goals.md`](docs/event-bus-and-goals.md))
-  but `coding-orchestrator`, `sandbox-runner`, `skills-mcp`, `chat-ui`, and
+- Automated test suites for most services. `event-bus` (`classify.ts`/
+  `goal-matching.ts`/`step-notifications.ts`), `knowledge-engine` (29
+  tests over its pure/deterministic pieces), and `chat-orchestrator` (21
+  tests over `classify-tools`/`safety-net`/`agent-loop`'s pure pieces) all
+  have real coverage now — see each doc under `docs/`. `coding-orchestrator`,
+  `sandbox-runner`, `skills-mcp`, `memory-engine`, `chat-ui`, and
   `discord-bot` still have none — every "verified" claim for those is
   manual/live testing against the real stack. Next planned piece of work,
   one service at a time.
+- **Coordinator rough edges** (see
+  [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)'s "Known rough
+  edges" note): `dashboard_control`'s 90–107s latency outlier, never
+  root-caused; `task_context_manage` being excluded from `toolPolicy:
+  required`'s bound-tool counting, which can cause an occasional
+  false-positive enforcement retry; Phase 7 (deterministic-only
+  confidence/supersession for `memory-engine`) and Phase 8 (sub-workflow
+  decomposition) remain tabled pending real evidence of need, not started.
+- Formally retiring the n8n `Chat` workflow rollback path and closing task
+  #59 (leaked-tool-call recovery) — `chat-orchestrator` has been live for
+  real traffic for a while now with the Coordinator on top of it, but the
+  decision to actually unpublish `Chat` and remove the `n8n_chat_histories`
+  dual-writes hasn't been made yet; see
+  [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)'s "Revisit
+  trigger" note.

@@ -131,3 +131,74 @@ scope for this first pass: `work-level.ts` (real Postgres queries) and the
 `/idle-reflection-*`/`/goals/*` routes (real DB + HTTP) still have no
 automated coverage — next candidates, once a pattern for testing
 DB-touching code in this project exists.
+
+## 2026-09-22 — TaskContext steps, relevant-goal injection, and the overnight digest
+
+Part of the Coordinator work documented in full in
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)'s Coordinator section
+(Phases 1b/4/6b) — this entry covers only what actually landed in
+`event-bus` itself.
+
+**Schema**: `task_contexts` (`postgres/init/11-create-task-contexts-table.sql`)
+gained `facts`/`assumptions`/`unknowns` (JSONB, default `[]`) and
+`next_action` (text) via `postgres/init/14-expand-task-context-fields.sql`.
+New table `task_context_steps` (`id, task_context_id, step_index,
+description, status [pending/running/completed/failed/blocked/skipped],
+failure_policy [retry/recover/clarify/continue/skip/fail], tool_result
+JSONB, timestamps`). New endpoints `POST /task-contexts/:id/steps` and
+`GET`/`PATCH .../:id/steps/:stepId`, following the exact convention the
+existing `/task-contexts/:id/log` endpoint already used.
+`task_context_manage` (`skills-mcp`) gained `action: "plan"` (bulk-create
+steps) and `action: "advance_step"` (update one step's status/tool_result/
+failure_policy), alongside the existing `create`/`list`/`update`/`log`
+actions.
+
+**Relevant-goals injection**: `goal-matching.ts` gained
+`matchGoalsToText(text, goals)`, reusing the same deterministic keyword
+matching that already auto-logs `goal_progress_log` entries — now also
+called on every chat turn so any active goal whose keywords match the
+current message gets a one-line summary (title + status) injected into
+`chat-orchestrator`'s context. Independent of `memoryPolicy`, same
+reasoning as open-TaskContext visibility below: a stated objective is
+directly actionable state, not ambient personalization — but naturally
+self-limiting, since only genuinely keyword-matching goals surface, not
+every open goal every turn.
+
+**Overnight digest + calendar-triggered wake-up** (`src/digest.ts`'s
+`runOvernightDigest`, `src/calendar-watch.ts`'s `isWakeEvent`): lives here
+because it's a direct extension of this service's existing
+calendar-poll-and-diff and `notifySession`/`notifyOwnerDirect`
+infrastructure, not a new service. `research_task` completions classified
+`background: true` get deferred (tagged `awaiting_digest` in `events`
+instead of an immediate notify); `isWakeEvent` is a plain
+case-insensitive "wake" keyword match checked wherever
+`event_starting_soon` already fires, triggered off the user's own
+recurring "Wake Up" calendar event rather than a fixed clock time. The
+digest bundles deferred completions plus a two-query (global + US)
+`web_search` news pass (one small LLM call to synthesize the two into a
+short digest — the one appropriately-LLM piece in this otherwise
+deterministic pipeline) into a single Discord DM via
+`discord-notify.ts`'s `notifyOwnerDirect`, gated by the same
+`canMessageUser` cooldown pattern `idle-reflection` already uses so a
+repeated poll cycle can't double-send. `GET/POST /overnight-digest-check`
+and `/calendar/poll-check` expose this for manual/scheduled firing.
+
+**Real per-step narration** (Phase 6b): `src/step-notifications.ts`'s
+`stepTransitionNotification` (pure, unit-tested in
+`step-notifications.test.ts` — extracted to its own file specifically so
+it could be imported without triggering `index.ts`'s `app.listen()`
+side-effect) decides when a step transition is worth telling the user
+about: `failed`/`blocked` notify immediately, `completed` only once
+**every** step in the plan is done (a `skipped` step counts as done for
+that check), `pending`/`running` transitions never notify. Wired into the
+step-update endpoint, reusing `notify.ts`'s existing `notifySession` —
+same delivery path `coding-orchestrator`'s task-completion notify and the
+stale-goal nudge already use.
+
+**Real bug fixed, found via live testing, not a unit test**: `PATCH
+/task-contexts/:id/steps/:stepId` compared `task_context_id` with strict
+`!==` against a parsed `Number`, but `node-pg` returns `BIGINT` columns as
+JS strings — the comparison always failed, so `advance_step` reported
+failure back to the model even when the underlying `UPDATE` succeeded.
+Fixed with `Number(updated.task_context_id) !== taskContextId` on both
+sides of the check.
