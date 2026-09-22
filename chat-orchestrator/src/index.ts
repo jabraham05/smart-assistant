@@ -9,6 +9,7 @@ import { formatSkillsCatalog } from "./skills-catalog.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { SkillsMcpClient } from "./mcp-client.js";
 import { searchMemory, ingestMemory } from "./memory-engine-client.js";
+import { enqueueResearchTopic } from "./knowledge-engine-client.js";
 import { getOpenTaskContexts, matchGoals } from "./event-bus-client.js";
 import { runAgentLoop, type AgentTool, type AgentTraceEvent } from "./agent-loop.js";
 import {
@@ -133,7 +134,7 @@ app.post("/webhook", async (req, res) => {
       getOpenTaskContexts(config),
       matchGoals(config, chatInput),
     ]);
-    const { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background } = classification;
+    const { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background, knowledgeGapTopic } = classification;
 
     // memoryPolicy only ever gates retrieval/injection into this turn's
     // prompt - never storage. History keeps accumulating in Redis
@@ -156,6 +157,14 @@ app.post("/webhook", async (req, res) => {
       background,
       classifyMs: Date.now() - classifyStartedAt,
     }).catch((e) => console.error("publishClassificationEvent failed:", e));
+
+    // Self-learning research queue - fire-and-forget, never blocks the
+    // reply (enqueueResearchTopic catches its own errors internally, same
+    // pattern as ingestMemory below). Dedup/already-known/queue-depth
+    // gating all happen inside knowledge-engine's own enqueueTopic.
+    if (knowledgeGapTopic) {
+      enqueueResearchTopic(config, knowledgeGapTopic, { sessionId });
+    }
 
     // Skip the peer-card fetch entirely (not just its injection) for
     // memoryPolicy=none - these calls already run sequentially after

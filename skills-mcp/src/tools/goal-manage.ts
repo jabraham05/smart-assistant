@@ -13,7 +13,13 @@ export function registerGoalManage(server: McpServer, config: Config, chatSessio
         "Manage the user's persistent personal goals — create, list, update, or check " +
         "progress on, chosen via the `action` parameter. Use action='create' when the user " +
         "states an ongoing objective worth tracking over time (e.g. 'help me track my job " +
-        "search', 'I want to lose weight') — not for one-off tasks. Progress is tracked " +
+        "search', 'I want to lose weight') — not for one-off tasks. This also covers new " +
+        "hobby/technical/creative projects the user mentions wanting to start or work on " +
+        "(e.g. 'I have a new project idea, I want to build a robotics arm', 'I'm going to " +
+        "learn guitar', 'I want to restore an old car') — proactively call action='create' " +
+        "for these too, don't just acknowledge them in conversation and move on; a new " +
+        "project the user cares about is exactly the kind of thing that should be tracked, " +
+        "not forgotten once the conversation moves on. Progress is tracked " +
         "automatically and deterministically as related events happen elsewhere in the " +
         "system (no need to log progress manually); action='progress' shows what's actually " +
         "been logged, real matches only, never a guess. Use action='list' for 'what are my " +

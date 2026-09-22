@@ -5,10 +5,12 @@ import {
   getResearchSessionDetail,
   getLatestResearchSessionByOriginSession,
   insertResearchSession,
+  listResearchQueue,
 } from "./db.js";
 import { ingestDocument } from "./engine/ingest.js";
 import { search } from "./engine/search.js";
 import { checkKnowledge, runWebResearchAndPersist } from "./engine/research.js";
+import { enqueueTopic, drainQueue } from "./engine/research-queue.js";
 
 const config = loadConfig(process.env);
 
@@ -200,6 +202,59 @@ app.get("/research/:id", async (req, res) => {
     res.json(detail);
   } catch (e) {
     console.error(`failed to get research session ${sessionId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /research-queue - enqueue a topic for the self-learning research
+// queue. Called ambiently by chat-orchestrator (Coordinator-detected
+// knowledge gaps) and deterministically by event-bus (every new goal - see
+// event-bus/src/index.ts's POST /goals). Dedup/already-known/queue-depth
+// gating all happens inside enqueueTopic - this handler is a thin wrapper.
+app.post("/research-queue", async (req, res) => {
+  const body = req.body as { topic?: string; domain?: string; originSessionId?: string; triggerSource?: string };
+  if (!body.topic || typeof body.topic !== "string") {
+    return res.status(400).json({ error: "topic is required" });
+  }
+  try {
+    const result = await enqueueTopic(config, {
+      topic: body.topic,
+      domain: body.domain,
+      originSessionId: body.originSessionId,
+      triggerSource: body.triggerSource,
+    });
+    res.json(result);
+  } catch (e) {
+    console.error("failed to enqueue research topic:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// GET /research-queue?status= - list, for debugging/ops. No chat-invoked
+// tool wraps this yet - see the plan's "explicitly deferred" note.
+app.get("/research-queue", async (req, res) => {
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  try {
+    const queue = await listResearchQueue(config, status);
+    res.json({ queue });
+  } catch (e) {
+    console.error("failed to list research queue:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /research-queue/drain - called by event-bus's wake-event trigger
+// (POST /calendar/poll-check), gated there on work-level. Also a manual
+// test entry point, same "real automatic trigger + standalone manual hit"
+// shape as /overnight-digest-check.
+app.post("/research-queue/drain", async (req, res) => {
+  const body = req.body as { limit?: number };
+  const limit = typeof body.limit === "number" && body.limit > 0 ? body.limit : config.researchQueueDrainLimit;
+  try {
+    const result = await drainQueue(config, limit);
+    res.json(result);
+  } catch (e) {
+    console.error("failed to drain research queue:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

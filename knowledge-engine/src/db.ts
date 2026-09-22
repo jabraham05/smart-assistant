@@ -487,3 +487,123 @@ export async function getDomainSkill(config: Config, domain: string): Promise<Do
   const result = await getPool(config).query<DomainSkillRow>(`SELECT * FROM domain_skills WHERE domain = $1`, [domain]);
   return result.rows[0];
 }
+
+// --- Self-learning research queue (engine/research-queue.ts) ---
+
+export interface ResearchQueueRow {
+  id: number;
+  topic: string;
+  domain: string | null;
+  origin_session_id: string | null;
+  trigger_source: string;
+  status: string; // pending | researching | done | failed
+  research_session_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function countPendingResearchQueue(config: Config): Promise<number> {
+  const result = await getPool(config).query<{ count: string }>(
+    `SELECT COUNT(*) FROM research_queue WHERE status IN ('pending', 'researching')`,
+  );
+  return Number(result.rows[0].count);
+}
+
+// Fast, always-correct backstop for short/single-word topics where the
+// lexeme-overlap check below can't reach its own minimum overlap floor
+// (e.g. "guitar" is a single lexeme - a repeat of the exact same topic
+// would never hit an overlap threshold of 2).
+export async function findExactPendingTopic(config: Config, topic: string): Promise<ResearchQueueRow | undefined> {
+  const result = await getPool(config).query<ResearchQueueRow>(
+    `SELECT * FROM research_queue WHERE status IN ('pending', 'researching') AND lower(topic) = lower($1) LIMIT 1`,
+    [topic],
+  );
+  return result.rows[0];
+}
+
+// Lexeme-overlap dedup, same technique as hybridSearchChunks()'s
+// query_lexemes CTE above, applied topic-vs-topic instead of
+// topic-vs-chunk-content. minOverlap is deliberately higher than
+// minKeywordOverlap's document-search default of 1 (see config.ts) - topic
+// strings are short and generic, so a single shared word is far more
+// likely to be a coincidence here than against a full document chunk.
+export async function findOverlappingPendingTopic(
+  config: Config,
+  topic: string,
+  minOverlap: number,
+): Promise<ResearchQueueRow | undefined> {
+  const result = await getPool(config).query<ResearchQueueRow>(
+    `WITH query_lexemes AS (
+       SELECT ARRAY(
+         SELECT lex FROM unnest(tsvector_to_array(to_tsvector('english', $1))) AS lex
+         WHERE length(lex) >= 3
+       ) AS lexemes
+     ),
+     scored AS (
+       SELECT rq.*, COALESCE(array_length(ARRAY(
+         SELECT unnest(query_lexemes.lexemes)
+         INTERSECT
+         SELECT unnest(tsvector_to_array(rq.topic_tsv))
+       ), 1), 0) AS overlap_count
+       FROM research_queue rq
+       CROSS JOIN query_lexemes
+       WHERE rq.status IN ('pending', 'researching')
+     )
+     SELECT id, topic, domain, origin_session_id, trigger_source, status, research_session_id, created_at, updated_at
+     FROM scored WHERE overlap_count >= $2
+     ORDER BY overlap_count DESC LIMIT 1`,
+    [topic, minOverlap],
+  );
+  return result.rows[0];
+}
+
+export async function insertResearchQueueEntry(
+  config: Config,
+  input: { topic: string; domain?: string; originSessionId?: string; triggerSource?: string },
+): Promise<ResearchQueueRow> {
+  const result = await getPool(config).query<ResearchQueueRow>(
+    `INSERT INTO research_queue (topic, domain, origin_session_id, trigger_source, status)
+     VALUES ($1, $2, $3, $4, 'pending')
+     RETURNING *`,
+    [input.topic, input.domain || null, input.originSessionId || null, input.triggerSource || "chat"],
+  );
+  return result.rows[0];
+}
+
+export async function listResearchQueue(config: Config, status?: string): Promise<ResearchQueueRow[]> {
+  if (status) {
+    const result = await getPool(config).query<ResearchQueueRow>(
+      `SELECT * FROM research_queue WHERE status = $1 ORDER BY created_at DESC`,
+      [status],
+    );
+    return result.rows;
+  }
+  const result = await getPool(config).query<ResearchQueueRow>(`SELECT * FROM research_queue ORDER BY created_at DESC`);
+  return result.rows;
+}
+
+// Atomic claim: a single UPDATE...WHERE IN (subquery) so a status flip and
+// row selection can't race even if drainQueue is ever called concurrently
+// (it isn't today - drains are sequential and triggered one at a time by a
+// single wake event - but this is free correctness, not speculative).
+export async function claimNextResearchQueueEntries(config: Config, limit: number): Promise<ResearchQueueRow[]> {
+  const result = await getPool(config).query<ResearchQueueRow>(
+    `UPDATE research_queue SET status = 'researching', updated_at = now()
+     WHERE id IN (SELECT id FROM research_queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT $1)
+     RETURNING *`,
+    [limit],
+  );
+  return result.rows;
+}
+
+export async function updateResearchQueueStatus(
+  config: Config,
+  id: number,
+  status: string,
+  researchSessionId?: number,
+): Promise<void> {
+  await getPool(config).query(
+    `UPDATE research_queue SET status = $2, research_session_id = COALESCE($3, research_session_id), updated_at = now() WHERE id = $1`,
+    [id, status, researchSessionId ?? null],
+  );
+}

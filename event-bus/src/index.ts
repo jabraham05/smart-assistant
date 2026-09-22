@@ -99,6 +99,19 @@ app.post("/goals", async (req, res) => {
       originSessionId: body.originSessionId,
     });
     res.status(201).json(goal);
+
+    // Deterministic backstop for the self-learning research queue: a newly
+    // created persistent goal is, by definition, something the user cares
+    // about, so it's worth Amy looking into regardless of whether
+    // chat-orchestrator's classifier separately caught the moment (see the
+    // "Self-Learning Research Queue" plan's Phase RQ-4). Fire-and-forget,
+    // after the response already went out - a slow/unreachable
+    // knowledge-engine must never delay or break goal creation itself.
+    fetch(`${config.knowledgeEngineUrl}/research-queue`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic: goal.title, originSessionId: goal.origin_session_id ?? undefined, triggerSource: "goal_created" }),
+    }).catch((e) => console.error("failed to auto-seed research queue from new goal:", e));
   } catch (e) {
     console.error("failed to create goal:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -485,12 +498,43 @@ app.post("/calendar/poll-check", async (_req, res) => {
   try {
     const result = await pollCalendar(config);
     let digest;
+    let researchQueue;
     if (result.wakeEventDetected) {
       digest = await runOvernightDigest(config);
+      researchQueue = await drainResearchQueueIfIdle(config);
     }
-    res.json({ ...result, digest });
+    res.json({ ...result, digest, researchQueue });
   } catch (e) {
     console.error("failed to run calendar poll-check:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// Self-learning research queue drain, triggered by the same wake event as
+// runOvernightDigest above (see the "Self-Learning Research Queue" plan's
+// Phase RQ-5) - not a schedule of its own. Gated on work level exactly like
+// /idle-reflection-check already is: an active coding task or research
+// session already running means Amy is busy, so this defers to the next
+// wake event rather than piling on more background Ollama load.
+async function drainResearchQueueIfIdle(config: Config): Promise<{ skipped: string } | unknown> {
+  const { level } = await getWorkLevel(config);
+  if (level === "high") return { skipped: "work level high" };
+  const res = await fetch(`${config.knowledgeEngineUrl}/research-queue/drain`, { method: "POST" });
+  if (!res.ok) throw new Error(`research-queue/drain returned ${res.status}`);
+  return res.json();
+}
+
+// Manual trigger for testing/verification - the real path is
+// /calendar/poll-check firing this automatically alongside the digest
+// above (same wake event), not a schedule of its own. Separate from
+// knowledge-engine's own POST /research-queue/drain (which this calls)
+// because the work-level gate lives here, not there.
+app.post("/research-queue-check", async (_req, res) => {
+  try {
+    const result = await drainResearchQueueIfIdle(config);
+    res.json(result);
+  } catch (e) {
+    console.error("failed to run research-queue-check:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

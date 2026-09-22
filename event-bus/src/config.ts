@@ -59,6 +59,11 @@ export interface Config {
   ollamaHost: string;
   digestModel: string;
   tavilyApiKey?: string;
+  // Always-on internal infra, same tier as skillsMcpUrl above - used by
+  // POST /goals (auto-seeding the research queue on goal creation) and
+  // POST /calendar/poll-check (draining the research queue on wake). See
+  // the "Self-Learning Research Queue" plan.
+  knowledgeEngineUrl: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -104,5 +109,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     ollamaHost: env.OLLAMA_HOST || "http://ollama:11434",
     digestModel: env.DIGEST_MODEL || "qwen3:8b",
     tavilyApiKey: env.TAVILY_API_KEY || undefined,
+    knowledgeEngineUrl: env.KNOWLEDGE_ENGINE_URL || "http://knowledge-engine:3005",
   };
 }

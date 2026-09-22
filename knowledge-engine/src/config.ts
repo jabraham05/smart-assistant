@@ -51,6 +51,22 @@ export interface Config {
   // background-classified research) - the overnight digest scanner reads
   // this back later. See event-bus/src/index.ts's /overnight-digest-check.
   eventBusUrl: string;
+  // engine/research-queue.ts - the self-learning research queue. Reject
+  // (not evict) a new enqueue once this many rows are pending/researching -
+  // a full queue means the drain rate needs attention, not silent data
+  // loss. Default chosen as a generous ceiling unlikely to bind in normal
+  // use, not a tuned value yet (no real usage data exists).
+  researchQueueMaxPending: number;
+  // Lexeme-overlap floor for the queue's own dedup check (topic vs. topic,
+  // not topic vs. document content) - higher than knowledge-engine's own
+  // minKeywordOverlap (1) because topic strings are short and generic, so
+  // a 1-word overlap is far more likely to be a coincidence than it is
+  // against a full document chunk.
+  researchQueueDedupMinOverlap: number;
+  // Max queue items drained per wake event (event-bus's POST
+  // /calendar/poll-check) - keeps an overnight run bounded rather than
+  // draining an entire backlog in one go.
+  researchQueueDrainLimit: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -87,5 +103,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     honchoApiKey: env.HONCHO_API_KEY || undefined,
     honchoWorkspaceId: env.HONCHO_WORKSPACE_ID || "smart-assistant",
     eventBusUrl: env.EVENT_BUS_URL || "http://event-bus:3004",
+    researchQueueMaxPending: env.RESEARCH_QUEUE_MAX_PENDING ? Number(env.RESEARCH_QUEUE_MAX_PENDING) : 50,
+    researchQueueDedupMinOverlap: env.RESEARCH_QUEUE_DEDUP_MIN_OVERLAP ? Number(env.RESEARCH_QUEUE_DEDUP_MIN_OVERLAP) : 2,
+    researchQueueDrainLimit: env.RESEARCH_QUEUE_DRAIN_LIMIT ? Number(env.RESEARCH_QUEUE_DRAIN_LIMIT) : 3,
   };
 }

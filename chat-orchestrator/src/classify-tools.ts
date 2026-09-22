@@ -53,8 +53,11 @@ const CLASSIFIER_SYSTEM_PROMPT =
   "you already learned about X' where X is a topic and not the user themselves - or saving a specific " +
   "web page for later recall), 'research' (starting in-depth background research on a topic " +
   "not already known, that should be saved for later, or checking a research task's progress), 'goals' " +
-  "(creating, listing, updating, or checking progress on the user's persistent personal objectives, " +
-  "e.g. job search, fitness, savings). A question about a specific named document, manual, or guide is " +
+  "(creating, listing, updating, or checking progress on the user's persistent personal objectives - " +
+  "life goals like job search/fitness/savings, but just as much a new hobby/technical/creative project " +
+  "the user mentions wanting to start or work on, e.g. 'I have a new project idea, I want to build a " +
+  "robotics arm', 'I'm going to learn guitar' - these classify 'goals' too, not just the traditional " +
+  "life-objective examples). A question about a specific named document, manual, or guide is " +
   "always 'knowledge', never 'info' - 'info' is only for facts about the user as a person, not things " +
   "Amy has stored. Most messages need none at all - only include a category if it's genuinely likely " +
   "needed.\n\n" +
@@ -74,7 +77,15 @@ const CLASSIFIER_SYSTEM_PROMPT =
   "- background: true only when the user explicitly wants something done later/in the background " +
   "without waiting for it now (e.g. 'look into X overnight and let me know', 'do some deep research on " +
   "this and get back to me'). False otherwise, including for normal 'research' requests where the user " +
-  "is waiting on the reply.\n\n" +
+  "is waiting on the reply.\n" +
+  "- knowledgeGapTopic: a short topic string (a few words) ONLY when the user expresses genuine ongoing " +
+  "interest in a specific topic/project they want to learn about or work on - something Amy likely " +
+  "knows little about and should go quietly research in the background, not something to answer right " +
+  "now. Example: 'I have a new project idea, I want to build a robotics arm' -> \"robotics arm design " +
+  "and construction\". null for everything else, including: a direct question expecting an immediate " +
+  "answer (that's 'web'/'knowledge' - answered now, not queued for later), small talk, or anything " +
+  "already covered earlier in this same conversation. When genuinely unsure, use null - this is for " +
+  "clear, specific new interests, not a guess on every message.\n\n" +
   "You may also be given the single most recent exchange as brief prior context, labeled 'Prior " +
   "exchange (for reference only)'. Use it ONLY to resolve what a vague follow-up refers to (\"fix " +
   "that\", \"change it to 11am today\", \"actually make it Tuesday\", \"delete it\") - classify based " +
@@ -93,8 +104,9 @@ const CLASSIFIER_FORMAT = {
     memoryPolicy: { type: "string", enum: ["none", "optional", "relevant", "required"] },
     needsPlanning: { type: "boolean" },
     background: { type: "boolean" },
+    knowledgeGapTopic: { type: ["string", "null"] },
   },
-  required: ["relevantGroups", "toolPolicy", "memoryPolicy", "needsPlanning", "background"],
+  required: ["relevantGroups", "toolPolicy", "memoryPolicy", "needsPlanning", "background", "knowledgeGapTopic"],
 };
 
 export type ToolPolicy = "required" | "optional";
@@ -107,6 +119,13 @@ export interface ClassificationResult {
   memoryPolicy: MemoryPolicy;
   needsPlanning: boolean;
   background: boolean;
+  // Self-learning research queue (see docs/chat-orchestrator.md's
+  // Coordinator section and docs/memory-engine.md's sibling,
+  // knowledge-engine's research-queue.ts) - a short topic string when this
+  // message reveals a knowledge gap worth researching in the background,
+  // null otherwise. Never gates tool binding the way the other fields do;
+  // consumed by index.ts as a fire-and-forget enqueue after classification.
+  knowledgeGapTopic: string | null;
 }
 
 const TOOL_POLICIES: readonly ToolPolicy[] = ["required", "optional"];
@@ -145,6 +164,7 @@ export async function classifyRelevantTools(
       memoryPolicy?: string;
       needsPlanning?: boolean;
       background?: boolean;
+      knowledgeGapTopic?: string | null;
     }>(message.content, {});
     const relevantGroups = (parsed.relevantGroups ?? []).filter((g): g is ToolGroup =>
       (TOOL_GROUPS as readonly string[]).includes(g),
@@ -170,7 +190,12 @@ export async function classifyRelevantTools(
         ? [...new Set([...toolsAfterBackground, "memory_recall"])]
         : toolsAfterBackground;
 
-    return { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background };
+    const knowledgeGapTopic =
+      typeof parsed.knowledgeGapTopic === "string" && parsed.knowledgeGapTopic.trim()
+        ? parsed.knowledgeGapTopic.trim()
+        : null;
+
+    return { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background, knowledgeGapTopic };
   } catch (e) {
     // Classifier failure degrades to "only calculate" rather than "all
     // tools" - a classifier hiccup can't reintroduce the exact
@@ -184,6 +209,7 @@ export async function classifyRelevantTools(
       memoryPolicy: "optional",
       needsPlanning: false,
       background: false,
+      knowledgeGapTopic: null,
     };
   }
 }
