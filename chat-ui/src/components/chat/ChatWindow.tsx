@@ -5,26 +5,37 @@ import type { ChatMessage } from "@/types/chat";
 import { useChat } from "@/hooks/useChat";
 import { useSessions } from "@/hooks/useSessions";
 import { useEvents } from "@/hooks/useEvents";
+import { useRegistry } from "@/hooks/useRegistry";
 import { MessageBubble } from "./MessageBubble";
 import { InputBar } from "./InputBar";
 import { SessionList } from "./SessionList";
 import { EventLogPanel } from "./EventLogPanel";
 import { TurnDebugPanel } from "./TurnDebugPanel";
+import { AgentRegistryPanel } from "./AgentRegistryPanel";
+
+type SidePanel = "events" | "registry" | null;
 
 export function ChatWindow() {
   const { sessions, activeSessionId, setActiveSessionId, startNewSession, isLoading, refresh } =
     useSessions();
   const { messages, isSending, isLoadingHistory, sendMessage } = useChat(activeSessionId);
-  const [showEvents, setShowEvents] = useState(false);
+  const [sidePanel, setSidePanel] = useState<SidePanel>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
   const eventsState = useEvents();
+  const registryState = useRegistry();
+
+  const toggleSidePanel = (panel: SidePanel) => {
+    setSelectedTurnId(null);
+    setSidePanel((prev) => (prev === panel ? null : panel));
+  };
 
   useEffect(() => {
-    if (showEvents) eventsState.refresh();
-    // eventsState.refresh is stable (useCallback with no deps) - only
-    // re-fetch when the panel is actually opened, not on every render.
+    if (sidePanel === "events") eventsState.refresh();
+    if (sidePanel === "registry") registryState.refresh();
+    // Both refresh callbacks are stable (useCallback with no deps) - only
+    // re-fetch when a panel is actually opened, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showEvents]);
+  }, [sidePanel]);
 
   const handleSend = async (content: string) => {
     const isNewSession = !sessions.some((s) => s.id === activeSessionId);
@@ -60,8 +71,16 @@ export function ChatWindow() {
           <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
             <input
               type="checkbox"
-              checked={showEvents}
-              onChange={(e) => setShowEvents(e.target.checked)}
+              checked={sidePanel === "registry"}
+              onChange={() => toggleSidePanel("registry")}
+            />
+            agent registry
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <input
+              type="checkbox"
+              checked={sidePanel === "events"}
+              onChange={() => toggleSidePanel("events")}
             />
             event-bus
           </label>
@@ -85,21 +104,28 @@ export function ChatWindow() {
         </div>
         <InputBar onSend={handleSend} disabled={isSending} />
       </div>
-      {selectedAssistant ? (
+      {selectedAssistant && (
         <TurnDebugPanel
           userMessage={selectedUser}
           assistantMessage={selectedAssistant}
           onClose={() => setSelectedTurnId(null)}
         />
-      ) : (
-        showEvents && (
-          <EventLogPanel
-            events={eventsState.events}
-            isLoading={eventsState.isLoading}
-            error={eventsState.error}
-            onRefresh={eventsState.refresh}
-          />
-        )
+      )}
+      {!selectedAssistant && sidePanel === "registry" && (
+        <AgentRegistryPanel
+          tools={registryState.tools}
+          isLoading={registryState.isLoading}
+          error={registryState.error}
+          onRefresh={registryState.refresh}
+        />
+      )}
+      {!selectedAssistant && sidePanel === "events" && (
+        <EventLogPanel
+          events={eventsState.events}
+          isLoading={eventsState.isLoading}
+          error={eventsState.error}
+          onRefresh={eventsState.refresh}
+        />
       )}
     </div>
   );
