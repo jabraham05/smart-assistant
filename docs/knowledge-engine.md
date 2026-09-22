@@ -469,6 +469,25 @@ immediate Discord ping, and both `research_queue` rows flipped to `done`
 with `research_session_id` populated. Exact-match and lexeme-overlap dedup
 both independently verified against the live queue afterward.
 
+**Real bug found immediately after shipping, via live testing**: asking
+"what's the progress on the robotic arm" (research from the example above)
+returned "No research task found for this conversation" even though the
+research had genuinely completed with real findings. Root cause:
+`research_task_status` only ever checked for a `research_sessions` row
+tied to the *current* chat session id — but ambient/queue-driven research
+is deliberately decoupled from any specific conversation, queued in one
+session and possibly drained hours/overnight later from a different or
+later one. **Fixed**: `research_task_status` gained an optional `topic`
+parameter; `GET /research/status` now accepts `?topic=` as an alternative
+to `?sessionId=`, checking `research_queue` first (any status, most recent
+lexeme-overlap match — same technique as the queue's own dedup), falling
+back to `research_sessions` directly for anything researched via the older
+`research_task` path. A completed match includes its findings inline, so
+"what did you find out" is answered in one tool call. Verified live: the
+same "robotic arm" query that previously returned "not found" now
+correctly returns the real session (`status: complete`, all 9 findings
+with citations).
+
 ## Not built yet
 
 - Reranking (a cross-encoder model) — deferred until hybrid retrieval is
