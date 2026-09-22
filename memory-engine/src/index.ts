@@ -2,7 +2,6 @@ import express from "express";
 import { loadConfig } from "./config.js";
 import * as db from "./db.js";
 import { embedText } from "./lib/ollama-embeddings.js";
-import { synthesizeMemories } from "./synthesize.js";
 
 const config = loadConfig(process.env);
 
@@ -59,7 +58,6 @@ app.post("/search", async (req, res) => {
     topK?: number;
     domain?: string;
     taskContextId?: number;
-    synthesize?: boolean;
   };
   if (!body.query || typeof body.query !== "string") {
     return res.status(400).json({ error: "query is required" });
@@ -82,20 +80,7 @@ app.post("/search", async (req, res) => {
       createdAt: r.created_at,
       score: r.rrf_score,
     }));
-
-    // Only worth an extra LLM round-trip when there's actually something
-    // to compact - a single short snippet is already as compact as it
-    // gets, and synthesizing it would just paraphrase for no benefit.
-    let summary: string | undefined;
-    if (body.synthesize && rows.length > 1) {
-      try {
-        summary = await synthesizeMemories(config, body.query, rows);
-      } catch (e) {
-        console.error("memory synthesis failed, falling back to raw results:", e);
-      }
-    }
-
-    res.json({ results, summary });
+    res.json({ results });
   } catch (e) {
     console.error("failed to search memory:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });

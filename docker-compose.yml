@@ -329,9 +329,6 @@ services:
       MEMORY_DB_NAME: ${MEMORY_DB_NAME:-memory}
       OLLAMA_HOST: http://ollama:11434
       MEMORY_EMBEDDING_MODEL: ${MEMORY_EMBEDDING_MODEL:-nomic-embed-text}
-      # Phase 3b's compact-summary synthesis (synthesize.ts) - reuses the
-      # house-standard chat model, not a fresh unbenchmarked choice.
-      MEMORY_SYNTHESIS_MODEL: ${MEMORY_SYNTHESIS_MODEL:-qwen3:8b}
     depends_on: [postgres, ollama]
     networks: [assistant-net]
 

@@ -9,11 +9,6 @@ export interface Config {
   };
   ollamaHost: string;
   embeddingModel: string;
-  // Phase 3b's compact-summary synthesis - a real writing/judgment task
-  // (turning raw matched snippets into a short digest), unlike the
-  // deterministic retrieval/ranking around it. Reuses the house-standard
-  // chat model rather than a fresh, unbenchmarked choice.
-  synthesisModel: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -33,6 +28,5 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     },
     ollamaHost: env.OLLAMA_HOST || "http://ollama:11434",
     embeddingModel: env.MEMORY_EMBEDDING_MODEL || "nomic-embed-text",
-    synthesisModel: env.MEMORY_SYNTHESIS_MODEL || "qwen3:8b",
   };
 }

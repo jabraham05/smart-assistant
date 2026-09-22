@@ -84,9 +84,9 @@ app.post("/webhook", async (req, res) => {
       // mean waiting on classification first, adding its latency as a
       // floor before this could even start - not worth it to skip a rare,
       // cheap call on a memoryPolicy=none turn.
-      searchMemory(config, chatInput).catch((e): Awaited<ReturnType<typeof searchMemory>> => {
+      searchMemory(config, chatInput).catch((e) => {
         console.error("searchMemory failed:", e);
-        return { results: [] };
+        return [];
       }),
       // Always-on regardless of memoryPolicy - directly actionable state,
       // not ambient personalization (see the architecture plan's
@@ -102,17 +102,7 @@ app.post("/webhook", async (req, res) => {
     // regardless (session-memory.appendTurn below is unconditional); this
     // just decides how much of it actually gets read into context here.
     const history = memoryPolicy === "none" ? fullHistory.slice(-6) : fullHistory;
-    // Prefer the synthesized compact summary (Phase 3b) when one was
-    // generated (more than one raw match); fall back to the single raw
-    // snippet verbatim when there's only one, since summarizing one item
-    // would just paraphrase it for no benefit (memory-engine's own
-    // synthesize step already skips that case and returns no summary).
-    const relevantMemories =
-      memoryPolicy === "none"
-        ? []
-        : memoryResults.summary
-          ? [memoryResults.summary]
-          : memoryResults.results.map((m) => m.content);
+    const relevantMemories = memoryPolicy === "none" ? [] : memoryResults.map((m) => m.content);
 
     console.log(
       `chat classify [${sessionId}]: groups=${relevantGroups.join(",") || "(none)"} ` +

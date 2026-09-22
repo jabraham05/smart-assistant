@@ -47,11 +47,10 @@ export function registerMemoryRecall(server: McpServer, config: Config): void {
         return errorResult("query must not be empty or whitespace-only.");
       }
       try {
-        const { results, summary } = await searchMemory(config, trimmed, { taskContextId });
+        const results = await searchMemory(config, trimmed, { taskContextId });
         if (results.length === 0) {
           return textResult("No relevant information found.");
         }
-        if (summary) return textResult(summary);
         return textResult(results.map((r) => `[${r.role}, ${r.createdAt}] ${r.content}`).join("\n\n"));
       } catch (e) {
         return errorResult(

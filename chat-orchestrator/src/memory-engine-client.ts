@@ -10,32 +10,28 @@ export interface MemorySearchResult {
   score: number;
 }
 
-export interface MemorySearchResponse {
-  results: MemorySearchResult[];
-  // Phase 3b's compact-summary synthesis - only present when requested
-  // and there was actually more than one result worth compacting.
-  summary?: string;
-}
-
 // Self-hosted replacement for a Honcho-dialectic-based "what do I know
 // relevant to this" lookup - same automatic, no-model-decision-required
 // shape, backed by our own store instead of a hosted third party (see
-// the architecture plan's Phase 3). Degrades to an empty result rather
-// than throwing, same "briefly-unreachable dependency shouldn't break
-// the chat" pattern honcho.ts already uses for the peer-card fetch.
-export async function searchMemory(config: Config, query: string, topK = 5): Promise<MemorySearchResponse> {
+// the architecture plan's Phase 3). No LLM synthesis step - deliberately
+// deterministic end to end (classification-derived domain tagging +
+// hybrid RRF ranking do the work of surfacing the right raw snippets,
+// no summarization call needed on top). Degrades to an empty result
+// rather than throwing, same "briefly-unreachable dependency shouldn't
+// break the chat" pattern honcho.ts already uses for the peer-card fetch.
+export async function searchMemory(config: Config, query: string, topK = 5): Promise<MemorySearchResult[]> {
   try {
     const res = await fetch(`${config.memoryEngineUrl}/search`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, topK, synthesize: true }),
+      body: JSON.stringify({ query, topK }),
     });
-    if (!res.ok) return { results: [] };
-    const data = (await res.json()) as MemorySearchResponse;
-    return { results: data.results ?? [], summary: data.summary };
+    if (!res.ok) return [];
+    const data = (await res.json()) as { results?: MemorySearchResult[] };
+    return data.results ?? [];
   } catch (e) {
     console.error("memory-engine search failed:", e);
-    return { results: [] };
+    return [];
   }
 }
 
