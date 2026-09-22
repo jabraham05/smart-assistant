@@ -445,7 +445,12 @@ services:
       # in ChatWindow.tsx / GET /api/events) - a debugging/observability
       # surface, nothing here ever writes to event-bus.
       EVENT_BUS_URL: http://event-bus:3004
-    depends_on: [chat-orchestrator, event-bus]
+      # Read-only Agent Registry panel (see the "agent registry" toggle in
+      # ChatWindow.tsx / GET /api/registry) - browses skills-mcp's real
+      # registered-tool catalog via its plain GET /tools route, no MCP
+      # session or tool call ever made from here.
+      SKILLS_MCP_URL: http://skills-mcp:3001
+    depends_on: [chat-orchestrator, event-bus, skills-mcp]
     networks: [assistant-net]
 
   # Discord bridge: lets the user talk to Amy from their phone over DM,
