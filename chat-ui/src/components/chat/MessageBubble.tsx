@@ -14,11 +14,23 @@ export function MessageBubble({
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <button
-        type="button"
+      {/* A <button> can only contain phrasing content - StepIndicator renders
+          a <ul>/<li> list, which isn't valid inside one and causes the
+          browser to reparent the DOM, producing a React hydration mismatch
+          on essentially every assistant message with a tool call. A div
+          with button semantics avoids the invalid nesting entirely. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onSelect}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect?.();
+          }
+        }}
         title="Click for turn detail"
-        className={`max-w-[75%] rounded-lg px-4 py-2 text-left text-sm ${
+        className={`max-w-[75%] cursor-pointer rounded-lg px-4 py-2 text-left text-sm ${
           isUser
             ? "bg-blue-600 text-white"
             : message.isEmpty
@@ -28,7 +40,7 @@ export function MessageBubble({
       >
         {!isUser && message.steps && <StepIndicator steps={message.steps} />}
         {message.content}
-      </button>
+      </div>
     </div>
   );
 }
