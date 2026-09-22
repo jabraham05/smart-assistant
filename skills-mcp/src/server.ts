@@ -18,6 +18,7 @@ import { registerKnowledgeSearch } from "./tools/knowledge-search.js";
 import { registerKnowledgeIngest } from "./tools/knowledge-ingest.js";
 import { registerGoalManage } from "./tools/goal-manage.js";
 import { registerTaskContextManage } from "./tools/task-context-manage.js";
+import { registerProjectPropose } from "./tools/project-propose.js";
 import { registerCalculate } from "./tools/calculate.js";
 
 export interface RequestContext {
@@ -62,6 +63,7 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerKnowledgeIngest(server, config);
   registerGoalManage(server, config, context.chatSessionId);
   registerTaskContextManage(server, config, context.chatSessionId);
+  registerProjectPropose(server, config);
   registerCalculate(server, config);
   return server;
 }

@@ -8,11 +8,17 @@ import {
   listResearchQueue,
   findResearchQueueByTopic,
   findResearchSessionByTopic,
+  insertProject,
+  listProjects,
+  getProject,
+  updateProject,
+  getResearchQueueEntry,
 } from "./db.js";
 import { ingestDocument } from "./engine/ingest.js";
 import { search } from "./engine/search.js";
 import { checkKnowledge, runWebResearchAndPersist } from "./engine/research.js";
 import { enqueueTopic, drainQueue } from "./engine/research-queue.js";
+import { consolidateProject } from "./engine/consolidate.js";
 
 const config = loadConfig(process.env);
 
@@ -297,6 +303,136 @@ app.post("/research-queue/drain", async (req, res) => {
     res.json(result);
   } catch (e) {
     console.error("failed to drain research queue:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /projects - propose a project (Amy, via skills-mcp's
+// project_propose tool, or a human directly). Always starts 'proposed' -
+// see docs/knowledge-engine.md's dated entry for why there's no
+// user_requested fast-path to 'active'.
+app.post("/projects", async (req, res) => {
+  const body = req.body as { title?: string; rationale?: string; domain?: string; origin?: string };
+  if (!body.title || typeof body.title !== "string") {
+    return res.status(400).json({ error: "title is required" });
+  }
+  if (!body.rationale || typeof body.rationale !== "string") {
+    return res.status(400).json({ error: "rationale is required" });
+  }
+  try {
+    const project = await insertProject(config, {
+      title: body.title,
+      rationale: body.rationale,
+      domain: body.domain,
+      origin: body.origin,
+    });
+    res.status(201).json(project);
+  } catch (e) {
+    console.error("failed to create project:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// GET /projects?status= - list, for the /amy dashboard.
+app.get("/projects", async (req, res) => {
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  try {
+    const projects = await listProjects(config, status);
+    res.json({ projects });
+  } catch (e) {
+    console.error("failed to list projects:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /projects/:id/approve - the human review gate. Enqueues the
+// project's title as a research_queue topic in-process (same import the
+// research-queue routes already use) rather than a second HTTP hop, since
+// projects and research_queue now live in the same service/database.
+app.post("/projects/:id/approve", async (req, res) => {
+  const projectId = Number(req.params.id);
+  if (!Number.isInteger(projectId)) {
+    return res.status(400).json({ error: "invalid project id" });
+  }
+  try {
+    const project = await getProject(config, projectId);
+    if (!project) return res.status(404).json({ error: `project ${projectId} not found` });
+    if (project.status !== "proposed") {
+      return res.status(409).json({ error: `project ${projectId} is not proposed (status: ${project.status})` });
+    }
+
+    const enqueueResult = await enqueueTopic(config, {
+      topic: project.title,
+      domain: project.domain ?? undefined,
+      triggerSource: "project_approved",
+    });
+    if (!enqueueResult.queued || enqueueResult.id === undefined) {
+      // Don't silently mark 'active' with no research actually scheduled -
+      // there'd be no way for /complete to ever find a finished session.
+      return res.status(409).json({ error: `couldn't schedule research: ${enqueueResult.reason}` });
+    }
+    const updated = await updateProject(config, projectId, {
+      status: "active",
+      approvedAt: new Date(),
+      researchQueueId: enqueueResult.id,
+    });
+    res.json(updated);
+  } catch (e) {
+    console.error(`failed to approve project ${projectId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /projects/:id/reject
+app.post("/projects/:id/reject", async (req, res) => {
+  const projectId = Number(req.params.id);
+  if (!Number.isInteger(projectId)) {
+    return res.status(400).json({ error: "invalid project id" });
+  }
+  try {
+    const project = await getProject(config, projectId);
+    if (!project) return res.status(404).json({ error: `project ${projectId} not found` });
+    const updated = await updateProject(config, projectId, { status: "rejected" });
+    res.json(updated);
+  } catch (e) {
+    console.error(`failed to reject project ${projectId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /projects/:id/complete - the consolidation trigger. Synchronous:
+// one bounded ollamaChat() call, not a multi-step agent run, so a
+// dashboard button click can wait on it (see docs/knowledge-engine.md).
+app.post("/projects/:id/complete", async (req, res) => {
+  const projectId = Number(req.params.id);
+  if (!Number.isInteger(projectId)) {
+    return res.status(400).json({ error: "invalid project id" });
+  }
+  try {
+    const project = await getProject(config, projectId);
+    if (!project) return res.status(404).json({ error: `project ${projectId} not found` });
+    if (project.status !== "active") {
+      return res.status(409).json({ error: `project ${projectId} is not active (status: ${project.status})` });
+    }
+
+    let researchSessionId = project.research_session_id ?? undefined;
+    if (!researchSessionId) {
+      if (!project.research_queue_id) {
+        return res.status(409).json({ error: "project has no linked research queue entry" });
+      }
+      const queueEntry = await getResearchQueueEntry(config, project.research_queue_id);
+      if (!queueEntry || queueEntry.status !== "done" || !queueEntry.research_session_id) {
+        return res.status(409).json({ error: "research not finished yet" });
+      }
+      researchSessionId = queueEntry.research_session_id;
+      await updateProject(config, projectId, { researchSessionId });
+    }
+
+    const result = await consolidateProject(config, projectId, researchSessionId);
+    const updated = await getProject(config, projectId);
+    res.json({ ...updated, documentId: result.documentId });
+  } catch (e) {
+    console.error(`failed to complete project ${projectId}:`, e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

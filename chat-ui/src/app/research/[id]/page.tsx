@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getResearchDetail, type ResearchFinding } from "@/lib/knowledge-engine-client";
+import { MarkdownContent } from "@/components/chat/MarkdownContent";
 
 // Amy's own link target for "here's the full write-up" - inserted into her
 // chat replies by research_task_status/research_task (see
@@ -13,7 +14,7 @@ export default async function ResearchDetailPage({ params }: { params: Promise<{
   const detail = await getResearchDetail(id);
   if (!detail) return notFound();
 
-  const { session, findings } = detail;
+  const { session, findings, documentMarkdown } = detail;
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
@@ -24,6 +25,15 @@ export default async function ResearchDetailPage({ params }: { params: Promise<{
         {session.domain && <span className="rounded bg-gray-100 px-2 py-0.5 dark:bg-gray-800">{session.domain}</span>}
         <span>{new Date(session.updated_at).toLocaleString()}</span>
       </div>
+
+      {documentMarkdown && (
+        <div className="mt-8 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            Consolidated knowledge
+          </p>
+          <MarkdownContent content={documentMarkdown} isUser={false} />
+        </div>
+      )}
 
       {findings.length === 0 ? (
         <p className="mt-8 text-sm text-gray-500 dark:text-gray-400">

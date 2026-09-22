@@ -198,3 +198,23 @@ including the "Build a robotic arm" goal from the research-queue work's
 own verification, 6 open task contexts, 6 real upcoming calendar events);
 `/` renders all three cards with real content; `/chat` still serves the
 full chat experience at 200.
+
+## 2026-09-22 — `/amy`: review and approve Amy's proposed learning projects
+
+Full design/verification in [`docs/knowledge-engine.md`](knowledge-engine.md)'s
+own dated entry — this covers only the chat-ui half. New `/amy` page
+(`components/amy/ProjectsDashboard.tsx`, same two-Card pattern as
+`HomeDashboard.tsx`): a Proposed section (Approve/Reject buttons) and an
+Active section (research status, a link to the existing `/research/[id]`
+write-up page once available, a "Mark done" button that triggers
+consolidation). Backed by three thin API proxy routes under
+`app/api/projects/`, matching `app/api/home/route.ts`'s one-liner shape,
+and `lib/knowledge-engine-client.ts`'s new `getProjects`/`approveProject`/
+`rejectProject`/`completeProject` (same direct-fetch-to-knowledge-engine
+pattern as the existing `getResearchDetail`). Added to the shared `Nav.tsx`
+alongside Home/Chat.
+
+`/research/[id]/page.tsx` also gained a "Consolidated knowledge" section
+(rendered via the existing `MarkdownContent` component) that shows once a
+linked project has consolidated that session's findings into a write-up —
+otherwise there was nowhere in the UI to actually read one.

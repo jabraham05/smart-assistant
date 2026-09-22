@@ -119,3 +119,26 @@ export async function getResearchStatusByTopic(config: Config, topic: string): P
   const res = await fetch(url.toString());
   return jsonOrThrow<ResearchStatus>(res, "Research status lookup");
 }
+
+export interface ProjectProposeResult {
+  id: number;
+  title: string;
+  status: string;
+}
+
+// Direct to knowledge-engine's POST /projects, not an n8n webhook - unlike
+// skill_propose (which gates on a human manually flipping a status field
+// in an n8n Data Table, the only place with no in-app approve action),
+// projects have a real approve/reject surface on the /amy dashboard, so
+// this follows research_task's direct-REST precedent instead.
+export async function proposeProject(
+  config: Config,
+  input: { title: string; rationale: string; domain?: string },
+): Promise<ProjectProposeResult> {
+  const res = await fetch(`${config.knowledgeEngineUrl}/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: input.title, rationale: input.rationale, domain: input.domain, origin: "amy_proposed" }),
+  });
+  return jsonOrThrow<ProjectProposeResult>(res, "Project proposal");
+}

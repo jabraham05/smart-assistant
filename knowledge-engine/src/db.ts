@@ -438,6 +438,10 @@ export interface FindingDetail {
 export interface ResearchSessionDetail {
   session: ResearchSessionRow;
   findings: FindingDetail[];
+  // Set once a linked project (engine/consolidate.ts) synthesizes a
+  // write-up onto this session's document - null for a plain research run
+  // that was never wrapped in a project, or one not yet consolidated.
+  documentMarkdown: string | null;
 }
 
 // Powers GET /research/:id - the whole point of Phase 4: "what did we
@@ -450,6 +454,12 @@ export async function getResearchSessionDetail(config: Config, sessionId: number
   ]);
   const session = sessionResult.rows[0];
   if (!session) return undefined;
+
+  let documentMarkdown: string | null = null;
+  if (session.document_id) {
+    const document = await getDocument(config, session.document_id);
+    documentMarkdown = document?.markdown ?? null;
+  }
 
   const findingsResult = await getPool(config).query<{ id: number; claim: string; confidence: string }>(
     `SELECT id, claim, confidence FROM findings WHERE research_session_id = $1 ORDER BY id`,
@@ -467,7 +477,7 @@ export async function getResearchSessionDetail(config: Config, sessionId: number
     findings.push({ ...findingRow, citations: citationsResult.rows });
   }
 
-  return { session, findings };
+  return { session, findings, documentMarkdown };
 }
 
 // --- Phase 5: domain skills (database-backed policy config) ---
@@ -644,6 +654,102 @@ export async function findResearchQueueByTopic(
     [topic, minOverlap],
   );
   return result.rows[0];
+}
+
+// --- Projects: human-approved autonomous learning/research efforts ---
+// (engine/consolidate.ts, index.ts's /projects* routes)
+
+export interface ProjectRow {
+  id: number;
+  title: string;
+  rationale: string;
+  domain: string | null;
+  status: string; // proposed | active | done | rejected
+  origin: string; // amy_proposed | user_requested
+  research_queue_id: number | null;
+  research_session_id: number | null;
+  document_id: number | null;
+  created_at: string;
+  approved_at: string | null;
+  updated_at: string;
+}
+
+export async function insertProject(
+  config: Config,
+  input: { title: string; rationale: string; domain?: string; origin?: string },
+): Promise<ProjectRow> {
+  const result = await getPool(config).query<ProjectRow>(
+    `INSERT INTO projects (title, rationale, domain, origin, status)
+     VALUES ($1, $2, $3, $4, 'proposed')
+     RETURNING *`,
+    [input.title, input.rationale, input.domain || null, input.origin || "amy_proposed"],
+  );
+  return result.rows[0];
+}
+
+export interface ProjectListRow extends ProjectRow {
+  research_queue_status: string | null;
+}
+
+// LEFT JOINs research_queue so the dashboard can show "researching..." vs
+// "ready to complete" without a second round trip per project.
+export async function listProjects(config: Config, status?: string): Promise<ProjectListRow[]> {
+  const where = status ? `WHERE p.status = $1` : "";
+  const params = status ? [status] : [];
+  const result = await getPool(config).query<ProjectListRow>(
+    `SELECT p.*, rq.status AS research_queue_status
+     FROM projects p
+     LEFT JOIN research_queue rq ON rq.id = p.research_queue_id
+     ${where}
+     ORDER BY p.created_at DESC`,
+    params,
+  );
+  return result.rows;
+}
+
+export async function getProject(config: Config, id: number): Promise<ProjectRow | undefined> {
+  const result = await getPool(config).query<ProjectRow>(`SELECT * FROM projects WHERE id = $1`, [id]);
+  return result.rows[0];
+}
+
+export async function updateProject(
+  config: Config,
+  id: number,
+  fields: Partial<{
+    status: string;
+    researchQueueId: number;
+    researchSessionId: number;
+    documentId: number;
+    approvedAt: Date;
+  }>,
+): Promise<ProjectRow | undefined> {
+  const entries: [string, unknown][] = [];
+  if (fields.status !== undefined) entries.push(["status", fields.status]);
+  if (fields.researchQueueId !== undefined) entries.push(["research_queue_id", fields.researchQueueId]);
+  if (fields.researchSessionId !== undefined) entries.push(["research_session_id", fields.researchSessionId]);
+  if (fields.documentId !== undefined) entries.push(["document_id", fields.documentId]);
+  if (fields.approvedAt !== undefined) entries.push(["approved_at", fields.approvedAt]);
+  if (entries.length === 0) return getProject(config, id);
+
+  const setClauses = entries.map(([key], i) => `${key} = $${i + 2}`);
+  const values = entries.map(([, value]) => value);
+  const result = await getPool(config).query<ProjectRow>(
+    `UPDATE projects SET ${setClauses.join(", ")}, updated_at = now() WHERE id = $1 RETURNING *`,
+    [id, ...values],
+  );
+  return result.rows[0];
+}
+
+export async function getResearchQueueEntry(config: Config, id: number): Promise<ResearchQueueRow | undefined> {
+  const result = await getPool(config).query<ResearchQueueRow>(`SELECT * FROM research_queue WHERE id = $1`, [id]);
+  return result.rows[0];
+}
+
+export async function setDocumentMarkdown(config: Config, documentId: number, markdown: string): Promise<void> {
+  await getPool(config).query(`UPDATE documents SET markdown = $2, updated_at = now() WHERE id = $1`, [
+    documentId,
+    markdown,
+  ]);
 }
 
 export async function findResearchSessionByTopic(

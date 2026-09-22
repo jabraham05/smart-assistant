@@ -36,7 +36,7 @@ export const GROUPS: Record<ToolGroup, string[]> = {
   web: ["web_search"],
   knowledge: ["knowledge_search", "knowledge_ingest"],
   research: ["research_task", "research_task_status"],
-  goals: ["goal_manage"],
+  goals: ["goal_manage", "project_propose"],
 };
 
 const CLASSIFIER_SYSTEM_PROMPT =

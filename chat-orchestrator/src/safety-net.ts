@@ -22,6 +22,7 @@ export const ACTION_TOOLS = [
   "code_task",
   "skill_propose",
   "research_task",
+  "project_propose",
 ];
 
 const CLAIMS_COMPLETED_ACTION =

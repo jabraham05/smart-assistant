@@ -517,3 +517,86 @@ with citations).
   `GET /research-queue` exists for debugging/ops from day one; no MCP tool
   wraps it until real usage shows people want to inspect/cancel queued
   topics themselves.
+
+## 2026-09-22 — `projects`: proposed/approved learning projects that consolidate into knowledge
+
+Follow-up to the home dashboard (`docs/chat-ui.md`'s 2026-09-22 entry) and
+the self-learning research queue above: a new `/amy` dashboard page where
+Amy can propose a bounded research "project," a human approves it, it runs
+through the existing `research_queue` drain unchanged, and — the actual
+point — finishing it **consolidates the findings into a real write-up**,
+not just structured findings/citations rows.
+
+**Why a new `projects` table instead of reusing `task_contexts`**: open
+task_contexts are injected into *every chat turn's prompt* unconditionally
+(chat-orchestrator's `getOpenTaskContexts`), with no kind-based filter to
+retrofit safely — a proposed/active learning project sitting there would
+silently bloat every turn. `projects` (`postgres/init/17-create-projects-table.sql`,
+`research` DB) is a dedicated table instead, with real foreign keys to
+`research_queue`/`research_sessions`/`documents` since it's colocated in
+the same database — the approve step enqueues a research_queue topic
+in-process, no cross-service HTTP hop needed.
+
+**v1 deliberately does not build a second autonomous agent**: approving a
+project just calls the existing `enqueueTopic()` (`engine/research-queue.ts`)
+with the project's title, and the existing overnight drain
+(`POST /calendar/poll-check` → `drainResearchQueueIfIdle`, unchanged) does
+the actual work. A project is a human-approved wrapper around one research
+topic, not a new execution engine — broader autonomous "go build
+something" work is a later phase once this narrower loop is proven.
+
+**Consolidation is the new piece**: no function anywhere in this codebase
+turned raw notes/findings into a narrative write-up before this — confirmed
+via grep; `persistResearch()` only ever inserted structured findings/
+citations, and `documents.markdown` (commented "present for 'research'
+kind (synthesized doc)") was set nowhere. New `engine/consolidate.ts`'s
+`consolidateProject()` reads the linked research session's findings via
+the existing `getResearchSessionDetail`, makes one `ollamaChat()` call to
+synthesize markdown, and writes it onto the **existing** document already
+referenced by `research_sessions.document_id` (not a new document row) via
+new `db.setDocumentMarkdown()`. Triggered by `POST /projects/:id/complete`
+— kept synchronous (the dashboard button waits on one bounded LLM call)
+rather than the async `deferNotify`+digest pattern, which exists to batch
+unrelated *background* completions and is a poor fit for "user just
+clicked a button and is watching."
+
+`getResearchSessionDetail`'s result gained a `documentMarkdown` field so
+`chat-ui`'s `/research/[id]` page (already built for plain research
+write-ups) can render the consolidated write-up above its findings list —
+otherwise consolidation would produce a write-up nobody could actually
+read anywhere.
+
+**New MCP tool**: `project_propose` (skills-mcp), modeled on
+`skill_propose`'s registration shape but posting directly to
+knowledge-engine's `POST /projects` (REST, not an n8n webhook/Data Table)
+— unlike `skill_propose`, which is approved by a human manually flipping a
+status field in an n8n Data Table (the only prior approval-gated pattern
+in this codebase, with no in-app approve action anywhere), projects get a
+real approve/reject button on `/amy`. Bound to the Coordinator's existing
+`goals` tool group (`chat-orchestrator/src/classify-tools.ts`) alongside
+`goal_manage`, since the trigger scenario is the same one that widened
+that category's description in the research-queue work ("I have a new
+project idea, I want to build a robotics arm") — the tool's own
+description disambiguates it from both `goal_manage` (tracks an ongoing
+objective, does no work) and `skill_propose` (a new capability for Amy
+herself, not research for the user). Also added to `safety-net.ts`'s
+`ACTION_TOOLS` (a real side-effecting tool, same confabulation-detection
+reasoning as `research_task`/`skill_propose`).
+
+**Explicitly deferred** (see the plan this was built from): idle-reflection-
+driven *automatic* project proposals (v1 only proposes mid-conversation via
+the tool call above); non-research project execution (v1 is "human-approved
+research" only); a `project_log` table for manual notes (the substantive
+work product is the linked research session's findings, not hand-written
+log text — cut as dead weight rather than built unused).
+
+**Verified live, end to end, with real data**: proposed a test project via
+direct `POST /projects`; it rendered on `/amy` with working Approve/Reject;
+approved it — a real `research_queue` row was created
+(`trigger_source='project_approved'`) and the project flipped to `active`;
+drained the queue — the linked research_queue row reached `done` with a
+real `research_session_id`; clicked "Mark done" (`POST /projects/:id/complete`)
+— the existing document's `markdown` column was populated with a real,
+coherent Ollama-synthesized write-up, `/research/{id}` rendered it above
+the findings list, and the project reached `status='done'` with
+`document_id` set.

@@ -30,6 +30,9 @@ export interface ResearchSessionDetail {
     updated_at: string;
   };
   findings: ResearchFinding[];
+  // Set once a linked project (see /amy) consolidates this session's
+  // findings into a narrative write-up - see db.ts's getResearchSessionDetail.
+  documentMarkdown: string | null;
 }
 
 export async function getResearchDetail(id: string): Promise<ResearchSessionDetail | null> {
@@ -40,3 +43,43 @@ export async function getResearchDetail(id: string): Promise<ResearchSessionDeta
   }
   return (await res.json()) as ResearchSessionDetail;
 }
+
+export interface Project {
+  id: number;
+  title: string;
+  rationale: string;
+  domain: string | null;
+  status: string;
+  origin: string;
+  research_queue_id: number | null;
+  research_session_id: number | null;
+  document_id: number | null;
+  research_queue_status: string | null;
+  created_at: string;
+  approved_at: string | null;
+  updated_at: string;
+}
+
+export async function getProjects(status?: string): Promise<Project[]> {
+  const url = new URL(`${KNOWLEDGE_ENGINE_URL}/projects`);
+  if (status) url.searchParams.set("status", status);
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`knowledge-engine /projects failed with ${res.status}`);
+  }
+  const data = (await res.json()) as { projects: Project[] };
+  return data.projects;
+}
+
+async function postProjectAction(id: number, action: "approve" | "reject" | "complete"): Promise<Project> {
+  const res = await fetch(`${KNOWLEDGE_ENGINE_URL}/projects/${id}/${action}`, { method: "POST" });
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body.error ?? `knowledge-engine /projects/${id}/${action} failed with ${res.status}`);
+  }
+  return body as Project;
+}
+
+export const approveProject = (id: number) => postProjectAction(id, "approve");
+export const rejectProject = (id: number) => postProjectAction(id, "reject");
+export const completeProject = (id: number) => postProjectAction(id, "complete");
