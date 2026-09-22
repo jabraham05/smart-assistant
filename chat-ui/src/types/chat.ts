@@ -102,6 +102,15 @@ export interface HonchoMessage {
   created_at: string;
 }
 
+// Matches skills-mcp's RegisteredTool (src/routes/tools-registry.ts) - the
+// live catalog of every tool actually registered on the MCP server, not a
+// hand-maintained list that can drift from what's really callable.
+export interface RegisteredTool {
+  name: string;
+  title: string;
+  description: string;
+}
+
 // Matches event-bus's EventRow (src/db.ts) - the append-only audit trail
 // every ingested event lands in, even when classify.ts decides not to
 // notify on it. See docs/event-bus-and-goals.md.

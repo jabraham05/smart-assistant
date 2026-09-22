@@ -5,6 +5,7 @@ import { createServer } from "./server.js";
 import { registerDashboardDataRoute } from "./routes/dashboard-data.js";
 import { registerSpotifyActionRoute } from "./routes/spotify-action.js";
 import { registerCalendarEventsRoute } from "./routes/calendar-events.js";
+import { registerToolsRegistryRoute } from "./routes/tools-registry.js";
 
 const config = loadConfig(process.env);
 
@@ -25,6 +26,10 @@ registerSpotifyActionRoute(app, config);
 // event-bus/src/calendar-watch.ts), reusing this service's existing
 // Google Calendar service-account auth instead of duplicating the key.
 registerCalendarEventsRoute(app, config);
+
+// Plain internal REST route, no LLM/MCP session involved - chat-ui's Agent
+// Registry panel fetches from this directly to browse what's registered.
+registerToolsRegistryRoute(app, config);
 
 // Stateless mode: a fresh McpServer + transport per request, no session
 // tracking. This is the simplest spec-compliant shape for an internal-only
