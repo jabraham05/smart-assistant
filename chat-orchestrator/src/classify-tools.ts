@@ -47,7 +47,9 @@ const CLASSIFIER_SYSTEM_PROMPT =
   "(proposing a new skill/tool, starting a coding task on a repo, or checking on a coding task's " +
   "progress), 'dashboard' (moving, resizing, showing, or hiding widgets on the smart-mirror dashboard), " +
   "'web' (searching the live web for current information, news, or facts that could have changed since " +
-  "training), 'knowledge' (looking up or searching within a specific document/manual/guide Amy has " +
+  "training, OR looking something up online in general such as finding products, links, or " +
+  "recommendations - e.g. 'find me a good pair of headphones', 'give me some links for X'), " +
+  "'knowledge' (looking up or searching within a specific document/manual/guide Amy has " +
   "stored, or anything else already saved in Amy's knowledge base/past research - e.g. 'do you have " +
   "the manual for my car', 'what does the guide say about X', 'look up Y in what we saved', 'what have " +
   "you already learned about X' where X is a topic and not the user themselves - or saving a specific " +
