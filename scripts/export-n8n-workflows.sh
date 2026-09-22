@@ -51,7 +51,15 @@ docker compose exec -T n8n mkdir -p /home/node/.n8n-exports
 # object per file; without it, --output=file.json wraps the result in a
 # single-element JSON array, which doesn't match this repo's existing
 # snapshot format.
-workflow_list="$(docker compose exec -T n8n n8n list:workflow </dev/null | tr -d '\r')"
+#
+# A newer n8n version now also prints an unrelated telemetry banner
+# ("Error tracking disabled because this release is older than 6 weeks.")
+# as the first line of this (and every other) CLI command's stdout, with no
+# way to suppress it — filtered out below by requiring a "|" in the line,
+# since a real "<id>|<name>" row always has exactly one and the banner has
+# none. Confirmed this doesn't accidentally drop a real workflow row: no
+# workflow id or name in this project contains a literal "|".
+workflow_list="$(docker compose exec -T n8n n8n list:workflow </dev/null | tr -d '\r' | grep '|')"
 while IFS='|' read -r id name; do
   [ -z "$id" ] && continue
   if ! docker compose exec -T n8n n8n export:workflow --id="$id" --published --separate --output=/home/node/.n8n-exports/ </dev/null 2>/dev/null; then
