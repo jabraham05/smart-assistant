@@ -29,9 +29,19 @@ async function honchoPost<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+// reverse/size are real query params on this endpoint (same Page[Session]/
+// apaginate shape as messages.py's get_messages route, confirmed directly
+// against honcho-src/src/routers/sessions.py). Without them this silently
+// returned page 1 of Honcho's default page size, oldest-first - once real
+// usage pushed the total session count past that page size, every session
+// created after the cutoff (a real, growing set of actual conversations,
+// not test data) simply never appeared in the sidebar at all, while old
+// test sessions from weeks ago stayed visible. reverse=true (newest first)
+// + a generous size means any future overflow drops the *oldest*, least
+// useful sessions instead of hiding the newest, most useful ones.
 export async function listSessions(): Promise<HonchoSession[]> {
   const data = await honchoPost<{ items: HonchoSession[] }>(
-    `/workspaces/${HONCHO_WORKSPACE_ID}/sessions/list`,
+    `/workspaces/${HONCHO_WORKSPACE_ID}/sessions/list?reverse=true&size=200`,
     { filters: {} }
   );
   return data.items;
