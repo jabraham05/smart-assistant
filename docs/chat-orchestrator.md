@@ -349,6 +349,30 @@ arm") was two separate misses at once — neither tracked as a goal nor
 recognized as worth researching. Verified live: the exact message above
 now creates a real goal **and** queues the topic in the same turn.
 
+### 2026-09-22 — classifier grounding + a standing response-style rule
+
+Two compounding bugs found in one live test: asking "so the robotic arm
+what have you found" classified `goals` instead of `research` (a
+similarly-named goal existed, pulling the classification toward it), so
+`research_task_status` was never bound and the model answered from
+memory-engine fragments and its own training knowledge instead of the
+real findings. Fixed by making `CLASSIFIER_SYSTEM_PROMPT`'s `'research'`
+category description explicit that a findings/progress-check message
+should include `'research'` even when the same topic also matches an
+existing goal — the two aren't mutually exclusive.
+
+Separately, `system-prompt.ts` gained a standing, always-on response-style
+rule (concise by default, consolidate rather than list, full detail only
+on request, mention a `documentUrl` when a tool result includes one) —
+not conditional on this turn, since dumping raw tool output instead of
+synthesizing it isn't specific to research. See
+[`docs/chat-ui.md`](chat-ui.md)'s new dated entry for the other half:
+once real findings *were* being retrieved, a live re-test showed prompt
+guidance alone wasn't enough to stop the model pasting all of them
+verbatim anyway, so `research_task_status` now deterministically caps how
+many findings it ever hands the model, rather than trusting it to
+self-limit.
+
 ### Known rough edges, not yet fixed
 
 - `dashboard_control`'s 90–107s latency outlier — flagged repeatedly during

@@ -90,3 +90,26 @@ in-progress Discord conversation (`discord.dm_received` /
 
 Read-only, no write path added — this is a debugging/observability
 surface, not a new event-bus consumer.
+
+## 2026-09-22 — `/research/[id]`: a real page for research write-ups, not raw chat text
+
+**Real gap found via live testing**: asking Amy about completed research
+produced either a giant wall of every finding pasted verbatim, or (before
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)'s classifier fix) no
+real findings at all. New page, `src/app/research/[id]/page.tsx` — a
+server component that fetches `GET /research/:id` directly from
+knowledge-engine (`src/lib/knowledge-engine-client.ts`, same
+internal-only-service pattern as `event-bus-client.ts`/
+`skills-registry-client.ts`) and renders the topic, status badge, and
+every finding with its confidence and linked citations — the complete,
+untruncated version of what a concise chat reply only summarizes.
+
+`research_task_status` (skills-mcp) now attaches a `documentUrl` pointing
+here whenever a `sessionId` is present, and only ever hands the model the
+first few findings inline (`MAX_FINDINGS_INLINE`, currently 3) rather than
+trusting it to summarize on its own — a live re-test proved the model
+would pave over an explicit "don't paste every finding" instruction and
+do it anyway once all 9 were in its context, so the fix caps what it's
+given rather than what it's told. See
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)'s Coordinator section
+for the classifier-side half of this fix.
