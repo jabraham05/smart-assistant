@@ -113,3 +113,16 @@ do it anyway once all 9 were in its context, so the fix caps what it's
 given rather than what it's told. See
 [`docs/chat-orchestrator.md`](chat-orchestrator.md)'s Coordinator section
 for the classifier-side half of this fix.
+
+**Immediate follow-up, same day**: the `documentUrl` link above still
+didn't work in practice — `MessageBubble.tsx` rendered `message.content`
+as plain text (React auto-escapes everything), so every `**bold**`,
+numbered list, and the markdown link itself all showed up as literal raw
+characters. The model was producing correct markdown the whole time;
+nothing on the client ever parsed it. New `MarkdownContent.tsx`
+(`react-markdown` + `remark-gfm`, new deps) renders it properly, styled to
+match each bubble's palette. The bubble itself changed from `<button>` to
+a `div role="button"` — a real `<a>` can't validly nest inside a
+`<button>` (nested interactive elements), which would have kept the link
+visible but unreliable to click; the link's own `onClick` stops
+propagation so clicking it doesn't also toggle turn detail underneath it.
