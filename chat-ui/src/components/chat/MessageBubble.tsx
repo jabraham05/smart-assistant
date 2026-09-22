@@ -13,14 +13,15 @@ export function MessageBubble({
 }) {
   const isUser = message.role === "user";
 
-  // A real <a> from rendered markdown (see MarkdownContent) can't nest
-  // inside a <button> - nested interactive elements are invalid HTML and
-  // browsers handle their click/focus behavior inconsistently, which
-  // would silently break the exact links this component exists to make
-  // clickable. Using a div with a button role instead keeps the "click
-  // for turn detail" behavior and keyboard accessibility without that
-  // conflict; MarkdownContent's own link override stops propagation so
-  // clicking a link doesn't also toggle turn detail underneath it.
+  // A <button> can only contain phrasing content - two independent reasons
+  // this breaks that: StepIndicator renders a <ul>/<li> list (invalid
+  // inside a button, causing the browser to reparent the DOM and produce a
+  // React hydration mismatch on essentially any tool-call turn), and a real
+  // <a> from rendered markdown (see MarkdownContent) can't nest inside one
+  // either (nested interactive elements, unreliable click/focus behavior -
+  // exactly the link this component exists to make clickable). A div with
+  // button semantics avoids both; MarkdownContent's own link override stops
+  // propagation so clicking a link doesn't also toggle turn detail.
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
@@ -28,7 +29,10 @@ export function MessageBubble({
         tabIndex={0}
         onClick={onSelect}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") onSelect?.();
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect?.();
+          }
         }}
         title="Click for turn detail"
         className={`max-w-[75%] cursor-pointer rounded-lg px-4 py-2 text-left ${
