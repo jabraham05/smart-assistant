@@ -131,6 +131,12 @@ app.post("/webhook", async (req, res) => {
       [userCard, userCardForAmy] = await Promise.all([honcho.getUserCard(config), honcho.getUserCardForAmy(config)]);
     }
 
+    // Phase 6a: no extra LLM call, just shapes the one generation this
+    // turn already makes. Fires for turns likely to take a while -
+    // needsPlanning, background, or a research/web capability classified.
+    const narrateBeforeSlowAnswer =
+      needsPlanning || background || relevantGroups.includes("research") || relevantGroups.includes("web");
+
     const systemPrompt = buildSystemPrompt({
       personaSystemPrompt: personaSystemPrompt ?? FALLBACK_PERSONA,
       now: new Date(),
@@ -141,6 +147,7 @@ app.post("/webhook", async (req, res) => {
       openTasks,
       relevantGoals,
       needsPlanningNudge: needsPlanning,
+      narrateBeforeSlowAnswer,
     });
 
     const mcp = new SkillsMcpClient(config.skillsMcpUrl, sessionId, background);

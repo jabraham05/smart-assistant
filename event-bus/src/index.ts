@@ -1,5 +1,5 @@
 import express from "express";
-import { loadConfig } from "./config.js";
+import { loadConfig, type Config } from "./config.js";
 import * as db from "./db.js";
 import { notifySession } from "./notify.js";
 import { ingestEvent } from "./ingest.js";
@@ -7,6 +7,7 @@ import { matchGoalsToText } from "./goal-matching.js";
 import { pollCalendar } from "./calendar-watch.js";
 import { getWorkLevel } from "./work-level.js";
 import { runOvernightDigest } from "./digest.js";
+import { stepTransitionNotification } from "./step-notifications.js";
 
 const config = loadConfig(process.env);
 
@@ -282,6 +283,17 @@ app.get("/task-contexts/:id/steps", async (req, res) => {
   }
 });
 
+async function notifyStepTransition(config: Config, taskContextId: number, step: db.TaskContextStepRow): Promise<void> {
+  if (step.status !== "failed" && step.status !== "blocked" && step.status !== "completed") return;
+
+  const task = await db.getTaskContext(config, taskContextId);
+  if (!task?.origin_session_id) return;
+
+  const allSteps = await db.listTaskContextSteps(config, taskContextId);
+  const message = stepTransitionNotification(step, allSteps, task.objective);
+  if (message) await notifySession(config, task.origin_session_id, message);
+}
+
 // PATCH /task-contexts/:id/steps/:stepId - action='advance_step'. The
 // :id segment isn't just a path convention - it's checked against the
 // step's actual task_context_id, so a stale/wrong id from the model
@@ -310,6 +322,15 @@ app.patch("/task-contexts/:id/steps/:stepId", async (req, res) => {
       return res.status(404).json({ error: `step ${stepId} does not belong to task context ${taskContextId}` });
     }
     res.json(updated);
+
+    // Phase 6b: pure templating off a known status transition, no LLM
+    // call. Filtered to avoid noise per the architecture plan - failed/
+    // blocked always notify immediately (needs attention), completed
+    // only notifies once, when it's genuinely the *last* pending step,
+    // not on every single step completion along the way.
+    notifyStepTransition(config, taskContextId, updated).catch((e) =>
+      console.error(`failed to notify step transition for step ${stepId}:`, e),
+    );
   } catch (e) {
     console.error(`failed to update step ${stepId}:`, e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });

@@ -31,6 +31,13 @@ export function buildSystemPrompt(input: {
   // attempting the task, since the content of a plan is a judgment call
   // the classifier can't make itself.
   needsPlanningNudge?: boolean;
+  // Phase 6a - prompt-only, no extra LLM call (the model already
+  // generates one response per turn; this just shapes what that same
+  // generation includes). Set for turns likely to take a while
+  // (needsPlanning, background, or a research/web capability classified)
+  // so the user isn't staring at silence with no idea something's
+  // happening.
+  narrateBeforeSlowAnswer?: boolean;
 }): string {
   const dateLine = `Right now it is ${formatPacific(input.now)} (Pacific time) — use this as ground truth for any relative date/time the user mentions (today, tomorrow, next week, etc.) when creating or checking calendar events. Never guess a date or fall back to a placeholder.`;
 
@@ -62,6 +69,12 @@ export function buildSystemPrompt(input: {
       "list of concrete steps - then use action='advance_step' as each one actually completes."
     : "";
 
+  const narrateLine = input.narrateBeforeSlowAnswer
+    ? "This will likely take a moment (multiple steps or a real lookup) - briefly say what you're " +
+      "about to do before doing it (e.g. \"I'll check your calendar first...\"), so it's clear " +
+      "something's happening rather than leaving the user waiting with no context."
+    : "";
+
   const skillsLine = input.skillsCatalogText ? `Skills you have learned:\n\n${input.skillsCatalogText}` : "";
 
   return [
@@ -73,6 +86,7 @@ export function buildSystemPrompt(input: {
     openTasksLine,
     relevantGoalsLine,
     needsPlanningLine,
+    narrateLine,
     skillsLine,
   ]
     .filter(Boolean)

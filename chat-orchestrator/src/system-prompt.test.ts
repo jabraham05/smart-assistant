@@ -105,3 +105,24 @@ test("buildSystemPrompt includes the needsPlanning nudge only when set", () => {
   });
   assert.ok(!without.includes("action='plan'"));
 });
+
+test("buildSystemPrompt includes the narrate-before-slow-answer nudge only when set", () => {
+  const withNudge = buildSystemPrompt({
+    personaSystemPrompt: "You are Amy.",
+    now: new Date("2026-09-21T12:00:00Z"),
+    userCard: [],
+    userCardForAmy: [],
+    skillsCatalogText: "",
+    narrateBeforeSlowAnswer: true,
+  });
+  assert.ok(withNudge.includes("briefly say what you're"));
+
+  const without = buildSystemPrompt({
+    personaSystemPrompt: "You are Amy.",
+    now: new Date("2026-09-21T12:00:00Z"),
+    userCard: [],
+    userCardForAmy: [],
+    skillsCatalogText: "",
+  });
+  assert.ok(!without.includes("briefly say what you're"));
+});
