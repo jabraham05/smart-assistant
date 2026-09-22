@@ -165,3 +165,36 @@ full remote-branch audit at this point found several more
 `worktree-fix-pr-push-large-diff`) not yet reviewed — real work is
 accumulating across concurrent sessions faster than it's landing on
 `main`.
+
+## 2026-09-22 — a real home page: goals, open tasks, upcoming events
+
+First piece of the self-improvement direction discussed after the
+research-queue build — before Amy can review her own experience, there
+needs to be a plain view of current state, and it needs to read from the
+same structured storage that later self-improvement/autonomous work will
+also read from (not a one-off UI-only fetch). `/` was previously just the
+chat window with no landing page; it's now `HomeDashboard.tsx`, three
+cards (Goals / Open Tasks / Upcoming Events) fed by one call to
+event-bus's new `GET /home-summary` (`docs/event-bus-and-goals.md`'s
+2026-09-22 entry) via `lib/event-bus-client.ts`'s `getHomeSummary()` and a
+proxying `GET /api/home` route — same server-side-only-fetch pattern as
+`event-bus-client.ts`'s existing `listRecentEvents`.
+
+The chat window itself moved to `/chat` (`app/chat/page.tsx`, same
+`ChatWindow` component, unchanged apart from `h-screen` → `h-full` so it
+sizes correctly under the new shared nav rather than overflowing past it).
+A small `Nav.tsx` (Home/Chat links, active-route highlighting via
+`usePathname`) now renders in `layout.tsx` above `{children}` on every
+page.
+
+While wiring this up, found `docker-compose.yml` had the entire `dashboard`
+service block duplicated verbatim (lines 460 and 536) — origin/main had
+already fixed this independently; this worktree branch's copy was simply
+stale. Removed the duplicate to unblock `docker compose build` rather than
+merging the two branches' full divergence.
+
+**Verified live**: `GET /home-summary` returns real data (10 active goals
+including the "Build a robotic arm" goal from the research-queue work's
+own verification, 6 open task contexts, 6 real upcoming calendar events);
+`/` renders all three cards with real content; `/chat` still serves the
+full chat experience at 200.

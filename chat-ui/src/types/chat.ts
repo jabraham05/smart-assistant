@@ -127,3 +127,45 @@ export interface EventBusEvent {
   notified_at: string | null;
   created_at: string;
 }
+
+// Matches event-bus's GoalRow (src/db.ts).
+export interface Goal {
+  id: number;
+  title: string;
+  description: string | null;
+  keywords: string[];
+  status: string;
+  origin_session_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Matches event-bus's TaskContextRow (src/db.ts).
+export interface TaskContext {
+  id: number;
+  objective: string;
+  capability: string | null;
+  domain: string | null;
+  status: string;
+  next_action: string | null;
+  origin_session_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Matches skills-mcp's CalendarEvent (src/lib/google-calendar.ts) - only
+// the fields the home dashboard actually renders.
+export interface UpcomingEvent {
+  id: string;
+  summary?: string;
+  start?: { dateTime?: string; date?: string };
+}
+
+// Matches event-bus's GET /home-summary - the single "what does the user
+// have going on right now" snapshot. See docs/event-bus-and-goals.md.
+export interface HomeSummary {
+  goals: Goal[];
+  openTasks: TaskContext[];
+  calendarConfigured: boolean;
+  upcomingEvents: UpcomingEvent[];
+}

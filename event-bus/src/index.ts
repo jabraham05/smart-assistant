@@ -209,6 +209,36 @@ app.get("/task-contexts", async (req, res) => {
   }
 });
 
+// GET /home-summary - single "what does the user have going on right now"
+// snapshot: active goals, open task contexts, and upcoming calendar events,
+// combined server-side so any consumer (chat-ui's home dashboard today,
+// digest/idle-reflection/self-improvement code later) reads one shape
+// instead of re-deriving "open" filtering or re-calling skills-mcp
+// separately. Deliberately no new storage - goals/task_contexts are
+// already the source of truth in this DB, and calendar events are already
+// fetched live (see calendar-watch.ts) rather than mirrored locally.
+app.get("/home-summary", async (req, res) => {
+  const lookaheadHours = Number(req.query.lookaheadHours) || 24 * 7;
+
+  const [goals, openTasks, calendar] = await Promise.all([
+    db.listGoals(config, "active"),
+    db.listTaskContexts(config, "open"),
+    fetch(`${config.skillsMcpUrl}/internal/calendar-events?lookaheadHours=${lookaheadHours}`)
+      .then((r) => (r.ok ? r.json() : { configured: false, events: [] }))
+      .catch(() => ({ configured: false, events: [] })) as Promise<{
+      configured: boolean;
+      events: Array<{ id: string; summary?: string; start?: { dateTime?: string; date?: string } }>;
+    }>,
+  ]);
+
+  res.json({
+    goals,
+    openTasks,
+    calendarConfigured: calendar.configured,
+    upcomingEvents: calendar.events,
+  });
+});
+
 // PATCH /task-contexts/:id - update; only provided fields change.
 app.patch("/task-contexts/:id", async (req, res) => {
   const taskContextId = Number(req.params.id);

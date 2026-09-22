@@ -229,3 +229,26 @@ New config: `knowledgeEngineUrl` (`KNOWLEDGE_ENGINE_URL`, default
 `http://knowledge-engine:3005`) — confirmed absent from this service's
 config before this, only `skillsMcpUrl` existed as a cross-service URL
 here previously.
+
+## 2026-09-22 — `GET /home-summary`: one snapshot of "what's going on right now"
+
+First step of the self-improvement work discussed after the research-queue
+build: before Amy can review her own experience or capability, there needs
+to be a single place that already answers "what does the user have going
+on right now" — active goals, open task contexts, upcoming calendar
+events — instead of three separate call sites each re-deriving their own
+"open"/"active" filtering. `GET /home-summary` combines
+`db.listGoals(config, 'active')`, `db.listTaskContexts(config, 'open')`,
+and a call to skills-mcp's existing `GET /internal/calendar-events`
+(`?lookaheadHours=`, default 168 = one week) into one response:
+`{ goals, openTasks, calendarConfigured, upcomingEvents }`.
+
+Deliberately no new storage — goals/task_contexts are already the source
+of truth in this DB (see the `research_queue` entry above for the same
+reasoning applied to research topics), and calendar events are already
+fetched live rather than mirrored locally (`calendar-watch.ts`'s own
+poll-and-diff only persists dedup state, not full event data). This
+endpoint is meant to be reused, not just by chat-ui's new home dashboard
+(`docs/chat-ui.md`'s 2026-09-22 entry) but by whatever the self-improvement
+loop's nightly review ends up needing — one shared read path instead of
+each consumer reaching into `db.ts` directly.

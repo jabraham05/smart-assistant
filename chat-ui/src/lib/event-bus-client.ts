@@ -1,4 +1,4 @@
-import type { EventBusEvent } from "@/types/chat";
+import type { EventBusEvent, HomeSummary } from "@/types/chat";
 
 // Server-side only, same "no client-side secrets/URLs" shape as
 // honcho-client.ts - event-bus is internal-only (no published port), so
@@ -16,4 +16,12 @@ export async function listRecentEvents(limit = 50, source?: string): Promise<Eve
   }
   const data = (await res.json()) as { events: EventBusEvent[] };
   return data.events;
+}
+
+export async function getHomeSummary(): Promise<HomeSummary> {
+  const res = await fetch(`${EVENT_BUS_URL}/home-summary`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`event-bus /home-summary failed with ${res.status}`);
+  }
+  return res.json();
 }

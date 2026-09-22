@@ -58,7 +58,7 @@ export function ChatWindow() {
   const selectedUser = selectedIndex > 0 ? messages[selectedIndex - 1] : undefined;
 
   return (
-    <div className="flex h-screen w-full">
+    <div className="flex h-full w-full">
       <SessionList
         sessions={sessions}
         activeSessionId={activeSessionId}
