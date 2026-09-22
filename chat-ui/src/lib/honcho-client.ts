@@ -41,7 +41,11 @@ async function honchoPost<T>(path: string, body: unknown): Promise<T> {
 // useful sessions instead of hiding the newest, most useful ones.
 export async function listSessions(): Promise<HonchoSession[]> {
   const data = await honchoPost<{ items: HonchoSession[] }>(
-    `/workspaces/${HONCHO_WORKSPACE_ID}/sessions/list?reverse=true&size=200`,
+    // 100 is this endpoint's real hard max (confirmed live: size=200 gets
+    // rejected outright with a 422 "Input should be less than or equal to
+    // 100" - not silently clamped), so 100 is the largest page reverse=true
+    // can actually pull in one call.
+    `/workspaces/${HONCHO_WORKSPACE_ID}/sessions/list?reverse=true&size=100`,
     { filters: {} }
   );
   return data.items;
