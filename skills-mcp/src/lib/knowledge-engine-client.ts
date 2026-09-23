@@ -124,6 +124,10 @@ export interface ProjectProposeResult {
   id: number;
   title: string;
   status: string;
+  // Set when an overlapping proposed/active project already existed and
+  // this is that existing row, not a newly-inserted one - see
+  // knowledge-engine's POST /projects dedup check.
+  duplicate?: boolean;
 }
 
 // Direct to knowledge-engine's POST /projects, not an n8n webhook - unlike

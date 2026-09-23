@@ -1,6 +1,7 @@
 import type { Config } from "../config.js";
 import * as db from "../db.js";
 import { checkKnowledge, runWebResearchAndPersist } from "./research.js";
+import type { SearchResult } from "./search.js";
 
 export interface EnqueueInput {
   topic: string;
@@ -13,6 +14,18 @@ export interface EnqueueResult {
   queued: boolean;
   reason?: string;
   id?: number;
+  // Set when `reason` is a duplicate/overlap match against an existing
+  // queue entry - the id a caller that can't just drop the request (e.g.
+  // an already-approved project) should adopt instead of failing. Real
+  // bug found via live testing: approving a project whose title overlapped
+  // an existing queue entry from an unrelated goal/project just 409'd with
+  // no way forward and no visibility into the entry it collided with.
+  existingQueueId?: number;
+  // Set when `reason` is "already known" - nothing to enqueue because the
+  // topic is already well covered; a caller like project approval can
+  // consolidate directly from these results instead of failing.
+  alreadyKnown?: boolean;
+  knowledgeResults?: SearchResult[];
 }
 
 // The self-learning research queue's write path. Called from two places:
@@ -29,19 +42,25 @@ export async function enqueueTopic(config: Config, input: EnqueueInput): Promise
   if (!topic) return { queued: false, reason: "empty topic" };
 
   const exact = await db.findExactPendingTopic(config, topic);
-  if (exact) return { queued: false, reason: `already queued as #${exact.id}` };
+  if (exact) return { queued: false, reason: `already queued as #${exact.id}`, existingQueueId: exact.id };
 
   const overlapping = await db.findOverlappingPendingTopic(config, topic, config.researchQueueDedupMinOverlap);
-  if (overlapping) return { queued: false, reason: `overlaps already-queued #${overlapping.id} ("${overlapping.topic}")` };
+  if (overlapping) {
+    return {
+      queued: false,
+      reason: `overlaps already-queued #${overlapping.id} ("${overlapping.topic}")`,
+      existingQueueId: overlapping.id,
+    };
+  }
 
   // Reuses the exact same deterministic knowledge-vs-web routing decision
   // /research already makes (engine/research.ts's checkKnowledge) - if
   // it's already well covered, there's nothing to queue. This is also why
   // this check runs last: it's a real hybrid-search query, more expensive
   // than the two lexeme/exact checks above.
-  const { route } = await checkKnowledge(config, { query: topic, domain: input.domain });
+  const { route, knowledgeResults } = await checkKnowledge(config, { query: topic, domain: input.domain });
   if (route.source === "knowledge") {
-    return { queued: false, reason: `already known: ${route.reason}` };
+    return { queued: false, reason: `already known: ${route.reason}`, alreadyKnown: true, knowledgeResults };
   }
 
   const pendingCount = await db.countPendingResearchQueue(config);

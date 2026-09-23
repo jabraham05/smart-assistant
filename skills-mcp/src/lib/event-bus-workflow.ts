@@ -90,6 +90,10 @@ export interface TaskContextRecord {
   origin_session_id: string | null;
   created_at: string;
   updated_at: string;
+  // Set on create only: true when an overlapping open task_context already
+  // existed and this is that existing row, not a newly-inserted one - see
+  // event-bus's POST /task-contexts dedup check.
+  duplicate?: boolean;
 }
 
 export interface CreateTaskContextInput {

@@ -13,12 +13,13 @@ import {
   getProject,
   updateProject,
   getResearchQueueEntry,
+  findOverlappingProject,
 } from "./db.js";
 import { ingestDocument } from "./engine/ingest.js";
 import { search } from "./engine/search.js";
 import { checkKnowledge, runWebResearchAndPersist } from "./engine/research.js";
 import { enqueueTopic, drainQueue } from "./engine/research-queue.js";
-import { consolidateProject } from "./engine/consolidate.js";
+import { consolidateProject, consolidateFromExistingKnowledge } from "./engine/consolidate.js";
 import { startCodingTask, getCodingTask } from "./lib/coding-orchestrator-client.js";
 
 const config = loadConfig(process.env);
@@ -28,6 +29,11 @@ const app = express();
 // runs well past express's 100kb default (a real multi-hundred-page manual,
 // base64-inflated ~33%, can land in the tens of MB).
 app.use(express.json({ limit: "150mb" }));
+
+// Same threshold research_queue's own dedup uses (config.researchQueueDedupMinOverlap)
+// - project titles are similarly short, so a single shared word is more
+// likely coincidence than a real duplicate.
+const PROJECT_DEDUP_MIN_OVERLAP = 2;
 
 // Phase 0 checkpoint: proves the service connects to the real `research`
 // database and the tables from 08-create-knowledge-tables.sql exist, not
@@ -331,6 +337,16 @@ app.post("/projects", async (req, res) => {
     return res.status(400).json({ error: "activityType must be 'research' or 'coding'" });
   }
   try {
+    // Real bug found via live testing: duplicate projects got created for
+    // the same idea with no dedup at all. Returns the existing match
+    // instead of erroring - graceful for a tool the model calls
+    // autonomously (project_propose surfaces `duplicate` to the model so
+    // it reuses the id rather than treating this as a failure).
+    const existing = await findOverlappingProject(config, body.title, PROJECT_DEDUP_MIN_OVERLAP);
+    if (existing) {
+      return res.json({ ...existing, duplicate: true });
+    }
+
     const project = await insertProject(config, {
       title: body.title,
       rationale: body.rationale,
@@ -339,7 +355,7 @@ app.post("/projects", async (req, res) => {
       activityType: body.activityType,
       targetRepoUrl: body.targetRepoUrl,
     });
-    res.status(201).json(project);
+    res.status(201).json({ ...project, duplicate: false });
   } catch (e) {
     console.error("failed to create project:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -394,17 +410,39 @@ app.post("/projects/:id/approve", async (req, res) => {
       domain: project.domain ?? undefined,
       triggerSource: "project_approved",
     });
-    if (!enqueueResult.queued || enqueueResult.id === undefined) {
-      // Don't silently mark 'active' with no research actually scheduled -
-      // there'd be no way for /complete to ever find a finished session.
-      return res.status(409).json({ error: `couldn't schedule research: ${enqueueResult.reason}` });
+
+    if (enqueueResult.queued && enqueueResult.id !== undefined) {
+      const updated = await updateProject(config, projectId, {
+        status: "active",
+        approvedAt: new Date(),
+        researchQueueId: enqueueResult.id,
+      });
+      return res.json(updated);
     }
-    const updated = await updateProject(config, projectId, {
-      status: "active",
-      approvedAt: new Date(),
-      researchQueueId: enqueueResult.id,
-    });
-    res.json(updated);
+
+    // Two real dead ends found via live testing, both fixed the same way:
+    // approving a project whose topic is already well-covered, or already
+    // queued/overlapping an unrelated queue entry, used to just 409 with
+    // no path forward. Both cases mean the work is effectively already
+    // done or already in flight - finish or adopt it instead of failing.
+    if (enqueueResult.alreadyKnown) {
+      const result = await consolidateFromExistingKnowledge(config, project, enqueueResult.knowledgeResults ?? []);
+      const updated = await getProject(config, projectId);
+      return res.json({ ...updated, documentId: result.documentId });
+    }
+    if (enqueueResult.existingQueueId !== undefined) {
+      const updated = await updateProject(config, projectId, {
+        status: "active",
+        approvedAt: new Date(),
+        researchQueueId: enqueueResult.existingQueueId,
+      });
+      return res.json(updated);
+    }
+
+    // A genuine transient failure (e.g. queue is full) - nothing to adopt,
+    // no knowledge to consolidate from. Honest 409, not a silent 'active'
+    // with no research actually scheduled.
+    return res.status(409).json({ error: `couldn't schedule research: ${enqueueResult.reason}` });
   } catch (e) {
     console.error(`failed to approve project ${projectId}:`, e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });

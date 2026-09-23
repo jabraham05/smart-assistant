@@ -222,6 +222,42 @@ export interface InsertTaskContextInput {
   originSessionId?: string;
 }
 
+// Real bug found via live testing: a duplicate "wax the car" task got
+// created because create had no dedup at all - lexeme-overlap technique
+// borrowed verbatim from knowledge-engine's research_queue dedup
+// (findOverlappingPendingTopic), computing to_tsvector on the fly since
+// task_contexts has no stored tsvector column (same tradeoff
+// findResearchSessionByTopic already made for research_sessions - this
+// isn't a hot path, no index needed).
+export async function findOverlappingOpenTaskContext(
+  config: Config,
+  objective: string,
+  minOverlap: number,
+): Promise<TaskContextRow | undefined> {
+  const result = await getPool(config).query<TaskContextRow>(
+    `WITH query_lexemes AS (
+       SELECT ARRAY(
+         SELECT lex FROM unnest(tsvector_to_array(to_tsvector('english', $1))) AS lex
+         WHERE length(lex) >= 3
+       ) AS lexemes
+     ),
+     scored AS (
+       SELECT tc.*, COALESCE(array_length(ARRAY(
+         SELECT unnest(query_lexemes.lexemes)
+         INTERSECT
+         SELECT unnest(tsvector_to_array(to_tsvector('english', tc.objective)))
+       ), 1), 0) AS overlap_count
+       FROM task_contexts tc
+       CROSS JOIN query_lexemes
+       WHERE tc.status IN ('active', 'waiting_for_user')
+     )
+     SELECT * FROM scored WHERE overlap_count >= $2
+     ORDER BY overlap_count DESC, updated_at DESC LIMIT 1`,
+    [objective, minOverlap],
+  );
+  return result.rows[0];
+}
+
 export async function insertTaskContext(config: Config, input: InsertTaskContextInput): Promise<TaskContextRow> {
   const result = await getPool(config).query<TaskContextRow>(
     `INSERT INTO task_contexts (objective, capability, domain, origin_session_id)

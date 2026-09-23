@@ -450,3 +450,21 @@ A read-only "Feedback" card was added to chat-ui's `/amy` page (see
 investigation/experiment/consolidation loop reads it automatically. That
 loop is real, wanted future work - not built until this capture path has
 some real data behind it.
+
+### 2026-09-24 — more real bugs from live dogfooding: silent non-action, and giving up instead of retrying
+
+Two more findings from the same dogfooding sessions as `docs/knowledge-engine.md`'s dated entry, both in the safety net:
+
+**`task_context_manage` had two real gaps in `safety-net.ts`**, both from the same root cause: it's always bound (`ALWAYS_BOUND_TOOLS`), so neither existing check ever really covered it.
+1. Missing from `ACTION_TOOLS` - "I've created a task for X" with no real call slipped past confabulation detection entirely, since `hadActionToolBound` was false whenever nothing else got classified this turn (a real reported symptom: *"she would also just say she'll keep some things in mind but won't actually create the task... just talks about it"*).
+2. `hasUnsatisfiedRequiredTool` unconditionally returned `false` whenever the only bound tools were the always-bound ones - task creation has no classifier category of its own, so this was *every* task-creation turn, with zero deterministic backstop. Fixed by special-casing `task_context_manage`: if it's bound, `toolPolicy='required'`, and it was never called, that's still unsatisfied.
+
+**The reported "wasn't able to read logs properly, had to instruct it to keep going" turned out to be a missing retry, not a logs problem.** `agentMaxIterations` (10) already leaves plenty of room to retry a failed tool call within one reply, but nothing ever told the model to actually use that room - it would see an error, narrate "I'll check again" as if that were a complete answer, and stop, leaving the user to manually nudge it forward turn after turn.
+
+Two-part fix, same "prompt guidance + deterministic backstop" pattern used throughout this project:
+- `system-prompt.ts` gained a standing instruction: diagnose a tool error and retry with the minimal fix, in the same reply, instead of deferring to "later."
+- `index.ts` gained a new deterministic retry loop - unlike every other check here (all one-shot), this one loops up to `MAX_TOOL_ERROR_RETRIES` (3) times, feeding back the *actual* error text each attempt via the existing trace mechanism (`onTrace`'s `tool_result` events already carried `isError`/`result`, just nothing read them for this purpose before). New `reason: "tool_error"` added to the retry trace union.
+
+**Verified live**: asked for an update on a deliberately nonexistent task context id. Logs showed multiple real attempts with different parameters each time (the model actually trying to diagnose and adjust, not repeating the identical failing call) before correctly falling back to the deterministic honest-failure message once the id genuinely didn't exist - the intended behavior: retry when there's something to fix, admit failure honestly when there isn't, never confabulate success either way.
+
+(Also fixed a stale pre-existing test in `classify-tools.test.ts` that never got updated when `project_propose` was added to the `self-growth` group in the prior coding-projects feature.)

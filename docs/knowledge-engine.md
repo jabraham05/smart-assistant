@@ -658,3 +658,57 @@ producing a new document) is implemented the same way the already-verified
 research path is, but wasn't independently exercised this pass - this
 specific test task happened to fail for real, unrelated reasons (the same
 kind of failure several pre-existing real coding_tasks rows already show).
+
+## 2026-09-24 — three real bugs from live dogfooding: duplicate projects, the approve dead-end, and a missing confabulation verb
+
+Direct feedback from two real usage sessions (project/goal creation and a
+car-maintenance/coding-project session). Three separate root causes, one
+doc entry since they're all part of the same "approve got stuck" story:
+
+**Duplicate projects had no dedup at all.** `POST /projects` just inserted
+every time - unlike `research_queue`, which already had exact+lexeme-overlap
+dedup. New `findOverlappingProject` (same on-the-fly `to_tsvector` technique
+`findResearchSessionByTopic` already uses, no new column) checked against
+existing `proposed`/`active` projects only - a `done`/`rejected` one
+shouldn't block proposing the same idea again later. Returns the existing
+row with `duplicate: true` instead of erroring - graceful for a tool the
+model calls on its own; `project_propose`'s response tells the model to
+reuse the id rather than treat it as a failure.
+
+**Approving a project could dead-end two different ways, both now fixed**:
+1. The topic turns out to already be well-covered - `enqueueTopic` refuses
+   to queue it (`route.source === "knowledge"`), which previously just
+   409'd forever with no path forward. New `consolidateFromExistingKnowledge`
+   (`engine/consolidate.ts`) finishes the project immediately using the
+   knowledge that already exists, rather than treating "already known" as
+   a failure.
+2. The project's title happens to overlap an existing, unrelated
+   `research_queue` entry (from an earlier goal or project) -
+   `enqueueTopic`'s own dedup rejected the enqueue with no way to see or
+   act on the entry it collided with (the literal bug report: *"it says it
+   was already in queue? I don't see it in the queue"*). `EnqueueResult`
+   now returns the colliding entry's id (`existingQueueId`); approve adopts
+   it instead of failing - the work is already in flight either way.
+
+Both required extending `EnqueueResult` (`engine/research-queue.ts`) with
+`existingQueueId`/`alreadyKnown`/`knowledgeResults` fields - previously it
+only returned a human-readable reason string with nothing structured for a
+caller to act on.
+
+**"Faked creating project"** - a real confabulation slipped past the
+detector I built earlier (`chat-orchestrator/src/safety-net.ts`'s
+`isConfabulatedAction`): `project_propose` was already in `ACTION_TOOLS`,
+but `CLAIMS_COMPLETED_ACTION`'s verb list didn't include "proposed" (or
+"approved"/"built"/"fixed"/etc.), so "I've proposed a project for X" never
+matched the regex at all. Added the missing verbs.
+
+**The same duplicate-creation gap existed for `task_context_manage`** too
+(a real duplicate "wax the car" task) - same fix, same technique, in
+event-bus's `POST /task-contexts` (`findOverlappingOpenTaskContext`).
+
+**Verified live**: created a project, then a second with an overlapping
+title - the second correctly returned the first's id instead of a new row.
+Same test for `task_context_manage`. Approved a real "wax the car" project
+- it went straight to `status='done'` with a real synthesized document
+(confirming the knowledge base already had automotive content covering
+it), instead of the previous dead-end 409.

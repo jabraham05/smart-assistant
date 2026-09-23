@@ -59,6 +59,12 @@ export function registerProjectPropose(server: McpServer, config: Config): void 
     async ({ title, rationale, domain, activityType, repoUrl }) => {
       try {
         const result = await proposeProject(config, { title, rationale, domain, activityType, repoUrl });
+        if (result.duplicate) {
+          return textResult(
+            `A similar project already exists (#${result.id}: "${result.title}", status: ${result.status}) - ` +
+              `didn't create a new one. Tell the user it's already proposed/in progress rather than proposing again.`,
+          );
+        }
         return textResult(
           `Project "${result.title}" proposed (#${result.id}) - awaiting your review on the /amy dashboard.`,
         );
