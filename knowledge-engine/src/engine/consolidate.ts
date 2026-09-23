@@ -2,6 +2,7 @@ import type { Config } from "../config.js";
 import * as db from "../db.js";
 import { ollamaChat } from "../ollama.js";
 import { getCodingTask } from "../lib/coding-orchestrator-client.js";
+import type { SearchResult } from "./search.js";
 
 export interface ConsolidateResult {
   documentId: number;
@@ -22,6 +23,40 @@ export async function consolidateProject(config: Config, projectId: number): Pro
     return consolidateCodingProject(config, project);
   }
   return consolidateResearchProject(config, project);
+}
+
+// Real bug found via live testing: approving a research-activity project
+// whose topic turned out to already be well-covered just 409'd forever -
+// there was no path forward since enqueueTopic refuses to queue something
+// already known, and nothing ever ran the consolidation step for it. This
+// lets approve finish the project immediately using the knowledge that
+// already exists, instead of treating "already known" as a dead end.
+export async function consolidateFromExistingKnowledge(
+  config: Config,
+  project: db.ProjectRow,
+  knowledgeResults: SearchResult[],
+): Promise<ConsolidateResult> {
+  const evidence = knowledgeResults.length
+    ? knowledgeResults.map((r, i) => `${i + 1}. ${r.content}`).join("\n\n")
+    : "(no specific passages were retrieved, but this topic was judged already well-covered)";
+
+  const markdown = await synthesizeMarkdown(
+    config,
+    RESEARCH_SYSTEM_PROMPT,
+    `Project: ${project.title}\n\nRationale: ${project.rationale}\n\nAlready-known information:\n${evidence}`,
+  );
+
+  const document = await db.insertDocument(config, {
+    kind: "project",
+    sourceType: "existing_knowledge",
+    title: project.title,
+    domain: project.domain ?? undefined,
+    triggerSource: "project_approved",
+    status: "complete",
+  });
+  await db.setDocumentMarkdown(config, document.id, markdown);
+  await db.updateProject(config, project.id, { status: "done", documentId: document.id });
+  return { documentId: document.id };
 }
 
 async function synthesizeMarkdown(config: Config, systemPrompt: string, userContent: string): Promise<string> {

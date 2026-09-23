@@ -21,8 +21,11 @@ import { registerVerifier, verifyToolResult } from "../lib/verify-tool-result.js
 registerVerifier("task_context_manage", (args, result) => {
   const a = args as { action?: string; objective?: string; stepStatus?: string; stepDescriptions?: string[] };
   if (a.action === "create" && a.objective) {
-    const r = result as { objective?: string };
-    if (r.objective !== a.objective) {
+    const r = result as { objective?: string; duplicate?: boolean };
+    // A dedup match legitimately returns a different (pre-existing)
+    // objective's exact wording - not a verification failure, see
+    // event-bus's POST /task-contexts.
+    if (!r.duplicate && r.objective !== a.objective) {
       return { ok: false, reason: `Requested objective "${a.objective}" but got back "${r.objective}".` };
     }
   }
@@ -116,6 +119,14 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
           const task = await createTaskContext(config, { objective, capability, domain, originSessionId: chatSessionId });
           const verification = verifyToolResult("task_context_manage", { action, objective }, task);
           if (!verification.ok) return errorResult(`Task was created but didn't verify: ${verification.reason}`);
+          if (task.duplicate) {
+            return textResult({
+              id: task.id,
+              objective: task.objective,
+              status: task.status,
+              note: `An open task like this already exists (#${task.id}: "${task.objective}") - reused it instead of creating a duplicate. Use this id, don't create another.`,
+            });
+          }
           return textResult({ id: task.id, objective: task.objective, status: task.status });
         }
 

@@ -680,6 +680,41 @@ export interface ProjectRow {
   updated_at: string;
 }
 
+// Real bug found via live testing: duplicate projects got created for the
+// same idea with no dedup at all - same lexeme-overlap technique as
+// findOverlappingPendingTopic, computed on the fly (no stored tsvector
+// column here, same tradeoff findResearchSessionByTopic already made).
+// Only checks proposed/active projects - a done/rejected one shouldn't
+// block proposing the same idea again later.
+export async function findOverlappingProject(
+  config: Config,
+  title: string,
+  minOverlap: number,
+): Promise<ProjectRow | undefined> {
+  const result = await getPool(config).query<ProjectRow>(
+    `WITH query_lexemes AS (
+       SELECT ARRAY(
+         SELECT lex FROM unnest(tsvector_to_array(to_tsvector('english', $1))) AS lex
+         WHERE length(lex) >= 3
+       ) AS lexemes
+     ),
+     scored AS (
+       SELECT p.*, COALESCE(array_length(ARRAY(
+         SELECT unnest(query_lexemes.lexemes)
+         INTERSECT
+         SELECT unnest(tsvector_to_array(to_tsvector('english', p.title)))
+       ), 1), 0) AS overlap_count
+       FROM projects p
+       CROSS JOIN query_lexemes
+       WHERE p.status IN ('proposed', 'active')
+     )
+     SELECT * FROM scored WHERE overlap_count >= $2
+     ORDER BY overlap_count DESC, updated_at DESC LIMIT 1`,
+    [title, minOverlap],
+  );
+  return result.rows[0];
+}
+
 export async function insertProject(
   config: Config,
   input: {

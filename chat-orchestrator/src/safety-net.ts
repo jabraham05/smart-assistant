@@ -25,10 +25,16 @@ export const ACTION_TOOLS = [
   "project_propose",
 ];
 
+// Real gap found via live testing: "I've proposed a project for X" slipped
+// past this check entirely (project_propose is in ACTION_TOOLS below, but
+// "proposed"/"approved" weren't in this verb list) - the model confabulated
+// having called the tool with no detection at all. Added those plus a few
+// other real action-tool verbs (skill_propose, code_task) this list was
+// missing for the same reason.
 const CLAIMS_COMPLETED_ACTION =
-  /\b(?:I['’]?ve|I have)\s+(added|noted|created|set\s?up|scheduled|deleted|removed|updated|started|paused|resumed|played|queued|turned)\b/i;
+  /\b(?:I['’]?ve|I have)\s+(added|noted|created|set\s?up|scheduled|deleted|removed|updated|started|paused|resumed|played|queued|turned|proposed|approved|rejected|submitted|kicked off|built|fixed)\b/i;
 const CLAIMS_COMPLETED_ACTION_PASSIVE =
-  /\b(?:has|have)\s+been\s+(added|noted|created|set\s?up|scheduled|deleted|removed|updated|started|paused|resumed|played|queued)\b/i;
+  /\b(?:has|have)\s+been\s+(added|noted|created|set\s?up|scheduled|deleted|removed|updated|started|paused|resumed|played|queued|proposed|approved|rejected|submitted|built|fixed)\b/i;
 
 // True when the reply claims to have performed a real action but no
 // matching action tool was actually invoked this turn - the model likely

@@ -19,6 +19,12 @@ const STOPWORDS = new Set([
   "at", "with", "about", "into", "track", "goal",
 ]);
 
+// Same threshold knowledge-engine's research_queue dedup uses
+// (config.researchQueueDedupMinOverlap) - short objectives are common
+// here too ("wax the car"), so a single shared word is more likely
+// coincidence than a real duplicate.
+const TASK_CONTEXT_DEDUP_MIN_OVERLAP = 2;
+
 function deriveKeywords(title: string, description?: string): string[] {
   const text = `${title} ${description || ""}`.toLowerCase();
   const words = text.split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOPWORDS.has(w));
@@ -183,13 +189,23 @@ app.post("/task-contexts", async (req, res) => {
   }
 
   try {
+    // Real bug found via live testing: a duplicate "wax the car" task got
+    // created with no dedup at all. Returns the existing match instead of
+    // erroring - graceful for a tool the model calls autonomously, and
+    // task_context_manage's description tells it to check `duplicate` and
+    // reuse the id rather than treat this as a failure.
+    const existing = await db.findOverlappingOpenTaskContext(config, body.objective, TASK_CONTEXT_DEDUP_MIN_OVERLAP);
+    if (existing) {
+      return res.json({ ...existing, duplicate: true });
+    }
+
     const taskContext = await db.insertTaskContext(config, {
       objective: body.objective,
       capability: body.capability,
       domain: body.domain,
       originSessionId: body.originSessionId,
     });
-    res.status(201).json(taskContext);
+    res.status(201).json({ ...taskContext, duplicate: false });
   } catch (e) {
     console.error("failed to create task context:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
