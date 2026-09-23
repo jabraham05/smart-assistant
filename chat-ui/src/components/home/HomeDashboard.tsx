@@ -243,10 +243,12 @@ export function HomeDashboard() {
 
       {error && <p className="mb-3 text-xs text-rose-400">{error}</p>}
 
-      {/* Compact top row - goals, tasks, events at a glance, each capped
-          so this row never pushes Activity below the fold. */}
-      <div className="grid shrink-0 grid-cols-1 gap-4 md:grid-cols-3">
-        <Card title="Goals" count={summary?.goals.length ?? 0} className="h-96">
+      {/* Top row and Activity split the remaining screen 1:2 (not fixed
+          rem heights) so the top row scales with the window instead of
+          being a small fixed strip next to an oversized Activity feed. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="grid min-h-0 flex-[1] grid-cols-1 gap-4 md:grid-cols-3">
+        <Card title="Goals" count={summary?.goals.length ?? 0} className="h-full">
           {!summary && !error && <EmptyRow text="Loading…" />}
           {summary && summary.goals.length === 0 && <EmptyRow text="No active goals." />}
           <ul className="space-y-1.5">
@@ -254,7 +256,7 @@ export function HomeDashboard() {
           </ul>
         </Card>
 
-        <Card title="Todos" count={openTodos.length} className="h-96">
+        <Card title="Todos" count={openTodos.length} className="h-full">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -291,7 +293,7 @@ export function HomeDashboard() {
           </ul>
         </Card>
 
-        <Card title="Upcoming Events" count={summary?.upcomingEvents.length ?? 0} className="h-96">
+        <Card title="Upcoming Events" count={summary?.upcomingEvents.length ?? 0} className="h-full">
           {!summary && !error && <EmptyRow text="Loading…" />}
           {summary && !summary.calendarConfigured && <EmptyRow text="Calendar isn't configured." />}
           {summary && summary.calendarConfigured && summary.upcomingEvents.length === 0 && (
@@ -303,9 +305,9 @@ export function HomeDashboard() {
         </Card>
       </div>
 
-      {/* Activity - full width, fills the rest of the page. Approvals are
-          pinned to the top since they need a decision, not just a read. */}
-      <div className="mt-4 min-h-0 flex-1">
+      {/* Activity - full width, gets the other 2/3. Approvals are pinned
+          to the top since they need a decision, not just a read. */}
+      <div className="min-h-0 flex-[2]">
         <Card title="Activity" count={proposedProjects.length + activity.items.length} className="h-full">
           {proposedProjects.length === 0 && !activity.isLoading && activity.items.length === 0 && (
             <EmptyRow text="Nothing recent." />
@@ -327,6 +329,7 @@ export function HomeDashboard() {
             ))}
           </ul>
         </Card>
+      </div>
       </div>
     </div>
   );
