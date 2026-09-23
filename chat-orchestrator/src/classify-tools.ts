@@ -31,12 +31,12 @@ export const GROUPS: Record<ToolGroup, string[]> = {
   media: ["spotify_control"],
   scheduling: ["calendar_event"],
   info: ["weather_get", "memory_recall"],
-  "self-growth": ["skill_propose", "code_task", "code_task_status", "project_propose", "status_overview"],
+  "self-growth": ["skill_propose", "code_task", "code_task_status", "project_propose", "status_overview", "project_complete"],
   dashboard: ["dashboard_control"],
   web: ["web_search"],
   knowledge: ["knowledge_search", "knowledge_ingest"],
-  research: ["research_task", "research_task_status", "status_overview"],
-  goals: ["goal_manage", "project_propose", "status_overview"],
+  research: ["research_task", "research_task_status", "status_overview", "project_complete"],
+  goals: ["goal_manage", "project_propose", "status_overview", "project_complete"],
 };
 
 const CLASSIFIER_SYSTEM_PROMPT =

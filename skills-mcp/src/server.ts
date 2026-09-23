@@ -20,6 +20,7 @@ import { registerGoalManage } from "./tools/goal-manage.js";
 import { registerTaskContextManage } from "./tools/task-context-manage.js";
 import { registerProjectPropose } from "./tools/project-propose.js";
 import { registerStatusOverview } from "./tools/status-overview.js";
+import { registerProjectComplete } from "./tools/project-complete.js";
 import { registerCalculate } from "./tools/calculate.js";
 
 export interface RequestContext {
@@ -66,6 +67,7 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerTaskContextManage(server, config, context.chatSessionId);
   registerProjectPropose(server, config);
   registerStatusOverview(server, config);
+  registerProjectComplete(server, config);
   registerCalculate(server, config);
   return server;
 }

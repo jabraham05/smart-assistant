@@ -189,3 +189,23 @@ export async function listResearchQueue(config: Config, limit = 10): Promise<Res
   const data = await jsonOrThrow<{ queue: ResearchQueueItem[] }>(res, "Research queue list");
   return data.queue.slice(0, limit);
 }
+
+export interface ProjectCompleteResult {
+  completed: boolean;
+  reason?: string;
+  documentId?: number;
+  title?: string;
+}
+
+// Wraps POST /projects/:id/complete - deliberately doesn't use jsonOrThrow,
+// since a 409 here ("research not finished yet", or a real reviewer
+// failure reason) is an expected, useful outcome to relay to the user, not
+// a genuine tool failure to surface as an error.
+export async function completeProject(config: Config, projectId: number): Promise<ProjectCompleteResult> {
+  const res = await fetch(`${config.knowledgeEngineUrl}/projects/${projectId}/complete`, { method: "POST" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { completed: false, reason: body.error ?? `failed with status ${res.status}` };
+  }
+  return { completed: true, documentId: body.documentId, title: body.title };
+}

@@ -25,6 +25,7 @@ test("expandGroupsToTools de-duplicates across overlapping groups and ignores un
       "code_task_status",
       "project_propose",
       "status_overview",
+      "project_complete",
     ]),
   );
 });

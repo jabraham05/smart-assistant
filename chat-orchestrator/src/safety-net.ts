@@ -29,6 +29,7 @@ export const ACTION_TOOLS = [
   // slipped past confabulation detection entirely - hadActionToolBound
   // was false because this wasn't in the list, short-circuiting the check.
   "task_context_manage",
+  "project_complete",
 ];
 
 // Real gap found via live testing: "I've proposed a project for X" slipped
@@ -38,9 +39,9 @@ export const ACTION_TOOLS = [
 // other real action-tool verbs (skill_propose, code_task) this list was
 // missing for the same reason.
 const CLAIMS_COMPLETED_ACTION =
-  /\b(?:I['’]?ve|I have)\s+(added|noted|created|set\s?up|scheduled|deleted|removed|updated|started|paused|resumed|played|queued|turned|proposed|approved|rejected|submitted|kicked off|built|fixed)\b/i;
+  /\b(?:I['’]?ve|I have)\s+(added|noted|created|set\s?up|scheduled|deleted|removed|updated|started|paused|resumed|played|queued|turned|proposed|approved|rejected|submitted|kicked off|built|fixed|completed|finished|consolidated|wrapped up)\b/i;
 const CLAIMS_COMPLETED_ACTION_PASSIVE =
-  /\b(?:has|have)\s+been\s+(added|noted|created|set\s?up|scheduled|deleted|removed|updated|started|paused|resumed|played|queued|proposed|approved|rejected|submitted|built|fixed)\b/i;
+  /\b(?:has|have)\s+been\s+(added|noted|created|set\s?up|scheduled|deleted|removed|updated|started|paused|resumed|played|queued|proposed|approved|rejected|submitted|built|fixed|completed|finished|consolidated)\b/i;
 
 // True when the reply claims to have performed a real action but no
 // matching action tool was actually invoked this turn - the model likely
