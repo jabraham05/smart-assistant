@@ -12,15 +12,15 @@ function StatusMark({ status }: { status: StepEvent["status"] }) {
   if (status === "running") {
     return (
       <span
-        className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600 dark:border-gray-600 dark:border-t-blue-400"
+        className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/15 border-t-indigo-400"
         aria-label="in progress"
       />
     );
   }
   if (status === "error") {
-    return <span className="text-red-500">✕</span>;
+    return <span className="text-rose-400">✕</span>;
   }
-  return <span className="text-green-600 dark:text-green-400">✓</span>;
+  return <span className="text-emerald-400">✓</span>;
 }
 
 export function StepIndicator({ steps }: { steps: StepEvent[] }) {
@@ -29,10 +29,7 @@ export function StepIndicator({ steps }: { steps: StepEvent[] }) {
   return (
     <ul className="mb-1.5 space-y-1">
       {steps.map((step, i) => (
-        <li
-          key={`${step.nodeId}-${i}`}
-          className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400"
-        >
+        <li key={`${step.nodeId}-${i}`} className="flex items-center gap-2 text-xs text-zinc-400">
           <StatusMark status={step.status} />
           <span>{KIND_ICON[step.kind]}</span>
           <span>{step.label}</span>

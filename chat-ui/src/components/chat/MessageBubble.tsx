@@ -35,13 +35,13 @@ export function MessageBubble({
           }
         }}
         title="Click for turn detail"
-        className={`max-w-[75%] cursor-pointer rounded-lg px-4 py-2 text-left ${
+        className={`max-w-[75%] cursor-pointer rounded-2xl px-4 py-2.5 text-left transition-colors ${
           isUser
-            ? "bg-blue-600 text-white"
+            ? "bg-indigo-600 text-white"
             : message.isEmpty
-              ? "bg-transparent text-gray-500 italic dark:text-gray-400"
-              : "bg-gray-200 text-gray-900 dark:bg-gray-700 dark:text-gray-100"
-        } ${isSelected ? "ring-2 ring-blue-400 ring-offset-1 dark:ring-offset-gray-900" : ""}`}
+              ? "border border-white/10 bg-transparent text-zinc-500 italic"
+              : "border border-white/10 bg-zinc-900/60 text-zinc-100"
+        } ${isSelected ? "ring-2 ring-indigo-400/60 ring-offset-2 ring-offset-zinc-950" : ""}`}
       >
         {!isUser && message.steps && <StepIndicator steps={message.steps} />}
         <MarkdownContent content={message.content} isUser={isUser} />

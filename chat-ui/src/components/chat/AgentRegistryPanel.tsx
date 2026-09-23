@@ -20,11 +20,11 @@ function groupTools(tools: RegisteredTool[]): [string, RegisteredTool[]][] {
 
 function ToolRow({ tool }: { tool: RegisteredTool }) {
   return (
-    <li className="rounded border border-gray-200 p-2 dark:border-gray-700">
-      <p className="text-xs font-medium text-gray-700 dark:text-gray-200">
-        {tool.title} <code className="ml-1 text-[10px] text-blue-600 dark:text-blue-400">{tool.name}</code>
+    <li className="rounded-lg border border-white/5 bg-white/[0.02] p-2.5">
+      <p className="text-xs font-medium text-zinc-200">
+        {tool.title} <code className="ml-1 font-mono text-[10px] text-indigo-400">{tool.name}</code>
       </p>
-      <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{tool.description}</p>
+      <p className="mt-0.5 text-[11px] text-zinc-500">{tool.description}</p>
     </li>
   );
 }
@@ -43,28 +43,28 @@ export function AgentRegistryPanel({
   const groups = groupTools(tools);
 
   return (
-    <div className="flex h-full w-96 flex-col border-l border-gray-200 dark:border-gray-700">
-      <div className="flex items-center justify-between border-b border-gray-200 p-2 dark:border-gray-700">
-        <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
+    <div className="flex h-full w-96 flex-col border-l border-white/10">
+      <div className="flex items-center justify-between border-b border-white/10 p-2.5">
+        <span className="text-xs font-medium text-zinc-300">
           agent registry {tools.length > 0 && `(${tools.length})`}
         </span>
         <button
           onClick={onRefresh}
           disabled={isLoading}
-          className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+          className="rounded-lg px-2 py-1 text-xs text-indigo-400 transition-colors hover:bg-white/5 disabled:opacity-40"
         >
           {isLoading ? "Refreshing…" : "Refresh"}
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
-        {error && <p className="px-1 py-2 text-xs text-red-500">{error}</p>}
+        {error && <p className="px-1 py-2 text-xs text-rose-400">{error}</p>}
         {!error && !isLoading && tools.length === 0 && (
-          <p className="px-1 py-2 text-xs text-gray-400">No tools found.</p>
+          <p className="px-1 py-2 text-xs text-zinc-600">No tools found.</p>
         )}
         <div className="space-y-3">
           {groups.map(([group, groupTools]) => (
             <div key={group}>
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400">
+              <p className="mb-1 font-mono text-[10px] font-medium uppercase tracking-wide text-zinc-600">
                 {groupLabel(group)}
               </p>
               <ul className="space-y-1.5">

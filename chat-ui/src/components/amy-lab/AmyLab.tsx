@@ -40,37 +40,33 @@ function classificationSummary(payload: Record<string, unknown>) {
 function ClassificationRow({ event }: { event: EventBusEvent }) {
   const { relevantGroups, relevantTools } = classificationSummary(event.payload);
   return (
-    <li className="rounded border border-gray-200 p-3 dark:border-gray-700">
+    <li className="rounded-xl border border-white/10 bg-zinc-900/40 p-3.5">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">What Amy decided about this turn</p>
-        <span className="shrink-0 text-[10px] text-gray-400">
+        <p className="text-xs font-medium text-zinc-400">What Amy decided about this turn</p>
+        <span className="shrink-0 font-mono text-[10px] text-zinc-600">
           {new Date(event.occurred_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
         </span>
       </div>
       <div className="mt-1.5 flex flex-wrap gap-1 text-[10px]">
-        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+        <span className="rounded-full bg-indigo-500/10 px-1.5 py-0.5 text-indigo-300">
           toolPolicy: {String(event.payload.toolPolicy ?? "?")}
         </span>
-        <span className="rounded bg-purple-100 px-1.5 py-0.5 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
+        <span className="rounded-full bg-violet-500/10 px-1.5 py-0.5 text-violet-300">
           memoryPolicy: {String(event.payload.memoryPolicy ?? "?")}
         </span>
         {event.payload.needsPlanning === true && (
-          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
-            needs planning
-          </span>
+          <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-amber-300">needs planning</span>
         )}
         {event.payload.background === true && (
-          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
-            background
-          </span>
+          <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-emerald-300">background</span>
         )}
       </div>
       {relevantGroups.length > 0 && (
         <div className="mt-1.5">
-          <p className="text-[10px] uppercase tracking-wide text-gray-400">Capability groups</p>
+          <p className="font-mono text-[10px] uppercase tracking-wide text-zinc-600">Capability groups</p>
           <div className="mt-0.5 flex flex-wrap gap-1">
             {relevantGroups.map((g) => (
-              <span key={g} className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+              <span key={g} className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-zinc-400">
                 {g}
               </span>
             ))}
@@ -79,10 +75,10 @@ function ClassificationRow({ event }: { event: EventBusEvent }) {
       )}
       {relevantTools.length > 0 && (
         <div className="mt-1.5">
-          <p className="text-[10px] uppercase tracking-wide text-gray-400">Tools bound this turn</p>
+          <p className="font-mono text-[10px] uppercase tracking-wide text-zinc-600">Tools bound this turn</p>
           <div className="mt-0.5 flex flex-wrap gap-1">
             {relevantTools.map((t) => (
-              <span key={t} className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+              <span key={t} className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-zinc-400">
                 {t}
               </span>
             ))}
@@ -115,12 +111,12 @@ function FeedbackForm({ sessionId }: { sessionId: string }) {
   };
 
   return (
-    <div className="border-b border-gray-200 p-3 dark:border-gray-700">
-      <p className="mb-2 text-xs font-medium text-gray-600 dark:text-gray-300">Leave feedback on this session</p>
+    <div className="border-b border-white/10 p-3.5">
+      <p className="mb-2 text-xs font-medium text-zinc-300">Leave feedback on this session</p>
       <select
         value={category}
         onChange={(e) => setCategory(e.target.value)}
-        className="mb-2 w-full rounded border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-600"
+        className="mb-2 w-full rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 text-xs text-zinc-200 outline-none focus:border-indigo-500/50"
       >
         <option value="behavior">Behavior</option>
         <option value="tool_use">Tool use</option>
@@ -132,17 +128,17 @@ function FeedbackForm({ sessionId }: { sessionId: string }) {
         onChange={(e) => setNote(e.target.value)}
         placeholder="What should Amy have done differently?"
         rows={3}
-        className="w-full resize-none rounded border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-600"
+        className="w-full resize-none rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500/50"
       />
       <button
         onClick={submit}
         disabled={status === "sending" || !note.trim()}
-        className="mt-2 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="mt-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
       >
         {status === "sending" ? "Sending…" : "Submit feedback"}
       </button>
-      {status === "sent" && <p className="mt-1 text-[10px] text-green-600 dark:text-green-400">Saved.</p>}
-      {status === "error" && <p className="mt-1 text-[10px] text-red-500">Couldn&apos;t reach event-bus.</p>}
+      {status === "sent" && <p className="mt-1 text-[10px] text-emerald-400">Saved.</p>}
+      {status === "error" && <p className="mt-1 text-[10px] text-rose-400">Couldn&apos;t reach event-bus.</p>}
     </div>
   );
 }
@@ -171,15 +167,13 @@ export function AmyLab() {
         isLoading={isLoading}
       />
       <div className="flex flex-1 flex-col">
-        <div className="flex items-center gap-1 border-b border-gray-200 px-4 py-2 dark:border-gray-700">
+        <div className="flex items-center gap-1 border-b border-white/10 px-4 py-2">
           {(["trace", "system-prompt"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`rounded px-3 py-1 text-sm ${
-                tab === t
-                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
-                  : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+              className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                tab === t ? "bg-indigo-500/10 font-medium text-indigo-300" : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
               }`}
             >
               {t === "trace" ? "Trace" : "System Prompt"}
@@ -189,12 +183,12 @@ export function AmyLab() {
         <div className="flex-1 overflow-y-auto p-4">
           {tab === "trace" && (
             <>
-              <p className="mb-3 text-xs text-gray-400">
+              <p className="mb-3 text-xs text-zinc-500">
                 Each turn&apos;s classify decision for this session - the dynamic half of what shapes Amy&apos;s system prompt.
                 For the full picture (tool calls, research pulled, etc.) see the activity log →
               </p>
               {classificationEvents.length === 0 && (
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-zinc-600">
                   {eventsState.isLoading ? "Loading…" : "No classified turns recorded for this session yet."}
                 </p>
               )}
@@ -208,22 +202,22 @@ export function AmyLab() {
 
           {tab === "system-prompt" && (
             <>
-              <p className="mb-3 text-xs text-gray-400">
+              <p className="mb-3 text-xs text-zinc-500">
                 Every named section chat-orchestrator&apos;s buildSystemPrompt assembles, in order. Sections marked
                 &quot;varies by turn&quot; change with this session&apos;s Trace tab above; the rest are effectively static.
               </p>
               <ul className="space-y-2">
                 {SYSTEM_PROMPT_SECTIONS.map((s) => (
-                  <li key={s.label} className="rounded border border-gray-200 p-2 dark:border-gray-700">
+                  <li key={s.label} className="rounded-xl border border-white/10 bg-zinc-900/40 p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{s.label}</p>
+                      <p className="text-sm font-medium text-zinc-200">{s.label}</p>
                       {s.dynamic && (
-                        <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                        <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-amber-300">
                           varies by turn
                         </span>
                       )}
                     </div>
-                    <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{s.description}</p>
+                    <p className="mt-0.5 text-xs text-zinc-500">{s.description}</p>
                   </li>
                 ))}
               </ul>
@@ -231,7 +225,7 @@ export function AmyLab() {
           )}
         </div>
       </div>
-      <div className="flex h-full w-96 flex-col border-l border-gray-200 dark:border-gray-700">
+      <div className="flex h-full w-96 flex-col border-l border-white/10">
         <FeedbackForm sessionId={activeSessionId} />
         <div className="flex-1 overflow-hidden">
           <EventLogPanel
