@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import type { Config } from "./config.js";
+import { getCodingTask } from "./lib/coding-orchestrator-client.js";
 
 let pool: Pool | undefined;
 
@@ -666,8 +667,13 @@ export interface ProjectRow {
   domain: string | null;
   status: string; // proposed | active | done | rejected
   origin: string; // amy_proposed | user_requested
+  activity_type: string; // research | coding
   research_queue_id: number | null;
   research_session_id: number | null;
+  // Opaque reference into coding-orchestrator's own coding_tasks database -
+  // no FK, resolved via that service's GET /tasks/:id, not a join.
+  coding_task_id: number | null;
+  target_repo_url: string | null; // coding only, optional
   document_id: number | null;
   created_at: string;
   approved_at: string | null;
@@ -676,27 +682,49 @@ export interface ProjectRow {
 
 export async function insertProject(
   config: Config,
-  input: { title: string; rationale: string; domain?: string; origin?: string },
+  input: {
+    title: string;
+    rationale: string;
+    domain?: string;
+    origin?: string;
+    activityType?: string;
+    targetRepoUrl?: string;
+  },
 ): Promise<ProjectRow> {
   const result = await getPool(config).query<ProjectRow>(
-    `INSERT INTO projects (title, rationale, domain, origin, status)
-     VALUES ($1, $2, $3, $4, 'proposed')
+    `INSERT INTO projects (title, rationale, domain, origin, activity_type, target_repo_url, status)
+     VALUES ($1, $2, $3, $4, $5, $6, 'proposed')
      RETURNING *`,
-    [input.title, input.rationale, input.domain || null, input.origin || "amy_proposed"],
+    [
+      input.title,
+      input.rationale,
+      input.domain || null,
+      input.origin || "amy_proposed",
+      input.activityType || "research",
+      input.targetRepoUrl || null,
+    ],
   );
   return result.rows[0];
 }
 
 export interface ProjectListRow extends ProjectRow {
   research_queue_status: string | null;
+  // Not from the SQL join below (coding_tasks lives in a different
+  // database) - filled in by listProjects after the query, one HTTP call
+  // per coding-activity row, so the dashboard gets the same "researching..."
+  // vs "ready to complete" parity for coding projects without the caller
+  // having to cross-reference a separate coding-tasks list itself.
+  coding_task_status: string | null;
+  coding_task_pr_url: string | null;
 }
 
 // LEFT JOINs research_queue so the dashboard can show "researching..." vs
-// "ready to complete" without a second round trip per project.
+// "ready to complete" without a second round trip per research-activity
+// project.
 export async function listProjects(config: Config, status?: string): Promise<ProjectListRow[]> {
   const where = status ? `WHERE p.status = $1` : "";
   const params = status ? [status] : [];
-  const result = await getPool(config).query<ProjectListRow>(
+  const result = await getPool(config).query<Omit<ProjectListRow, "coding_task_status" | "coding_task_pr_url">>(
     `SELECT p.*, rq.status AS research_queue_status
      FROM projects p
      LEFT JOIN research_queue rq ON rq.id = p.research_queue_id
@@ -704,7 +732,21 @@ export async function listProjects(config: Config, status?: string): Promise<Pro
      ORDER BY p.created_at DESC`,
     params,
   );
-  return result.rows;
+
+  const rows: ProjectListRow[] = await Promise.all(
+    result.rows.map(async (row) => {
+      if (row.activity_type !== "coding" || !row.coding_task_id) {
+        return { ...row, coding_task_status: null, coding_task_pr_url: null };
+      }
+      try {
+        const task = await getCodingTask(config, row.coding_task_id);
+        return { ...row, coding_task_status: task?.status ?? null, coding_task_pr_url: task?.pr_url ?? null };
+      } catch {
+        return { ...row, coding_task_status: null, coding_task_pr_url: null };
+      }
+    }),
+  );
+  return rows;
 }
 
 export async function getProject(config: Config, id: number): Promise<ProjectRow | undefined> {
@@ -719,6 +761,7 @@ export async function updateProject(
     status: string;
     researchQueueId: number;
     researchSessionId: number;
+    codingTaskId: number;
     documentId: number;
     approvedAt: Date;
   }>,
@@ -727,6 +770,7 @@ export async function updateProject(
   if (fields.status !== undefined) entries.push(["status", fields.status]);
   if (fields.researchQueueId !== undefined) entries.push(["research_queue_id", fields.researchQueueId]);
   if (fields.researchSessionId !== undefined) entries.push(["research_session_id", fields.researchSessionId]);
+  if (fields.codingTaskId !== undefined) entries.push(["coding_task_id", fields.codingTaskId]);
   if (fields.documentId !== undefined) entries.push(["document_id", fields.documentId]);
   if (fields.approvedAt !== undefined) entries.push(["approved_at", fields.approvedAt]);
   if (entries.length === 0) return getProject(config, id);

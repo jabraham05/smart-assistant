@@ -306,7 +306,11 @@ services:
       # notify.ts's logAwaitingDigest (deferred-notify path for
       # background=true research) - see event-bus's /overnight-digest-check.
       EVENT_BUS_URL: http://event-bus:3004
-    depends_on: [postgres, ollama]
+      # engine/consolidate.ts / lib/coding-orchestrator-client.ts - a
+      # coding-activity project's approve/complete steps call
+      # coding-orchestrator directly, not through the old n8n webhook shim.
+      CODING_ORCHESTRATOR_URL: http://coding-orchestrator:3003
+    depends_on: [postgres, ollama, coding-orchestrator]
     networks: [assistant-net]
 
   # Self-hosted cross-conversation memory retrieval - deliberately its own

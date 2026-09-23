@@ -230,3 +230,21 @@ added alongside the existing `source` one - both here and in
 `event-bus`'s own `GET /events`). No actions on this card yet - it exists
 purely so captured feedback is actually visible somewhere, not just a row
 in Postgres.
+
+## 2026-09-23 — `/amy` gains a Coding Tasks card + activity-aware Proposed/Active cards
+
+Full design/verification in [`docs/knowledge-engine.md`](knowledge-engine.md)'s
+dated entry - this covers only the chat-ui half. New
+`lib/coding-orchestrator-client.ts` + `GET /api/coding-tasks` (same
+direct-fetch-to-internal-service proxy pattern as every other client here)
+backs a new read-only "Coding Tasks" card on `ProjectsDashboard.tsx` -
+every `coding_tasks` row, whether or not it's linked to a `projects` row,
+so a `code_task` fired directly mid-chat shows up here too, not just
+project-approved ones.
+
+The `Project` type and the Proposed/Active cards gained `activity_type`
+awareness: a small badge per row (research vs coding), and an Active
+coding-type row links to its PR (`coding_task_pr_url`, enriched
+server-side by knowledge-engine's `listProjects` since `coding_tasks`
+lives in a different database with no SQL join available) instead of
+`/research/[id]`. The grid moved from 3 to 4 cards (2x2 on desktop).

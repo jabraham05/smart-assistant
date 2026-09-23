@@ -31,7 +31,7 @@ export const GROUPS: Record<ToolGroup, string[]> = {
   media: ["spotify_control"],
   scheduling: ["calendar_event"],
   info: ["weather_get", "memory_recall"],
-  "self-growth": ["skill_propose", "code_task", "code_task_status"],
+  "self-growth": ["skill_propose", "code_task", "code_task_status", "project_propose"],
   dashboard: ["dashboard_control"],
   web: ["web_search"],
   knowledge: ["knowledge_search", "knowledge_ingest"],
@@ -44,8 +44,9 @@ const CLASSIFIER_SYSTEM_PROMPT =
   "message. Categories: 'media' (music/Spotify playback control), 'scheduling' (calendar events), " +
   "'info' (weather, or recalling facts/preferences ABOUT THE USER THEMSELVES specifically - their " +
   "traits, likes, past statements - never a document, manual, or reference material), 'self-growth' " +
-  "(proposing a new skill/tool, starting a coding task on a repo, or checking on a coding task's " +
-  "progress), 'dashboard' (moving, resizing, showing, or hiding widgets on the smart-mirror dashboard), " +
+  "(proposing a new skill/tool, starting a coding task on a repo, checking on a coding task's " +
+  "progress, or proposing a longer-term coding project for approval before work starts), 'dashboard' " +
+  "(moving, resizing, showing, or hiding widgets on the smart-mirror dashboard), " +
   "'web' (searching the live web for current information, news, or facts that could have changed since " +
   "training, OR looking something up online in general such as finding products, links, or " +
   "recommendations - e.g. 'find me a good pair of headphones', 'give me some links for X'), " +

@@ -63,6 +63,39 @@ app.get("/task/status", async (req, res) => {
   }
 });
 
+// GET /tasks?status=&limit= - list, for chat-ui's /amy dashboard (Coding
+// Tasks card) and knowledge-engine's project-completion check for
+// coding-activity projects. No list capability existed before this - only
+// "create one" and "check one task's own status by session".
+app.get("/tasks", async (req, res) => {
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 50;
+  const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 50;
+
+  try {
+    const tasks = await db.listTasks(config, status, limit);
+    res.json({ tasks });
+  } catch (e) {
+    console.error("failed to list coding tasks:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// GET /tasks/:id - single task by id (not by session), for
+// knowledge-engine's project-completion check.
+app.get("/tasks/:id", async (req, res) => {
+  const taskId = Number(req.params.id);
+  if (!Number.isInteger(taskId)) {
+    return res.status(400).json({ error: "invalid task id" });
+  }
+  try {
+    const task = await db.getTask(config, taskId);
+    res.json(task);
+  } catch (e) {
+    res.status(404).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 app.listen(config.port, "0.0.0.0", () => {
   console.log(`coding-orchestrator listening on :${config.port}`);
 });

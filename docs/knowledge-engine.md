@@ -600,3 +600,61 @@ real `research_session_id`; clicked "Mark done" (`POST /projects/:id/complete`)
 coherent Ollama-synthesized write-up, `/research/{id}` rendered it above
 the findings list, and the project reached `status='done'` with
 `document_id` set.
+
+## 2026-09-23 — `projects` gains `activity_type`: coding, not just research
+
+Direct follow-up to the projects feature above. The user asked to also see
+and actually use the existing coding agent (`coding-orchestrator` - a real
+Planner/Coder/Tester/Reviewer loop in an isolated sandbox, previously only
+reachable via `code_task`'s immediate, ungated, direct-in-chat path) as a
+second kind of thing a project can wrap - the "second real instance" the
+research-only design deliberately waited for before generalizing.
+
+`projects` gained `activity_type` ('research' | 'coding'), `coding_task_id`
+(opaque - `coding_tasks` lives in a separate database, no FK, resolved via
+`GET /tasks/:id`) and `target_repo_url` (`postgres/init/18-add-project-activity-type.sql`).
+`POST /projects/:id/approve` and `POST /projects/:id/complete` both branch
+on `activity_type`; the coding branch calls `coding-orchestrator` **directly**
+(new `lib/coding-orchestrator-client.ts`), not through the old n8n webhook
+shim `code_task` still uses - a new caller straight into the same service,
+consistent with this project's ongoing direction of retiring n8n
+intermediary hops rather than adding a second one onto an old shim.
+
+**A real naming collision, not a bug**: `coding_tasks.status` already uses
+the value `'proposed'` for something different from `projects.status='proposed'`
+- it means "Reviewer approved, tests passed, diff/PR ready for a human to
+review the code" (a terminal success state, `coding-orchestrator/src/pipeline.ts`'s
+`finalizeTask`), not "awaiting a human's decision to even start." Both
+pre-existing/load-bearing where they already live; not renamed, just kept
+distinct as `coding_task_status` next to `project.status` (same convention
+`research_queue_status` already established).
+
+**`consolidateProject` now branches too** (`engine/consolidate.ts`): the
+research path is unchanged (updates the *existing* document already tied
+to `research_sessions.document_id`). The coding path is genuinely
+different - there's no pre-existing document for a coding task, so it
+creates one (`insertDocument({kind:'project', sourceType:'coding_task'})`),
+synthesizing from the task's `task_description`/`diff`/`test_output`/
+`reviewer_reason`/`pr_url` (diff/test output capped in the prompt - one
+bounded synthesis call, not a multi-step run) rather than research findings.
+
+**Small robustness fix applied to both branches while touching this code**:
+`/projects/:id/complete` previously treated a *failed* research_queue entry
+identically to "still researching" (`status !== 'done'` → generic "research
+not finished yet" 409, forever, for a permanently failed topic). Both
+branches now distinguish a real terminal failure from "still in progress"
+and surface the actual reason (`reviewer_reason`/`latest_status` for
+coding, a distinct message for a failed research queue entry).
+
+**Verified live, end to end, with real data**: proposed a coding-activity
+project directly; it rendered correctly via the real `/amy` API path;
+approved it - a real `coding_tasks` row was created (`POST /task` fired
+directly, no n8n hop) and the pipeline actually ran through all 3 real
+attempts; it reached a genuine terminal failure
+(`needs_review_failed` - the Tester ran out of iterations); confirmed
+`/projects/:id/complete` correctly surfaced the real reviewer reason
+instead of a generic "not finished yet." The success path (consolidation
+producing a new document) is implemented the same way the already-verified
+research path is, but wasn't independently exercised this pass - this
+specific test task happened to fail for real, unrelated reasons (the same
+kind of failure several pre-existing real coding_tasks rows already show).

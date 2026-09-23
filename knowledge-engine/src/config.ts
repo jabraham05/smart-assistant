@@ -51,6 +51,11 @@ export interface Config {
   // background-classified research) - the overnight digest scanner reads
   // this back later. See event-bus/src/index.ts's /overnight-digest-check.
   eventBusUrl: string;
+  // engine/consolidate.ts / lib/coding-orchestrator-client.ts - a
+  // coding-activity project's approve step calls coding-orchestrator
+  // directly (not through the old n8n webhook shim skills-mcp's code_task
+  // tool still uses) - same always-on-infra tier as eventBusUrl above.
+  codingOrchestratorUrl: string;
   // engine/research-queue.ts - the self-learning research queue. Reject
   // (not evict) a new enqueue once this many rows are pending/researching -
   // a full queue means the drain rate needs attention, not silent data
@@ -103,6 +108,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     honchoApiKey: env.HONCHO_API_KEY || undefined,
     honchoWorkspaceId: env.HONCHO_WORKSPACE_ID || "smart-assistant",
     eventBusUrl: env.EVENT_BUS_URL || "http://event-bus:3004",
+    codingOrchestratorUrl: env.CODING_ORCHESTRATOR_URL || "http://coding-orchestrator:3003",
     researchQueueMaxPending: env.RESEARCH_QUEUE_MAX_PENDING ? Number(env.RESEARCH_QUEUE_MAX_PENDING) : 50,
     researchQueueDedupMinOverlap: env.RESEARCH_QUEUE_DEDUP_MIN_OVERLAP ? Number(env.RESEARCH_QUEUE_DEDUP_MIN_OVERLAP) : 2,
     researchQueueDrainLimit: env.RESEARCH_QUEUE_DRAIN_LIMIT ? Number(env.RESEARCH_QUEUE_DRAIN_LIMIT) : 3,

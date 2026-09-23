@@ -19,6 +19,8 @@ export interface CodingTaskRow {
   reviewer_verdict: string | null;
   reviewer_reason: string | null;
   pr_url: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface SubmitTaskInput {
@@ -79,6 +81,25 @@ export async function getTask(config: Config, taskId: number): Promise<CodingTas
     throw new Error(`coding task ${taskId} not found`);
   }
   return result.rows[0];
+}
+
+// Powers GET /tasks - no list capability existed before this (only
+// "create one" and "check one task's own status by session"). Used by
+// chat-ui's /amy dashboard (Coding Tasks card) and, indirectly, by
+// knowledge-engine's project-completion check for coding-activity projects.
+export async function listTasks(config: Config, status?: string, limit = 50): Promise<CodingTaskRow[]> {
+  if (status) {
+    const result = await getPool(config).query<CodingTaskRow>(
+      `SELECT * FROM coding_tasks WHERE status = $1 ORDER BY updated_at DESC LIMIT $2`,
+      [status, limit],
+    );
+    return result.rows;
+  }
+  const result = await getPool(config).query<CodingTaskRow>(
+    `SELECT * FROM coding_tasks ORDER BY updated_at DESC LIMIT $1`,
+    [limit],
+  );
+  return result.rows;
 }
 
 export async function getLatestTaskForSession(
