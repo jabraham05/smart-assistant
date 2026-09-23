@@ -23,6 +23,12 @@ export const ACTION_TOOLS = [
   "skill_propose",
   "research_task",
   "project_propose",
+  // Real gap found via live testing: task_context_manage is always bound
+  // (see ALWAYS_BOUND_TOOLS below), so on a turn where nothing else got
+  // classified/bound, "I've created a task for X" with no real call
+  // slipped past confabulation detection entirely - hadActionToolBound
+  // was false because this wasn't in the list, short-circuiting the check.
+  "task_context_manage",
 ];
 
 // Real gap found via live testing: "I've proposed a project for X" slipped
@@ -88,8 +94,18 @@ export function hasUnsatisfiedRequiredTool(
 ): boolean {
   if (toolPolicy !== "required") return false;
   const boundCapabilityTools = boundTools.filter((t) => !ALWAYS_BOUND_TOOLS.includes(t));
-  if (boundCapabilityTools.length === 0) return false;
-  return !boundCapabilityTools.some((t) => calledTools.includes(t));
+  if (boundCapabilityTools.length > 0) {
+    return !boundCapabilityTools.some((t) => calledTools.includes(t));
+  }
+  // Real gap found via live testing: "create a task to do X" has no
+  // classifier category of its own (task_context_manage is always bound,
+  // not tied to a group), so boundCapabilityTools was always empty for
+  // these turns and this check short-circuited to false unconditionally -
+  // the model could say "I'll keep that in mind" and never call anything,
+  // with no deterministic backstop at all. If nothing else was bound but
+  // task_context_manage was, and toolPolicy=required, that's still an
+  // unsatisfied requirement.
+  return boundTools.includes("task_context_manage") && !calledTools.includes("task_context_manage");
 }
 
 export const REQUIRED_TOOL_RETRY_NUDGE =

@@ -39,6 +39,11 @@ app.use(express.json({ limit: "2mb" }));
 // pointed at.
 const NODE_NAME = "AI Agent";
 
+// Bounds the tool-error retry loop below - real fixes sometimes take more
+// than one attempt, but this must never become unbounded (cost, latency,
+// and a model that's genuinely stuck shouldn't loop forever).
+const MAX_TOOL_ERROR_RETRIES = 3;
+
 // Readable, client-facing trace of what happened this turn - additive to the
 // begin/item/end/error contract above (both real clients only ever look for
 // type:"item", so a new type:"trace" line is silently ignored by discord-bot
@@ -60,7 +65,11 @@ export type ChatTraceEvent =
       memories: { content: string; domain: string | null; score: number }[];
     }
   | ({ attempt: number } & AgentTraceEvent)
-  | { kind: "retry"; attempt: number; reason: "empty_output" | "search_intent" | "confabulation" | "required_tool" };
+  | {
+      kind: "retry";
+      attempt: number;
+      reason: "empty_output" | "search_intent" | "confabulation" | "required_tool" | "tool_error";
+    };
 
 function makeEmitter(res: express.Response) {
   let itemIndex = 0;
@@ -236,9 +245,19 @@ app.post("/webhook", async (req, res) => {
 
     const calledTools: string[] = [];
     let attempt = 0;
+    // Reset per attempt in runTurn - reflects only the LAST tool_result of
+    // whichever attempt most recently ran, so the tool-error retry below
+    // can tell whether the turn ended on an unresolved failure. Held in a
+    // mutable container (not reassigning a bare `let`) so TypeScript
+    // doesn't over-narrow its type across the intervening async runTurn
+    // calls between reads.
+    const lastToolResultRef: { current: { name: string; result: string; isError: boolean } | null } = {
+      current: null,
+    };
     const runTurn = (userPrompt: string) => {
       attempt++;
       const thisAttempt = attempt;
+      lastToolResultRef.current = null;
       return runAgentLoop({
         ollamaHost: config.ollamaHost,
         model: config.chatModel,
@@ -250,7 +269,10 @@ app.post("/webhook", async (req, res) => {
         numCtx: config.numCtx,
         label: sessionId,
         onToolCalls: (names) => calledTools.push(...names),
-        onTrace: (event) => emit("trace", undefined, { ...event, attempt: thisAttempt }),
+        onTrace: (event) => {
+          emit("trace", undefined, { ...event, attempt: thisAttempt });
+          if (event.kind === "tool_result") lastToolResultRef.current = event;
+        },
       });
     };
 
@@ -267,6 +289,31 @@ app.post("/webhook", async (req, res) => {
     let finalText = result.output.trim()
       ? result.output
       : "No response was generated for that message — try asking again.";
+
+    // Deterministic tool-error retry, up to a small cap (unlike every
+    // other check here, this one loops more than once) - real gap found
+    // via live testing: agentMaxIterations already leaves plenty of room
+    // to retry within a single attempt, but the model would see a tool
+    // call fail, narrate "I'll check again" as if that were a complete
+    // answer, and just stop there - leaving the user to manually nudge it
+    // forward turn after turn. Feeds back the actual error text each time
+    // (not just a generic nudge) since a real fix needs to know what
+    // failed, and a genuine multi-step fix may take more than one attempt.
+    for (
+      let toolErrorRetries = 0;
+      toolErrorRetries < MAX_TOOL_ERROR_RETRIES && lastToolResultRef.current?.isError;
+      toolErrorRetries++
+    ) {
+      const failed = lastToolResultRef.current;
+      emit("trace", undefined, { kind: "retry", attempt: attempt + 1, reason: "tool_error" });
+      result = await runTurn(
+        chatInput +
+          ` (Your last "${failed.name}" call failed: ${failed.result} — diagnose the cause, make the ` +
+          `minimal necessary change, and call it again right now before replying. Don't just say ` +
+          `you'll check again later.)`,
+      );
+      if (result.output.trim()) finalText = result.output;
+    }
 
     // One-shot unfulfilled-search-intent retry.
     if (hasUnfulfilledSearchIntent(finalText, boundToolNames, calledTools)) {

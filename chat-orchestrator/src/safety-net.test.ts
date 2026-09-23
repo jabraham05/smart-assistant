@@ -57,8 +57,23 @@ test("hasUnsatisfiedRequiredTool does not flag toolPolicy=optional", () => {
   assert.equal(hasUnsatisfiedRequiredTool("optional", ["weather_get"], []), false);
 });
 
-test("hasUnsatisfiedRequiredTool does not flag when only always-bound tools are exposed", () => {
-  assert.equal(hasUnsatisfiedRequiredTool("required", ["calculate", "task_context_manage"], []), false);
+test("hasUnsatisfiedRequiredTool does not flag when only calculate is exposed (no task-creation signal)", () => {
+  assert.equal(hasUnsatisfiedRequiredTool("required", ["calculate"], []), false);
+});
+
+// Real gap found via live testing: "create a task to do X" has no
+// classifier category of its own, so this used to short-circuit to false
+// unconditionally - the model could talk about creating a task and never
+// actually call task_context_manage, with no backstop at all.
+test("hasUnsatisfiedRequiredTool flags task_context_manage bound-but-uncalled even with no other capability tool", () => {
+  assert.equal(hasUnsatisfiedRequiredTool("required", ["calculate", "task_context_manage"], []), true);
+});
+
+test("hasUnsatisfiedRequiredTool does not flag when task_context_manage was actually called", () => {
+  assert.equal(
+    hasUnsatisfiedRequiredTool("required", ["calculate", "task_context_manage"], ["task_context_manage"]),
+    false,
+  );
 });
 
 test("hasUnsatisfiedRequiredTool is satisfied if any bound capability tool was called, not necessarily all", () => {

@@ -56,6 +56,19 @@ export function buildSystemPrompt(input: {
     "documentUrl (or similar link to fuller detail), mention it so the user can read more if they " +
     "want to, instead of trying to fit everything into the chat reply itself.";
 
+  // Real gap found via live testing: agentMaxIterations already leaves
+  // plenty of room to retry a failed tool call within the same reply, but
+  // the model would just narrate "I'll check again" or "let me try that
+  // later" and stop, leaving the user to manually nudge it forward. A
+  // deterministic backstop retries with the actual error text (see
+  // index.ts's tool-error retry loop) - this is the prompt half, since
+  // most cases should be resolved by the model itself well before that
+  // backstop ever needs to fire.
+  const toolErrorLine =
+    "If a tool call returns an error, don't just tell the user you'll check again later - diagnose " +
+    "what went wrong, make the minimal necessary change, and call it again yourself right now, in " +
+    "this same reply, before answering.";
+
   const userCardLine = input.userCard.length
     ? `What you know about the user: ${input.userCard.join("; ")}`
     : "";
@@ -96,6 +109,7 @@ export function buildSystemPrompt(input: {
     input.personaSystemPrompt,
     dateLine,
     responseStyleLine,
+    toolErrorLine,
     userCardLine,
     userCardForAmyLine,
     relevantMemoriesLine,
