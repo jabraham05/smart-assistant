@@ -8,7 +8,7 @@ import { classifyRelevantTools } from "./classify-tools.js";
 import { formatSkillsCatalog } from "./skills-catalog.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { SkillsMcpClient } from "./mcp-client.js";
-import { searchMemory, ingestMemory } from "./memory-engine-client.js";
+import { searchMemory, ingestMemory, isRelevantMemory } from "./memory-engine-client.js";
 import { enqueueResearchTopic } from "./knowledge-engine-client.js";
 import { matchTaskContexts, matchGoals } from "./event-bus-client.js";
 import { runAgentLoop, type AgentTool, type AgentTraceEvent } from "./agent-loop.js";
@@ -156,7 +156,17 @@ app.post("/webhook", async (req, res) => {
     // regardless (session-memory.appendTurn below is unconditional); this
     // just decides how much of it actually gets read into context here.
     const history = memoryPolicy === "none" ? fullHistory.slice(-6) : fullHistory;
-    const relevantMemories = memoryPolicy === "none" ? [] : memoryResults.map((m) => m.content);
+    // Real bug found live: searchMemory's topK is pure top-K, not a real
+    // relevance cutoff, so a stale/unrelated memory from a past
+    // conversation could still be in the top 5 purely because nothing
+    // better existed - isRelevantMemory (same gate as knowledge-engine's
+    // decideRoute) filters those out before they reach the prompt.
+    const relevantMemories =
+      memoryPolicy === "none"
+        ? []
+        : memoryResults
+            .filter((m) => isRelevantMemory(m, config.memoryMinRelevanceScore, config.memoryMinKeywordOverlap))
+            .map((m) => m.content);
 
     console.log(
       `chat classify [${sessionId}]: groups=${relevantGroups.join(",") || "(none)"} ` +

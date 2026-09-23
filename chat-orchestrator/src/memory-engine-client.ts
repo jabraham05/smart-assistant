@@ -8,6 +8,12 @@ export interface MemorySearchResult {
   taskContextId: number | null;
   createdAt: string;
   score: number;
+  // See memory-engine's hybridSearchMemory/knowledge-engine's router.ts:
+  // a recency-boosted RRF score alone can't tell a genuine match from an
+  // unrelated "best of a bad bunch" - isRelevantMemory below also checks
+  // real lexeme overlap with the query.
+  keywordOverlapCount: number;
+  queryLexemeCount: number;
 }
 
 // Self-hosted replacement for a Honcho-dialectic-based "what do I know
@@ -33,6 +39,20 @@ export async function searchMemory(config: Config, query: string, topK = 5): Pro
     console.error("memory-engine search failed:", e);
     return [];
   }
+}
+
+// Same two-signal gate as knowledge-engine's router.ts decideRoute(), for
+// the same reason: a recency-boosted RRF score alone can't tell a genuine
+// match from an unrelated "best of a bad bunch" result that only ranked
+// because nothing better existed for this query. Deliberately a plain
+// threshold check, not an LLM call - same "no model in the classification
+// path" reasoning as classify.ts/decideRoute. Skips the overlap check
+// entirely when the query itself has no significant lexemes, same as
+// decideRoute - there's no real signal to check in that case.
+export function isRelevantMemory(result: MemorySearchResult, minScore: number, minKeywordOverlap: number): boolean {
+  if (result.score < minScore) return false;
+  if (result.queryLexemeCount > 0 && result.keywordOverlapCount < minKeywordOverlap) return false;
+  return true;
 }
 
 export async function ingestMemory(
