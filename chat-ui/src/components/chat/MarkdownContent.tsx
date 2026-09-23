@@ -10,16 +10,16 @@ import type { Components } from "react-markdown";
 // producing correct markdown (see research_task_status's documentUrl
 // fix) - nothing on the client ever rendered it.
 //
-// `isUser` swaps link/code colors for the user's solid blue bubble, where
-// the assistant-bubble palette (blue-600/gray-100) would either vanish
-// against the background or clash with it.
+// `isUser` swaps link/code colors for the user's solid indigo bubble,
+// where the assistant-bubble palette would either vanish against the
+// background or clash with it.
 export function MarkdownContent({ content, isUser }: { content: string; isUser: boolean }) {
   const linkClass = isUser
-    ? "underline decoration-blue-200 hover:decoration-white"
-    : "text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300";
+    ? "underline decoration-indigo-200/60 hover:decoration-white"
+    : "text-indigo-400 underline decoration-indigo-400/40 hover:text-indigo-300";
   const codeClass = isUser
-    ? "rounded bg-blue-700/50 px-1 py-0.5 font-mono text-[13px]"
-    : "rounded bg-black/10 px-1 py-0.5 font-mono text-[13px] dark:bg-white/10";
+    ? "rounded bg-white/15 px-1 py-0.5 font-mono text-[13px]"
+    : "rounded bg-white/10 px-1 py-0.5 font-mono text-[13px] text-zinc-200";
 
   const components: Components = {
     p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,

@@ -18,17 +18,20 @@ export default async function ResearchDetailPage({ params }: { params: Promise<{
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
-      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Research write-up</p>
-      <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-gray-100">{session.topic}</h1>
-      <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
+      <a href="/artifacts" className="text-xs text-indigo-400 hover:text-indigo-300">
+        ← Artifacts
+      </a>
+      <p className="mt-4 text-xs font-medium text-zinc-500">Research write-up</p>
+      <h1 className="mt-1 text-2xl font-semibold tracking-tight text-zinc-100">{session.topic}</h1>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
         <StatusBadge status={session.status} />
-        {session.domain && <span className="rounded bg-gray-100 px-2 py-0.5 dark:bg-gray-800">{session.domain}</span>}
-        <span>{new Date(session.updated_at).toLocaleString()}</span>
+        {session.domain && <span className="rounded-full bg-white/5 px-2 py-0.5 text-zinc-400">{session.domain}</span>}
+        <span className="font-mono text-[11px]">{new Date(session.updated_at).toLocaleString()}</span>
       </div>
 
       {documentMarkdown && (
-        <div className="mt-8 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
-          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        <div className="mt-8 rounded-xl border border-white/10 bg-zinc-900/40 p-5">
+          <p className="mb-3 font-mono text-[10px] font-medium uppercase tracking-wide text-zinc-500">
             Consolidated knowledge
           </p>
           <MarkdownContent content={documentMarkdown} isUser={false} />
@@ -36,10 +39,8 @@ export default async function ResearchDetailPage({ params }: { params: Promise<{
       )}
 
       {findings.length === 0 ? (
-        <p className="mt-8 text-sm text-gray-500 dark:text-gray-400">
-          {session.status === "running"
-            ? "Still researching - check back shortly."
-            : "No findings recorded for this topic yet."}
+        <p className="mt-8 text-sm text-zinc-500">
+          {session.status === "running" ? "Still researching - check back shortly." : "No findings recorded for this topic yet."}
         </p>
       ) : (
         <ol className="mt-8 space-y-6">
@@ -54,35 +55,33 @@ export default async function ResearchDetailPage({ params }: { params: Promise<{
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    complete: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
-    running: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-    failed: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+    complete: "bg-emerald-500/10 text-emerald-300",
+    running: "bg-indigo-500/10 text-indigo-300",
+    failed: "bg-rose-500/10 text-rose-300",
   };
   return (
-    <span className={`rounded px-2 py-0.5 font-medium ${styles[status] ?? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"}`}>
-      {status}
-    </span>
+    <span className={`rounded-full px-2 py-0.5 font-medium ${styles[status] ?? "bg-white/5 text-zinc-400"}`}>{status}</span>
   );
 }
 
 function FindingCard({ finding }: { finding: ResearchFinding }) {
   const confidenceStyles: Record<string, string> = {
-    confirmed: "text-green-700 dark:text-green-400",
-    contested: "text-amber-700 dark:text-amber-400",
+    confirmed: "text-emerald-400",
+    contested: "text-amber-400",
   };
   return (
-    <li className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-      <p className="text-sm leading-relaxed text-gray-800 dark:text-gray-200">{finding.claim}</p>
-      <p className={`mt-2 text-xs font-medium uppercase tracking-wide ${confidenceStyles[finding.confidence] ?? "text-gray-500 dark:text-gray-400"}`}>
+    <li className="rounded-xl border border-white/10 bg-zinc-900/40 p-4">
+      <p className="text-sm leading-relaxed text-zinc-200">{finding.claim}</p>
+      <p className={`mt-2 font-mono text-xs font-medium uppercase tracking-wide ${confidenceStyles[finding.confidence] ?? "text-zinc-500"}`}>
         {finding.confidence}
       </p>
       {finding.citations.length > 0 && (
-        <ul className="mt-3 space-y-1 border-t border-gray-100 pt-3 dark:border-gray-800">
+        <ul className="mt-3 space-y-1 border-t border-white/10 pt-3">
           {finding.citations.map((c, i) => (
-            <li key={i} className="text-xs text-gray-500 dark:text-gray-400">
+            <li key={i} className="text-xs text-zinc-500">
               {c.supports ? "" : "(disputed) "}
               {c.source_url ? (
-                <a href={c.source_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
+                <a href={c.source_url} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300 hover:underline">
                   {c.source_title || c.source_url}
                 </a>
               ) : (

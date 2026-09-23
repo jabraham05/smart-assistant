@@ -14,21 +14,19 @@ const RETRY_REASON_LABEL: Record<Extract<ChatTraceEvent, { kind: "retry" }>["rea
 function ReadableValue({ value }: { value: unknown }) {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length === 0) return <span className="text-gray-400">(no arguments)</span>;
+    if (entries.length === 0) return <span className="text-zinc-600">(no arguments)</span>;
     return (
       <dl className="space-y-0.5">
         {entries.map(([key, v]) => (
           <div key={key} className="flex gap-1.5 text-xs">
-            <dt className="shrink-0 font-medium text-gray-500 dark:text-gray-400">{key}:</dt>
-            <dd className="break-words text-gray-700 dark:text-gray-300">
-              {typeof v === "string" ? v : JSON.stringify(v)}
-            </dd>
+            <dt className="shrink-0 font-medium text-zinc-500">{key}:</dt>
+            <dd className="break-words text-zinc-300">{typeof v === "string" ? v : JSON.stringify(v)}</dd>
           </div>
         ))}
       </dl>
     );
   }
-  return <pre className="whitespace-pre-wrap break-words text-xs text-gray-700 dark:text-gray-300">{String(value)}</pre>;
+  return <pre className="whitespace-pre-wrap break-words text-xs text-zinc-300">{String(value)}</pre>;
 }
 
 function tryParseJson(text: string): unknown {
@@ -42,20 +40,17 @@ function tryParseJson(text: string): unknown {
 function ResultText({ text }: { text: string }) {
   const parsed = tryParseJson(text);
   if (parsed !== undefined) return <ReadableValue value={parsed} />;
-  return <p className="whitespace-pre-wrap break-words text-xs text-gray-700 dark:text-gray-300">{text}</p>;
+  return <p className="whitespace-pre-wrap break-words text-xs text-zinc-300">{text}</p>;
 }
 
 function ChipRow({ label, items }: { label: string; items: string[] }) {
   if (items.length === 0) return null;
   return (
     <div className="mt-1.5">
-      <p className="text-[10px] uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="font-mono text-[10px] uppercase tracking-wide text-zinc-600">{label}</p>
       <div className="mt-0.5 flex flex-wrap gap-1">
         {items.map((t) => (
-          <span
-            key={t}
-            className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600 dark:bg-gray-800 dark:text-gray-300"
-          >
+          <span key={t} className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-zinc-400">
             {t}
           </span>
         ))}
@@ -66,24 +61,16 @@ function ChipRow({ label, items }: { label: string; items: string[] }) {
 
 function ClassifyRow({ event }: { event: Extract<ChatTraceEvent, { kind: "classify" }> }) {
   return (
-    <li className="rounded border border-gray-200 p-2 dark:border-gray-700">
-      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">🧭 What Amy decided about this message</p>
+    <li className="rounded-lg border border-white/5 bg-white/[0.02] p-2.5">
+      <p className="text-xs font-medium text-zinc-400">🧭 What Amy decided about this message</p>
       <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
-        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-          toolPolicy: {event.toolPolicy}
-        </span>
-        <span className="rounded bg-purple-100 px-1.5 py-0.5 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
-          memoryPolicy: {event.memoryPolicy}
-        </span>
+        <span className="rounded-full bg-indigo-500/10 px-1.5 py-0.5 text-indigo-300">toolPolicy: {event.toolPolicy}</span>
+        <span className="rounded-full bg-violet-500/10 px-1.5 py-0.5 text-violet-300">memoryPolicy: {event.memoryPolicy}</span>
         {event.needsPlanning && (
-          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
-            needs planning
-          </span>
+          <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-amber-300">needs planning</span>
         )}
         {event.background && (
-          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
-            background
-          </span>
+          <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-emerald-300">background</span>
         )}
       </div>
 
@@ -92,11 +79,11 @@ function ClassifyRow({ event }: { event: Extract<ChatTraceEvent, { kind: "classi
 
       {event.openTasks.length > 0 && (
         <div className="mt-1.5">
-          <p className="text-[10px] uppercase tracking-wide text-gray-400">Open task context</p>
+          <p className="font-mono text-[10px] uppercase tracking-wide text-zinc-600">Open task context</p>
           <ul className="mt-0.5 space-y-0.5">
             {event.openTasks.map((t) => (
-              <li key={t.id} className="text-[11px] text-gray-600 dark:text-gray-300">
-                #{t.id} {t.objective} <span className="text-gray-400">({t.status})</span>
+              <li key={t.id} className="text-[11px] text-zinc-400">
+                #{t.id} {t.objective} <span className="text-zinc-600">({t.status})</span>
               </li>
             ))}
           </ul>
@@ -105,11 +92,11 @@ function ClassifyRow({ event }: { event: Extract<ChatTraceEvent, { kind: "classi
 
       {event.relevantGoals.length > 0 && (
         <div className="mt-1.5">
-          <p className="text-[10px] uppercase tracking-wide text-gray-400">Matched goals</p>
+          <p className="font-mono text-[10px] uppercase tracking-wide text-zinc-600">Matched goals</p>
           <ul className="mt-0.5 space-y-0.5">
             {event.relevantGoals.map((g) => (
-              <li key={g.id} className="text-[11px] text-gray-600 dark:text-gray-300">
-                {g.title} <span className="text-gray-400">({g.status})</span>
+              <li key={g.id} className="text-[11px] text-zinc-400">
+                {g.title} <span className="text-zinc-600">({g.status})</span>
               </li>
             ))}
           </ul>
@@ -118,17 +105,13 @@ function ClassifyRow({ event }: { event: Extract<ChatTraceEvent, { kind: "classi
 
       {event.memories.length > 0 && (
         <div className="mt-1.5">
-          <p className="text-[10px] uppercase tracking-wide text-gray-400">
+          <p className="font-mono text-[10px] uppercase tracking-wide text-zinc-600">
             Recalled from memory-engine {event.memoryPolicy === "none" && "(not used — memoryPolicy: none)"}
           </p>
           <ul className="mt-0.5 space-y-1">
             {event.memories.map((m, i) => (
-              <li
-                key={i}
-                className="rounded bg-gray-50 p-1.5 text-[11px] text-gray-600 dark:bg-gray-800/60 dark:text-gray-300"
-              >
-                <span className="text-gray-400">[{m.domain ?? "general"} · score {m.score.toFixed(2)}]</span>{" "}
-                {m.content}
+              <li key={i} className="rounded-lg bg-white/[0.03] p-1.5 text-[11px] text-zinc-400">
+                <span className="text-zinc-600">[{m.domain ?? "general"} · score {m.score.toFixed(2)}]</span> {m.content}
               </li>
             ))}
           </ul>
@@ -145,7 +128,7 @@ function TraceRow({ event }: { event: ChatTraceEvent }) {
 
   if (event.kind === "retry") {
     return (
-      <li className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
+      <li className="rounded-lg border border-amber-500/20 bg-amber-500/[0.06] p-2.5 text-xs text-amber-300">
         🔁 Attempt {event.attempt}: {RETRY_REASON_LABEL[event.reason]}
       </li>
     );
@@ -153,10 +136,10 @@ function TraceRow({ event }: { event: ChatTraceEvent }) {
 
   if (event.kind === "tool_call") {
     return (
-      <li className="rounded border border-gray-200 p-2 dark:border-gray-700">
-        <p className="text-xs font-medium text-gray-700 dark:text-gray-200">
-          🔧 Called <code className="text-blue-600 dark:text-blue-400">{event.name}</code>
-          <span className="ml-1 text-[10px] font-normal text-gray-400">
+      <li className="rounded-lg border border-white/5 bg-white/[0.02] p-2.5">
+        <p className="text-xs font-medium text-zinc-300">
+          🔧 Called <code className="text-indigo-400">{event.name}</code>
+          <span className="ml-1 font-mono text-[10px] font-normal text-zinc-600">
             attempt {event.attempt} · iteration {event.iteration}
           </span>
         </p>
@@ -170,14 +153,12 @@ function TraceRow({ event }: { event: ChatTraceEvent }) {
   // tool_result
   return (
     <li
-      className={`rounded border p-2 ${
-        event.isError
-          ? "border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-900/20"
-          : "border-gray-200 dark:border-gray-700"
+      className={`rounded-lg border p-2.5 ${
+        event.isError ? "border-rose-500/20 bg-rose-500/[0.06]" : "border-white/5 bg-white/[0.02]"
       }`}
     >
-      <p className="text-xs font-medium text-gray-700 dark:text-gray-200">
-        {event.isError ? "✕" : "↩"} <code className="text-blue-600 dark:text-blue-400">{event.name}</code> result
+      <p className="text-xs font-medium text-zinc-300">
+        {event.isError ? "✕" : "↩"} <code className="text-indigo-400">{event.name}</code> result
       </p>
       <div className="mt-1 max-h-48 overflow-auto">
         <ResultText text={event.result} />
@@ -198,30 +179,25 @@ export function TurnDebugPanel({
   const trace = assistantMessage.trace ?? [];
 
   return (
-    <div className="flex h-full w-[28rem] flex-col border-l border-gray-200 dark:border-gray-700">
-      <div className="flex items-center justify-between border-b border-gray-200 p-2 dark:border-gray-700">
-        <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Turn detail</span>
-        <button
-          onClick={onClose}
-          className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-        >
+    <div className="flex h-full w-[28rem] flex-col border-l border-white/10">
+      <div className="flex items-center justify-between border-b border-white/10 p-2.5">
+        <span className="text-xs font-medium text-zinc-300">Turn detail</span>
+        <button onClick={onClose} className="rounded-lg px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-white/5">
           Close
         </button>
       </div>
       <div className="flex-1 space-y-3 overflow-y-auto p-3">
         {userMessage && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">User said</p>
-            <p className="mt-1 rounded bg-gray-100 p-2 text-xs text-gray-800 dark:bg-gray-800 dark:text-gray-200">
-              {userMessage.content}
-            </p>
+            <p className="text-xs font-medium text-zinc-500">User said</p>
+            <p className="mt-1 rounded-lg bg-white/[0.03] p-2 text-xs text-zinc-200">{userMessage.content}</p>
           </div>
         )}
 
         <div>
-          <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">What happened</p>
+          <p className="mb-1 text-xs font-medium text-zinc-500">What happened</p>
           {trace.length === 0 ? (
-            <p className="text-xs text-gray-400">No tool calls or retries — a plain reply.</p>
+            <p className="text-xs text-zinc-600">No tool calls or retries — a plain reply.</p>
           ) : (
             <ul className="space-y-1.5">
               {trace.map((event, i) => (
@@ -232,15 +208,15 @@ export function TurnDebugPanel({
         </div>
 
         <div>
-          <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Final reply</p>
-          <p className="mt-1 whitespace-pre-wrap rounded bg-gray-100 p-2 text-xs text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+          <p className="text-xs font-medium text-zinc-500">Final reply</p>
+          <p className="mt-1 whitespace-pre-wrap rounded-lg bg-white/[0.03] p-2 text-xs text-zinc-200">
             {assistantMessage.content || "(empty)"}
           </p>
         </div>
 
         {assistantMessage.rawEvents && assistantMessage.rawEvents.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Raw stream</p>
+            <p className="text-xs font-medium text-zinc-500">Raw stream</p>
             <DebugPanel events={assistantMessage.rawEvents} />
           </div>
         )}

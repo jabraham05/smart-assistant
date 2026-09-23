@@ -72,29 +72,29 @@ export function ChatWindow() {
         isLoading={isLoading}
       />
       <div className="flex flex-1 flex-col">
-        <div className="flex items-center justify-end gap-4 border-b border-gray-200 px-4 py-2 dark:border-gray-700">
-          <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex items-center justify-end gap-4 border-b border-white/10 px-4 py-2.5">
+          <label className="flex items-center gap-1.5 text-xs text-zinc-500">
             <input
               type="checkbox"
               checked={sidePanel === "registry"}
               onChange={() => toggleSidePanel("registry")}
+              className="accent-indigo-500"
             />
             agent registry
           </label>
-          <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <label className="flex items-center gap-1.5 text-xs text-zinc-500">
             <input
               type="checkbox"
               checked={sidePanel === "events"}
               onChange={() => toggleSidePanel("events")}
+              className="accent-indigo-500"
             />
             session activity
           </label>
-          <span className="text-xs text-gray-400 dark:text-gray-500">Click a message for turn detail</span>
+          <span className="text-xs text-zinc-600">Click a message for turn detail</span>
         </div>
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
-          {isLoadingHistory && (
-            <p className="text-center text-xs text-gray-400">Loading conversation…</p>
-          )}
+          {isLoadingHistory && <p className="text-center text-xs text-zinc-600">Loading conversation…</p>}
           {messages.map((message, index) => (
             <MessageBubble
               key={message.id}

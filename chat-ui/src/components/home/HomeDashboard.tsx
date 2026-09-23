@@ -32,12 +32,10 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex min-h-0 flex-1 flex-col rounded-lg border border-gray-200 dark:border-gray-700">
-      <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2 dark:border-gray-700">
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{title}</h2>
-        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-          {count}
-        </span>
+    <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-white/10 bg-zinc-900/40 backdrop-blur-sm">
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <h2 className="text-sm font-medium text-zinc-200">{title}</h2>
+        <span className="rounded-full bg-white/5 px-2 py-0.5 font-mono text-[11px] text-zinc-500">{count}</span>
       </div>
       <div className="flex-1 overflow-y-auto p-3">{children}</div>
     </section>
@@ -45,16 +43,14 @@ function Card({
 }
 
 function EmptyRow({ text }: { text: string }) {
-  return <p className="text-xs text-gray-400">{text}</p>;
+  return <p className="px-1 py-1 text-xs text-zinc-600">{text}</p>;
 }
 
 function GoalRow({ goal }: { goal: Goal }) {
   return (
-    <li className="rounded border border-gray-200 p-2 dark:border-gray-700">
-      <p className="text-sm text-gray-900 dark:text-gray-100">{goal.title}</p>
-      {goal.description && (
-        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{goal.description}</p>
-      )}
+    <li className="rounded-lg border border-white/5 bg-white/[0.02] p-2.5">
+      <p className="text-sm text-zinc-100">{goal.title}</p>
+      {goal.description && <p className="mt-0.5 text-xs text-zinc-500">{goal.description}</p>}
     </li>
   );
 }
@@ -78,13 +74,13 @@ function TodoRow({
   };
 
   return (
-    <li className="rounded border border-gray-200 p-2 dark:border-gray-700">
-      <div className="flex items-start gap-2">
+    <li className="group rounded-lg border border-white/5 bg-white/[0.02] p-2.5 transition-colors hover:border-white/10">
+      <div className="flex items-start gap-2.5">
         <input
           type="checkbox"
           checked={done}
           onChange={onToggleDone}
-          className="mt-0.5"
+          className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer rounded border-white/20 bg-white/5 accent-indigo-500"
           title={done ? "Mark not done" : "Mark done"}
         />
         <div className="min-w-0 flex-1">
@@ -95,23 +91,25 @@ function TodoRow({
               onChange={(e) => setDraft(e.target.value)}
               onBlur={commit}
               onKeyDown={(e) => e.key === "Enter" && commit()}
-              className="w-full rounded border border-gray-300 bg-transparent px-1 py-0.5 text-sm dark:border-gray-600"
+              className="w-full rounded border border-indigo-500/40 bg-white/[0.04] px-1.5 py-0.5 text-sm text-zinc-100 outline-none"
             />
           ) : (
             <p
               onClick={() => setEditing(true)}
-              className={`cursor-text text-sm ${done ? "text-gray-400 line-through" : "text-gray-900 dark:text-gray-100"}`}
+              className={`cursor-text text-sm ${done ? "text-zinc-600 line-through" : "text-zinc-100"}`}
             >
               {task.objective}
             </p>
           )}
-          <div className="mt-0.5 flex items-center gap-1.5">
-            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="mt-1 flex items-center gap-1.5">
+            <span
+              className={`shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide ${
+                task.source === "user" ? "bg-indigo-500/10 text-indigo-300" : "bg-white/5 text-zinc-500"
+              }`}
+            >
               {task.source === "user" ? "you" : "amy"}
             </span>
-            {task.next_action && !done && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">Next: {task.next_action}</p>
-            )}
+            {task.next_action && !done && <p className="text-xs text-zinc-500">Next: {task.next_action}</p>}
           </div>
         </div>
       </div>
@@ -121,23 +119,23 @@ function TodoRow({
 
 function EventRow({ event }: { event: UpcomingEvent }) {
   return (
-    <li className="rounded border border-gray-200 p-2 dark:border-gray-700">
-      <p className="text-sm text-gray-900 dark:text-gray-100">{event.summary || "(untitled event)"}</p>
-      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{formatEventTime(event)}</p>
+    <li className="rounded-lg border border-white/5 bg-white/[0.02] p-2.5">
+      <p className="text-sm text-zinc-100">{event.summary || "(untitled event)"}</p>
+      <p className="mt-0.5 font-mono text-[11px] text-zinc-500">{formatEventTime(event)}</p>
     </li>
   );
 }
 
 function ActivityRow({ event }: { event: { id: number; source: string; type: string; occurred_at: string } }) {
   return (
-    <li className="rounded border border-gray-200 p-2 text-xs dark:border-gray-700">
+    <li className="rounded-lg border border-white/5 bg-white/[0.02] p-2.5 text-xs">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-gray-700 dark:text-gray-300">{event.type.replace(/_/g, " ")}</span>
-        <span className="shrink-0 text-[10px] text-gray-400">
+        <span className="text-zinc-300">{event.type.replace(/_/g, " ")}</span>
+        <span className="shrink-0 font-mono text-[10px] text-zinc-600">
           {new Date(event.occurred_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
         </span>
       </div>
-      <span className="text-[10px] uppercase tracking-wide text-gray-400">{event.source}</span>
+      <span className="font-mono text-[10px] uppercase tracking-wide text-zinc-600">{event.source}</span>
     </li>
   );
 }
@@ -190,9 +188,12 @@ export function HomeDashboard() {
   const openTodos = (summary?.openTasks ?? []).filter((t) => t.status !== "done");
 
   return (
-    <div className="flex h-full flex-col p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Home</h1>
+    <div className="flex h-full flex-col p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-zinc-100">Home</h1>
+          <p className="mt-0.5 text-xs text-zinc-500">What&apos;s on your plate right now.</p>
+        </div>
         <button
           onClick={() => {
             refresh();
@@ -200,13 +201,13 @@ export function HomeDashboard() {
             refreshProjects();
           }}
           disabled={isLoading}
-          className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+          className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-zinc-300 transition-colors hover:bg-white/5 disabled:opacity-40"
         >
           {isLoading ? "Refreshing…" : "Refresh"}
         </button>
       </div>
 
-      {error && <p className="mb-3 text-xs text-red-500">{error}</p>}
+      {error && <p className="mb-3 text-xs text-rose-400">{error}</p>}
 
       <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
         <Card title="Todos" count={openTodos.length}>
@@ -222,12 +223,12 @@ export function HomeDashboard() {
               onChange={(e) => setNewTodo(e.target.value)}
               placeholder="Add a todo…"
               disabled={isAdding}
-              className="min-w-0 flex-1 rounded border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-600"
+              className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30"
             />
             <button
               type="submit"
               disabled={isAdding || !newTodo.trim()}
-              className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
             >
               Add
             </button>
@@ -248,9 +249,7 @@ export function HomeDashboard() {
 
         <Card title="Upcoming Events" count={summary?.upcomingEvents.length ?? 0}>
           {!summary && !error && <EmptyRow text="Loading…" />}
-          {summary && !summary.calendarConfigured && (
-            <EmptyRow text="Calendar isn't configured." />
-          )}
+          {summary && !summary.calendarConfigured && <EmptyRow text="Calendar isn't configured." />}
           {summary && summary.calendarConfigured && summary.upcomingEvents.length === 0 && (
             <EmptyRow text="Nothing on the calendar this week." />
           )}
@@ -273,19 +272,19 @@ export function HomeDashboard() {
           <Card title="Needing Approval" count={proposedProjects.length}>
             <ul className="space-y-2">
               {proposedProjects.map((p) => (
-                <li key={p.id} className="rounded border border-gray-200 p-2 dark:border-gray-700">
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{p.title}</p>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{p.rationale}</p>
+                <li key={p.id} className="rounded-lg border border-amber-500/20 bg-amber-500/[0.04] p-2.5">
+                  <p className="text-sm font-medium text-zinc-100">{p.title}</p>
+                  <p className="mt-0.5 text-xs text-zinc-500">{p.rationale}</p>
                   <div className="mt-2 flex gap-2">
                     <button
                       onClick={() => approve(p.id).then(refreshProjects)}
-                      className="rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                      className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-indigo-500"
                     >
                       Approve
                     </button>
                     <button
                       onClick={() => reject(p.id).then(refreshProjects)}
-                      className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                      className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-zinc-300 transition-colors hover:bg-white/5"
                     >
                       Reject
                     </button>
