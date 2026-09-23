@@ -475,3 +475,17 @@ One real n8n internals gotcha hit during cutover: `n8n unpublish:workflow` deact
 ### 2026-09-04 — replacing `PATCH_B64` with a tar-based file write, for diffs too large for `ARG_MAX`
 
 Both of `sandbox-runner`'s scripted container paths (`RUN_SCRIPT`'s test execution, `PUSH_SCRIPT`'s PR-proposal push) used to pass the unified diff into the container as a base64-encoded environment variable (`PATCH_B64`), decoded back to a file inside the script. That has no size limit that's actually safe — a real diff touching a generated file like `package-lock.json` routinely runs to hundreds of KB, well past the kernel's `ARG_MAX` for a single `exec`. Replaced with `buildSingleFileTar` — a minimal single-file POSIX ustar archive written into the (not-yet-started) container via dockerode's `putArchive` (the `docker cp` equivalent), the same "bypass shell/exec argument parsing entirely" approach the `write_file` tool above already established. `runEphemeralContainer` now takes an optional `files` list, written before `container.start()`; both `RUN_SCRIPT` and `PUSH_SCRIPT` simplified to just check `[ -f /tmp/patch.diff ]` instead of decoding an env var.
+
+### 2026-09-23 — `GET /tasks`/`GET /tasks/:id`: coding-orchestrator gets its first list capability
+
+Follow-up to the `/amy` projects feature (`docs/knowledge-engine.md`'s
+dated entries): before this, `coding-orchestrator` could only "create a
+task" (`POST /task`) and "check one task's status by session"
+(`GET /task/status?sessionId=`) — there was genuinely no way to ask "what
+coding tasks exist" at all, confirmed via direct inspection, not assumed.
+New `db.listTasks(config, status?, limit?)` + `GET /tasks?status=&limit=`
+(list) and `GET /tasks/:id` (single, wraps the already-exported
+`db.getTask`) - both plain reads, no new state. Used by chat-ui's new
+Coding Tasks card on `/amy` and by knowledge-engine's coding-activity
+project logic (below). `code_task`'s existing submission path (through the
+old n8n webhook shim) is untouched.

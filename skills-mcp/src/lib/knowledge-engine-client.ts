@@ -133,12 +133,19 @@ export interface ProjectProposeResult {
 // this follows research_task's direct-REST precedent instead.
 export async function proposeProject(
   config: Config,
-  input: { title: string; rationale: string; domain?: string },
+  input: { title: string; rationale: string; domain?: string; activityType?: string; repoUrl?: string },
 ): Promise<ProjectProposeResult> {
   const res = await fetch(`${config.knowledgeEngineUrl}/projects`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title: input.title, rationale: input.rationale, domain: input.domain, origin: "amy_proposed" }),
+    body: JSON.stringify({
+      title: input.title,
+      rationale: input.rationale,
+      domain: input.domain,
+      origin: "amy_proposed",
+      activityType: input.activityType,
+      targetRepoUrl: input.repoUrl,
+    }),
   });
   return jsonOrThrow<ProjectProposeResult>(res, "Project proposal");
 }

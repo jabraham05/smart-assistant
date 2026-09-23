@@ -19,6 +19,7 @@ import { search } from "./engine/search.js";
 import { checkKnowledge, runWebResearchAndPersist } from "./engine/research.js";
 import { enqueueTopic, drainQueue } from "./engine/research-queue.js";
 import { consolidateProject } from "./engine/consolidate.js";
+import { startCodingTask, getCodingTask } from "./lib/coding-orchestrator-client.js";
 
 const config = loadConfig(process.env);
 
@@ -312,12 +313,22 @@ app.post("/research-queue/drain", async (req, res) => {
 // see docs/knowledge-engine.md's dated entry for why there's no
 // user_requested fast-path to 'active'.
 app.post("/projects", async (req, res) => {
-  const body = req.body as { title?: string; rationale?: string; domain?: string; origin?: string };
+  const body = req.body as {
+    title?: string;
+    rationale?: string;
+    domain?: string;
+    origin?: string;
+    activityType?: string;
+    targetRepoUrl?: string;
+  };
   if (!body.title || typeof body.title !== "string") {
     return res.status(400).json({ error: "title is required" });
   }
   if (!body.rationale || typeof body.rationale !== "string") {
     return res.status(400).json({ error: "rationale is required" });
+  }
+  if (body.activityType && body.activityType !== "research" && body.activityType !== "coding") {
+    return res.status(400).json({ error: "activityType must be 'research' or 'coding'" });
   }
   try {
     const project = await insertProject(config, {
@@ -325,6 +336,8 @@ app.post("/projects", async (req, res) => {
       rationale: body.rationale,
       domain: body.domain,
       origin: body.origin,
+      activityType: body.activityType,
+      targetRepoUrl: body.targetRepoUrl,
     });
     res.status(201).json(project);
   } catch (e) {
@@ -345,10 +358,12 @@ app.get("/projects", async (req, res) => {
   }
 });
 
-// POST /projects/:id/approve - the human review gate. Enqueues the
-// project's title as a research_queue topic in-process (same import the
-// research-queue routes already use) rather than a second HTTP hop, since
-// projects and research_queue now live in the same service/database.
+// POST /projects/:id/approve - the human review gate. Branches on
+// activity_type: 'research' enqueues the project's title as a
+// research_queue topic in-process (same import the research-queue routes
+// already use, no HTTP hop since they share this service/database);
+// 'coding' calls coding-orchestrator directly (a different service, so
+// this one IS a real HTTP hop - see lib/coding-orchestrator-client.ts).
 app.post("/projects/:id/approve", async (req, res) => {
   const projectId = Number(req.params.id);
   if (!Number.isInteger(projectId)) {
@@ -359,6 +374,19 @@ app.post("/projects/:id/approve", async (req, res) => {
     if (!project) return res.status(404).json({ error: `project ${projectId} not found` });
     if (project.status !== "proposed") {
       return res.status(409).json({ error: `project ${projectId} is not proposed (status: ${project.status})` });
+    }
+
+    if (project.activity_type === "coding") {
+      const { taskId } = await startCodingTask(config, {
+        task: project.rationale,
+        repoUrl: project.target_repo_url ?? undefined,
+      });
+      const updated = await updateProject(config, projectId, {
+        status: "active",
+        approvedAt: new Date(),
+        codingTaskId: taskId,
+      });
+      return res.json(updated);
     }
 
     const enqueueResult = await enqueueTopic(config, {
@@ -403,6 +431,8 @@ app.post("/projects/:id/reject", async (req, res) => {
 // POST /projects/:id/complete - the consolidation trigger. Synchronous:
 // one bounded ollamaChat() call, not a multi-step agent run, so a
 // dashboard button click can wait on it (see docs/knowledge-engine.md).
+// Branches on activity_type for the "is this actually ready" check;
+// consolidateProject() itself branches again for the synthesis step.
 app.post("/projects/:id/complete", async (req, res) => {
   const projectId = Number(req.params.id);
   if (!Number.isInteger(projectId)) {
@@ -415,20 +445,50 @@ app.post("/projects/:id/complete", async (req, res) => {
       return res.status(409).json({ error: `project ${projectId} is not active (status: ${project.status})` });
     }
 
-    let researchSessionId = project.research_session_id ?? undefined;
-    if (!researchSessionId) {
-      if (!project.research_queue_id) {
-        return res.status(409).json({ error: "project has no linked research queue entry" });
+    if (project.activity_type === "coding") {
+      if (!project.coding_task_id) {
+        return res.status(409).json({ error: "project has no linked coding task" });
       }
-      const queueEntry = await getResearchQueueEntry(config, project.research_queue_id);
-      if (!queueEntry || queueEntry.status !== "done" || !queueEntry.research_session_id) {
-        return res.status(409).json({ error: "research not finished yet" });
+      const task = await getCodingTask(config, project.coding_task_id);
+      if (!task) {
+        return res.status(409).json({ error: `coding task ${project.coding_task_id} not found` });
       }
-      researchSessionId = queueEntry.research_session_id;
-      await updateProject(config, projectId, { researchSessionId });
+      if (task.status === "needs_review_failed" || task.status === "resource_limit_reached") {
+        // A real terminal failure, not "still working" - surface the
+        // reason instead of looping as "not finished yet" forever (same
+        // gap fixed below for the research branch).
+        return res.status(409).json({
+          error: `coding task failed (${task.status}): ${task.reviewer_reason || task.latest_status || "no reason recorded"}`,
+        });
+      }
+      if (task.status !== "proposed") {
+        // coding_tasks' own meaning of 'proposed': Reviewer approved,
+        // diff/PR ready - not to be confused with projects.status='proposed'
+        // (awaiting approval to start), a different state machine entirely.
+        return res.status(409).json({ error: "coding task not finished yet" });
+      }
+    } else {
+      let researchSessionId = project.research_session_id ?? undefined;
+      if (!researchSessionId) {
+        if (!project.research_queue_id) {
+          return res.status(409).json({ error: "project has no linked research queue entry" });
+        }
+        const queueEntry = await getResearchQueueEntry(config, project.research_queue_id);
+        if (!queueEntry) {
+          return res.status(409).json({ error: "linked research queue entry not found" });
+        }
+        if (queueEntry.status === "failed") {
+          return res.status(409).json({ error: "research failed - no findings to consolidate" });
+        }
+        if (queueEntry.status !== "done" || !queueEntry.research_session_id) {
+          return res.status(409).json({ error: "research not finished yet" });
+        }
+        researchSessionId = queueEntry.research_session_id;
+        await updateProject(config, projectId, { researchSessionId });
+      }
     }
 
-    const result = await consolidateProject(config, projectId, researchSessionId);
+    const result = await consolidateProject(config, projectId);
     const updated = await getProject(config, projectId);
     res.json({ ...updated, documentId: result.documentId });
   } catch (e) {

@@ -51,10 +51,15 @@ export interface Project {
   domain: string | null;
   status: string;
   origin: string;
+  activity_type: string; // research | coding
   research_queue_id: number | null;
   research_session_id: number | null;
+  coding_task_id: number | null;
+  target_repo_url: string | null;
   document_id: number | null;
   research_queue_status: string | null;
+  coding_task_status: string | null;
+  coding_task_pr_url: string | null;
   created_at: string;
   approved_at: string | null;
   updated_at: string;
