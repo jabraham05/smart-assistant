@@ -56,6 +56,14 @@ const RULES: Record<string, ClassificationResult> = {
   // means "when it IS allowed to fire, it must actually reach the user,"
   // not "fire often."
   "idle_reflection.proactive_thought": { priority: "high", notify: false },
+  // Activity-feed sources (see activity.ts) - audit-trail/goal-matching
+  // value only. research.research_completed's own notify.ts call already
+  // reaches the user directly (foreground chat reply or Honcho message),
+  // same double-notify rationale as coding_orchestrator above.
+  "task_context.task_context_created": { priority: "low", notify: false },
+  "task_context.task_context_updated": { priority: "low", notify: false },
+  "project.project_created": { priority: "low", notify: false },
+  "research.research_completed": { priority: "low", notify: false },
 };
 
 export function classify(source: string, type: string): ClassificationResult {

@@ -356,6 +356,18 @@ app.post("/projects", async (req, res) => {
       targetRepoUrl: body.targetRepoUrl,
     });
     res.status(201).json({ ...project, duplicate: false });
+
+    // Feeds the Home activity feed (see event-bus's activity.ts) -
+    // fire-and-forget, same pattern as notify.ts's logAwaitingDigest.
+    fetch(`${config.eventBusUrl}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source: "project",
+        type: "project_created",
+        payload: { projectId: project.id, title: project.title, activityType: project.activity_type },
+      }),
+    }).catch((e) => console.error(`failed to publish project_created for project ${project.id}:`, e));
   } catch (e) {
     console.error("failed to create project:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });

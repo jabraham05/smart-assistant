@@ -13,6 +13,7 @@ export interface EventRow {
   status: string;
   notified_at: string | null;
   created_at: string;
+  task_context_id: number | null;
 }
 
 export interface InsertEventInput {
@@ -21,6 +22,7 @@ export interface InsertEventInput {
   payload?: Record<string, unknown>;
   occurredAt?: string;
   originSessionId?: string;
+  taskContextId?: number;
 }
 
 export interface GoalRow {
@@ -91,12 +93,32 @@ export async function listRecentEvents(
   return result.rows;
 }
 
+// Backs GET /home-activity - the curated, cross-entity feed (see
+// activity.ts's DIGEST_ALLOWLIST for which (source, type) pairs qualify).
+// Matches on "source.type" strings rather than building a dynamic OR chain
+// over pairs, since the allowlist is a flat, static list already shaped
+// that way (same key format classify.ts uses).
+export async function listDigestEvents(config: Config, allowedSourceTypes: string[], limit: number): Promise<EventRow[]> {
+  const result = await getPool(config).query<EventRow>(
+    `SELECT * FROM events WHERE (source || '.' || type) = ANY($1::text[]) ORDER BY occurred_at DESC LIMIT $2`,
+    [allowedSourceTypes, limit],
+  );
+  return result.rows;
+}
+
 export async function insertEvent(config: Config, input: InsertEventInput): Promise<EventRow> {
   const result = await getPool(config).query<EventRow>(
-    `INSERT INTO events (source, type, payload, occurred_at, origin_session_id)
-     VALUES ($1, $2, $3::jsonb, COALESCE($4::timestamptz, now()), $5)
+    `INSERT INTO events (source, type, payload, occurred_at, origin_session_id, task_context_id)
+     VALUES ($1, $2, $3::jsonb, COALESCE($4::timestamptz, now()), $5, $6)
      RETURNING *`,
-    [input.source, input.type, JSON.stringify(input.payload || {}), input.occurredAt || null, input.originSessionId || null],
+    [
+      input.source,
+      input.type,
+      JSON.stringify(input.payload || {}),
+      input.occurredAt || null,
+      input.originSessionId || null,
+      input.taskContextId ?? null,
+    ],
   );
   return result.rows[0];
 }
@@ -206,6 +228,23 @@ export async function getProgressLog(config: Config, goalId: number, limit = 20)
     `SELECT id, event_id, note, created_at FROM goal_progress_log
      WHERE goal_id = $1 ORDER BY id DESC LIMIT $2`,
     [goalId, limit],
+  );
+  return result.rows;
+}
+
+// Backs GET /home-activity's "goal progress" category. Reads
+// goal_progress_log directly rather than mirroring it into `events` -
+// it's already the append-only source of truth for real keyword matches
+// (see the table's own comment in 04-create-events-db.sql).
+export async function listRecentGoalProgress(config: Config, limit: number): Promise<
+  { id: number; goal_id: number; goal_title: string; note: string | null; created_at: string }[]
+> {
+  const result = await getPool(config).query(
+    `SELECT gpl.id, gpl.goal_id, g.title AS goal_title, gpl.note, gpl.created_at
+     FROM goal_progress_log gpl
+     JOIN goals g ON g.id = gpl.goal_id
+     ORDER BY gpl.created_at DESC LIMIT $1`,
+    [limit],
   );
   return result.rows;
 }
@@ -445,6 +484,18 @@ export async function updateTaskContextStep(
 export async function insertTaskContextLog(config: Config, taskContextId: number, note: string): Promise<void> {
   await getPool(config).query(`INSERT INTO task_context_log (task_context_id, note) VALUES ($1, $2)`, [taskContextId, note]);
   await getPool(config).query(`UPDATE task_contexts SET updated_at = now() WHERE id = $1`, [taskContextId]);
+}
+
+// Backs GET /task-contexts/:id/activity's `events` component - anything
+// tagged with this task_context_id (currently task_context_created and
+// task_context_updated, see index.ts), alongside the log/steps tables
+// already scoped to the task.
+export async function listEventsForTaskContext(config: Config, taskContextId: number): Promise<EventRow[]> {
+  const result = await getPool(config).query<EventRow>(
+    `SELECT * FROM events WHERE task_context_id = $1 ORDER BY occurred_at ASC`,
+    [taskContextId],
+  );
+  return result.rows;
 }
 
 export async function getTaskContextLog(config: Config, taskContextId: number): Promise<

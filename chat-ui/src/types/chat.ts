@@ -170,3 +170,29 @@ export interface HomeSummary {
   calendarConfigured: boolean;
   upcomingEvents: UpcomingEvent[];
 }
+
+// Matches event-bus's GET /home-activity - one entry in the curated,
+// cross-entity "what happened" feed (research done / project created /
+// task updated / goal progress). See event-bus's activity.ts.
+export interface HomeActivityItem {
+  id: string;
+  category: "research" | "project" | "task" | "goal";
+  summary: string;
+  occurredAt: string;
+  taskContextId: number | null;
+}
+
+// Matches event-bus's GET /task-contexts/:id/activity - the detailed,
+// task-scoped feed (log notes + step transitions + tagged events) behind
+// the task detail page.
+export interface TaskActivityItem {
+  id: string;
+  kind: "note" | "step" | "event";
+  summary: string;
+  occurredAt: string;
+}
+
+export interface TaskContextActivity {
+  taskContext: TaskContext;
+  items: TaskActivityItem[];
+}
