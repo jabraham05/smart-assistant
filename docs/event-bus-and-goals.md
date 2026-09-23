@@ -252,3 +252,36 @@ endpoint is meant to be reused, not just by chat-ui's new home dashboard
 (`docs/chat-ui.md`'s 2026-09-22 entry) but by whatever the self-improvement
 loop's nightly review ends up needing — one shared read path instead of
 each consumer reaching into `db.ts` directly.
+
+## 2026-09-24 — the research queue only ever drained on a calendar wake event, and none had ever been created
+
+Real question from live usage: two research topics ("Learning Python and
+Creating Maintainable Workflows", "Linux and bash commands") sat at
+`pending` for over a day. Checked the actual data: `POST /calendar/poll-check`
+only ever called `drainResearchQueueIfIdle` inside its
+`if (result.wakeEventDetected)` branch (see `docs/knowledge-engine.md`'s
+Self-Learning Research Queue plan) - and a wake event requires a real
+Google Calendar event with the literal word "wake" in its title
+(`calendar-watch.ts`'s `isWakeEvent`). Confirmed live: the actual recent
+calendar events were "Resident Evil Wednesday," "Cardio," "AI Regulation
+Debate" - none ever matched, so the drain branch had **never executed once**
+since the research queue was built. The queue was working correctly; it
+just never got a chance to run.
+
+Added an independent periodic fallback on the same `/calendar/poll-check`
+cadence (~10min, already firing regardless of wake events): when no wake
+event is detected, check whether `researchQueueDrainMinHours` (default 2,
+shorter than `idleReflectionMinHours`'s 4 since this never messages the
+user directly) has passed since the last drain attempt, using the same
+`scanner_state` throttle pattern `idle-reflection`/`overnight_digest`
+already use (new key `research_queue_drain`,
+`postgres/init/19-add-research-queue-drain-state.sql`). The throttle only
+advances when a drain actually ran (work level was low) - if skipped for
+being busy, it retries again on the next ~10min tick instead of waiting a
+full window more.
+
+**Verified live**: manually hit `POST /calendar/poll-check` with
+`wakeEventDetected: false` (no wake event needed) - the periodic branch
+fired anyway, and the two real stuck topics (`research_queue` ids 4 and
+5) both drained successfully to `status='done'` with real
+`research_session_id`s attached.

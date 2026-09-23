@@ -570,6 +570,24 @@ app.post("/calendar/poll-check", async (_req, res) => {
     if (result.wakeEventDetected) {
       digest = await runOvernightDigest(config);
       researchQueue = await drainResearchQueueIfIdle(config);
+    } else {
+      // Real gap found via live testing: the wake-event path above is the
+      // only trigger this ever had - with no calendar event titled "wake"
+      // ever created, two real topics sat at 'pending' for over a day
+      // with zero drain attempts. Independent periodic fallback on this
+      // same ~10min poll-check cadence, throttled via the same
+      // scanner_state pattern idle-reflection already uses, so draining
+      // doesn't depend on maintaining a calendar convention.
+      const lastDrain = await db.getScannerLastRun(config, "research_queue_drain");
+      if (hoursSince(lastDrain) >= config.researchQueueDrainMinHours) {
+        researchQueue = await drainResearchQueueIfIdle(config);
+        // Only advance the throttle when a drain actually ran (work level
+        // was low) - if skipped for being busy, retry again soon instead
+        // of waiting a full researchQueueDrainMinHours more.
+        if (!(researchQueue && typeof researchQueue === "object" && "skipped" in researchQueue)) {
+          await db.touchScannerLastRun(config, "research_queue_drain");
+        }
+      }
     }
     res.json({ ...result, digest, researchQueue });
   } catch (e) {
@@ -578,12 +596,11 @@ app.post("/calendar/poll-check", async (_req, res) => {
   }
 });
 
-// Self-learning research queue drain, triggered by the same wake event as
-// runOvernightDigest above (see the "Self-Learning Research Queue" plan's
-// Phase RQ-5) - not a schedule of its own. Gated on work level exactly like
-// /idle-reflection-check already is: an active coding task or research
-// session already running means Amy is busy, so this defers to the next
-// wake event rather than piling on more background Ollama load.
+// Self-learning research queue drain, triggered either by a calendar wake
+// event or the independent periodic fallback above. Gated on work level
+// exactly like /idle-reflection-check already is: an active coding task or
+// research session already running means Amy is busy, so this defers to
+// the next check rather than piling on more background Ollama load.
 async function drainResearchQueueIfIdle(config: Config): Promise<{ skipped: string } | unknown> {
   const { level } = await getWorkLevel(config);
   if (level === "high") return { skipped: "work level high" };
