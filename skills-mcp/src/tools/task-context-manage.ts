@@ -74,7 +74,10 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
         "For a genuinely multi-step task, use action='plan' once, right after action='create', " +
         "to break it into an explicit ordered list of steps - then action='advance_step' each " +
         "time a step actually completes, fails, or gets blocked, so progress stays accurate " +
-        "instead of just a free-text log.",
+        "instead of just a free-text log. Task contexts, goals, projects, and coding tasks are " +
+        "four separate things with their own independent numeric ids - always say 'task #N' (the " +
+        "`ref` field below) when referring to one in conversation, never a bare number, since ids " +
+        "collide across these different concepts.",
       inputSchema: {
         action: z.enum(["create", "list", "update", "log", "plan", "advance_step"]).describe("Which task operation to perform."),
         // coerce, not number(): the model sometimes sends a stringified
@@ -123,12 +126,13 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
           if (task.duplicate) {
             return textResult({
               id: task.id,
+              ref: `task #${task.id}`,
               objective: task.objective,
               status: task.status,
-              note: `An open task like this already exists (#${task.id}: "${task.objective}") - reused it instead of creating a duplicate. Use this id, don't create another.`,
+              note: `An open task like this already exists (task #${task.id}: "${task.objective}") - reused it instead of creating a duplicate. Use this id, don't create another.`,
             });
           }
-          return textResult({ id: task.id, objective: task.objective, status: task.status });
+          return textResult({ id: task.id, ref: `task #${task.id}`, objective: task.objective, status: task.status });
         }
 
         if (action === "list") {
@@ -146,6 +150,7 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
               const steps = await listTaskContextSteps(config, t.id);
               return {
                 id: t.id,
+                ref: `task #${t.id}`,
                 objective: t.objective,
                 status: t.status,
                 updatedAt: t.updated_at,
@@ -161,7 +166,7 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
         if (action === "update") {
           if (!taskContextId) return errorResult("taskContextId is required for action='update'.");
           const task = await updateTaskContext(config, taskContextId, { objective, capability, domain, status });
-          return textResult({ id: task.id, objective: task.objective, status: task.status });
+          return textResult({ id: task.id, ref: `task #${task.id}`, objective: task.objective, status: task.status });
         }
 
         if (action === "log") {

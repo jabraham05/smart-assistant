@@ -514,3 +514,50 @@ satisfying the requirement whenever `'goals'` is among the classified
 groups, regardless of which other `'goals'` tools were bound. Verified
 live: the exact failing message now returns the real task instead of the
 fallback.
+
+### 2026-09-24 — `status_overview`'s raw blob, and a real cross-table id collision
+
+Direct follow-up to `status_overview`'s launch, from a real dogfooding
+session that got progressively less reliable turn by turn.
+
+**The "blob" complaint**: `status_overview` returned nested objects
+(`{id, title, status, activityType, progress}` per item), and the model
+just enumerated those fields as bullets instead of writing prose - the
+same "wall of raw data" failure `research_task_status` already hit once,
+and the standing `responseStyleLine` prompt guidance alone didn't stop it
+recurring for a new tool. Fixed the same way that one was: don't trust
+the model to reformat raw data well, give it less to mangle. The tool now
+builds an already-organized, grouped plain-text summary server-side
+(deterministic string formatting, not an LLM call) - the model's job
+becomes relaying/condensing already-readable text, not manually flattening
+a JSON tree.
+
+**The more interesting bug, found by reading the actual session transcript
+back**: partway through, the model said *"the goal 'Learning Linux and
+Bash Commands' (ID 8) is currently marked as abandoned"* - directly
+contradicting what it had shown two replies earlier (an *active* project,
+not a goal). Real root cause: goals, projects, task_contexts, and
+coding_tasks are four **independent** tables, each with their own
+numeric id sequence - project #8 and an earlier, since-abandoned goal #8
+("Track job search") are two completely unrelated rows that happen to
+share a number. Nothing anywhere labeled which table an id belonged to,
+so a noisy `memory_recall` snippet mentioning "ID 8" in one context got
+applied to the wrong entity in another - not a wrong tool choice, a real
+ambiguity the model had no way to resolve.
+
+Fixed by namespacing every id everywhere one gets shown to the model:
+`goal_manage`, `task_context_manage`, and `status_overview` all now
+return (or already returned, for `project_propose`) a `ref` field like
+`"goal #8"` / `"task #8"` / `"project #8"` alongside the bare numeric
+`id` (kept for follow-up tool calls, e.g. `goalId`/`taskContextId`
+params still take a plain number). Both tools' descriptions gained an
+explicit line naming this ambiguity and telling the model to always use
+the prefixed form in conversation.
+
+**Verified live**: "list my open tasks and projects" now shows
+"Project #8", "Task #35", "Research #5" throughout, grouped by status
+with duplicates collapsed into ranges (`Project #7, 6, 5`) instead of a
+flat unlabeled dump; "list my active goals" shows "Goal #18" etc.
+consistently. The specific cross-table confusion from the original
+session can no longer happen the same way, since "8" is never displayed
+without saying which table it's from.
