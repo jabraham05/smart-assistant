@@ -256,6 +256,27 @@ app.get("/home-summary", async (req, res) => {
   });
 });
 
+// GET /task-contexts/match?text=... - scoped relevance injection for the
+// chat system prompt, mirroring /goals/match below. Real bug found via
+// live dogfooding: GET /task-contexts?status=open (above) was injected
+// into every chat turn unconditionally, regardless of topic - this is
+// the fix, used only at that one injection point (chat-orchestrator's
+// index.ts); the unfiltered listing above stays as-is for other callers
+// (e.g. a dashboard) that legitimately want the full open list.
+app.get("/task-contexts/match", async (req, res) => {
+  const text = typeof req.query.text === "string" ? req.query.text : undefined;
+  if (!text) {
+    return res.status(400).json({ error: "text query param is required" });
+  }
+  try {
+    const matched = await db.matchOpenTaskContextsToText(config, text);
+    res.json({ taskContexts: matched.map((t) => ({ id: t.id, objective: t.objective, status: t.status })) });
+  } catch (e) {
+    console.error("failed to match task contexts to text:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 // PATCH /task-contexts/:id - update; only provided fields change.
 app.patch("/task-contexts/:id", async (req, res) => {
   const taskContextId = Number(req.params.id);

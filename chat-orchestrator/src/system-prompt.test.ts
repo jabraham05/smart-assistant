@@ -66,9 +66,9 @@ test("buildSystemPrompt includes open tasks and relevant goals when present", ()
     relevantGoals: [{ id: 3, title: "increase general knowledge via daily news", status: "active" }],
   });
   assert.ok(prompt.includes("Open tasks you're tracking across conversations"));
-  assert.ok(prompt.includes("[#7, waiting_for_user] measure the fuel sender twice"));
+  assert.ok(prompt.includes("[task #7, waiting_for_user] measure the fuel sender twice"));
   assert.ok(prompt.includes("Relevant to one of the user's ongoing goals"));
-  assert.ok(prompt.includes("[#3, active] increase general knowledge via daily news"));
+  assert.ok(prompt.includes("[goal #3, active] increase general knowledge via daily news"));
 });
 
 test("buildSystemPrompt omits open tasks/goals sections when empty", () => {

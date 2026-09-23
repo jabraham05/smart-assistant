@@ -15,11 +15,14 @@ export function buildSystemPrompt(input: {
   // are specific past turns relevant to *this* message, from
   // memory-engine's automatic cross-conversation retrieval.
   relevantMemories?: string[];
-  // Always injected regardless of memoryPolicy (directly actionable
-  // state, not ambient personalization - see the architecture plan's
-  // context-assembly pipeline). Reconnection is by single-user identity
-  // in this project, not session, so every open task is shown in every
-  // conversation.
+  // Injected regardless of memoryPolicy (directly actionable state, not
+  // ambient personalization - see the architecture plan's context-
+  // assembly pipeline), but lexeme-matched to the current message
+  // (matchTaskContexts) rather than every open task every turn - real bug
+  // found via live dogfooding: unconditionally showing every open task
+  // context in every conversation let one standing personal reminder
+  // bleed into and get conflated with completely unrelated topics. Same
+  // relevance-scoping reasoning as relevantGoals below.
   openTasks?: { id: number; objective: string; status: string }[];
   // Keyword-matched to the current message (event-bus's deterministic
   // matcher) - only genuinely relevant goals, not every open goal every
@@ -81,14 +84,19 @@ export function buildSystemPrompt(input: {
     ? `Possibly relevant things from earlier conversations:\n${input.relevantMemories.map((m) => `- ${m}`).join("\n")}`
     : "";
 
+  // "task #N" / "goal #N", not a bare "#N" - real bug found via live
+  // dogfooding: ids collide across tables (a goal and a project and a
+  // task context can all be "#8"), and the model conflated them when the
+  // system prompt's own listing didn't disambiguate, even after tool
+  // results elsewhere were fixed to say "task #N"/"goal #N" explicitly.
   const openTasksLine = input.openTasks?.length
-    ? `Open tasks you're tracking across conversations (use task_context_manage to check in on or advance one if this message relates):\n${input.openTasks
-        .map((t) => `- [#${t.id}, ${t.status}] ${t.objective}`)
+    ? `Open tasks you're tracking across conversations, relevant to this message (use task_context_manage to check in on or advance one):\n${input.openTasks
+        .map((t) => `- [task #${t.id}, ${t.status}] ${t.objective}`)
         .join("\n")}`
     : "";
 
   const relevantGoalsLine = input.relevantGoals?.length
-    ? `Relevant to one of the user's ongoing goals:\n${input.relevantGoals.map((g) => `- [#${g.id}, ${g.status}] ${g.title}`).join("\n")}`
+    ? `Relevant to one of the user's ongoing goals:\n${input.relevantGoals.map((g) => `- [goal #${g.id}, ${g.status}] ${g.title}`).join("\n")}`
     : "";
 
   const needsPlanningLine = input.needsPlanningNudge

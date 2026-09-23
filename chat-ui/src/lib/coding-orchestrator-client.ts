@@ -16,9 +16,10 @@ export interface CodingTask {
   updated_at: string;
 }
 
-export async function getCodingTasks(status?: string): Promise<CodingTask[]> {
+export async function getCodingTasks(status?: string, limit?: number): Promise<CodingTask[]> {
   const url = new URL(`${CODING_ORCHESTRATOR_URL}/tasks`);
   if (status) url.searchParams.set("status", status);
+  if (limit) url.searchParams.set("limit", String(limit));
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`coding-orchestrator /tasks failed with ${res.status}`);
