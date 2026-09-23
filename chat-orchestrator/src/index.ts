@@ -10,7 +10,7 @@ import { buildSystemPrompt } from "./system-prompt.js";
 import { SkillsMcpClient } from "./mcp-client.js";
 import { searchMemory, ingestMemory } from "./memory-engine-client.js";
 import { enqueueResearchTopic } from "./knowledge-engine-client.js";
-import { getOpenTaskContexts, matchGoals } from "./event-bus-client.js";
+import { matchTaskContexts, matchGoals } from "./event-bus-client.js";
 import { runAgentLoop, type AgentTool, type AgentTraceEvent } from "./agent-loop.js";
 import {
   hasUnfulfilledSearchIntent,
@@ -138,9 +138,14 @@ app.post("/webhook", async (req, res) => {
       }),
       // Always-on regardless of memoryPolicy - directly actionable state,
       // not ambient personalization (see the architecture plan's
-      // context-assembly pipeline). Fetched here, in parallel with
-      // everything else, same reasoning as searchMemory above.
-      getOpenTaskContexts(config),
+      // context-assembly pipeline) - but scoped to what this message's
+      // text actually relates to (matchTaskContexts), not every open task
+      // every turn. Real bug found via live dogfooding: the old
+      // unconditional injection let one standing personal reminder bleed
+      // into and get conflated with unrelated conversations. Fetched
+      // here, in parallel with everything else, same reasoning as
+      // searchMemory above.
+      matchTaskContexts(config, chatInput),
       matchGoals(config, chatInput),
     ]);
     const { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background, knowledgeGapTopic, behaviorFeedback } =
@@ -365,9 +370,11 @@ app.post("/webhook", async (req, res) => {
     // Phase 3b metadata tagging: domain = this turn's classified
     // capability groups (comma-joined - a different vocabulary from
     // knowledge-engine's free-text world-fact domains, see the
-    // migration's own comment); taskContextId = the most-recently-updated
-    // open task, if any was open when this turn happened. Both optional,
-    // undefined when there's nothing to tag.
+    // migration's own comment); taskContextId = the open task context
+    // this turn's text actually matched (via matchTaskContexts above), if
+    // any - previously tagged with whatever task happened to be open
+    // regardless of relevance, which mistagged unrelated turns. Both
+    // optional, undefined when there's nothing to tag.
     const memoryDomain = relevantGroups.length ? relevantGroups.join(",") : undefined;
     const memoryTaskContextId = openTasks[0]?.id;
     await Promise.all([

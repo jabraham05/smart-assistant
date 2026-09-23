@@ -258,6 +258,46 @@ export async function findOverlappingOpenTaskContext(
   return result.rows[0];
 }
 
+// Real bug found via live dogfooding: task contexts were injected into
+// every chat turn's system prompt regardless of topic (see chat-orchestrator's
+// getOpenTaskContexts), which let one standing personal reminder ("wax the
+// car") bleed into and get conflated with completely unrelated
+// conversations. This scopes that injection to only genuinely relevant
+// task contexts, same lexeme-overlap technique as
+// findOverlappingOpenTaskContext above (task_contexts has no keywords
+// column like goals does, so free-text overlap against the objective is
+// the matching signal) - just checked against arbitrary message text
+// instead of a create/dedup candidate, and returning every match above
+// the threshold rather than just the best one.
+export async function matchOpenTaskContextsToText(
+  config: Config,
+  text: string,
+  minOverlap = 1,
+): Promise<TaskContextRow[]> {
+  const result = await getPool(config).query<TaskContextRow>(
+    `WITH query_lexemes AS (
+       SELECT ARRAY(
+         SELECT lex FROM unnest(tsvector_to_array(to_tsvector('english', $1))) AS lex
+         WHERE length(lex) >= 3
+       ) AS lexemes
+     ),
+     scored AS (
+       SELECT tc.*, COALESCE(array_length(ARRAY(
+         SELECT unnest(query_lexemes.lexemes)
+         INTERSECT
+         SELECT unnest(tsvector_to_array(to_tsvector('english', tc.objective)))
+       ), 1), 0) AS overlap_count
+       FROM task_contexts tc
+       CROSS JOIN query_lexemes
+       WHERE tc.status IN ('active', 'waiting_for_user')
+     )
+     SELECT * FROM scored WHERE overlap_count >= $2
+     ORDER BY overlap_count DESC, updated_at DESC`,
+    [text, minOverlap],
+  );
+  return result.rows;
+}
+
 export async function insertTaskContext(config: Config, input: InsertTaskContextInput): Promise<TaskContextRow> {
   const result = await getPool(config).query<TaskContextRow>(
     `INSERT INTO task_contexts (objective, capability, domain, origin_session_id)

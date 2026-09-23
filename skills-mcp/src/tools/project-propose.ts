@@ -23,7 +23,13 @@ export function registerProjectPropose(server: McpServer, config: Config): void 
         "also different from skill_propose: a skill proposal is about a new capability for yourself, a " +
         "project is about learning or building something for the user. Nothing happens automatically " +
         "- a human reviews and approves every project on the /amy dashboard before any research or " +
-        "coding work starts, so there's no cost to proposing when it seems genuinely worthwhile.",
+        "coding work starts, so there's no cost to proposing when it seems genuinely worthwhile. " +
+        "Real gap found via live testing: if the user asks to turn SEVERAL ideas into projects at " +
+        "once (e.g. 'make a project out of each of these 5'), call this tool once per idea - one " +
+        "call creates exactly one project, so N ideas need N calls in this same reply, not one call " +
+        "for the group. Only ever use a title/rationale/domain the user actually said or that you " +
+        "yourself proposed earlier in this exact conversation - never invent or substitute a " +
+        "different topic than what was discussed, even if a similarly-worded past project exists.",
       inputSchema: {
         title: z
           .string()

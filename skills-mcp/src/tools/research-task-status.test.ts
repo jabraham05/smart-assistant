@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { shapeResultForChat, MAX_FINDINGS_INLINE } from "./research-task-status.js";
+import { shapeResultForChat, MAX_FINDINGS_INLINE, RESEARCH_IN_PROGRESS_NOTE } from "./research-task-status.js";
 import type { Config } from "../config.js";
 import type { ResearchStatus } from "../lib/knowledge-engine-client.js";
 
@@ -41,4 +41,16 @@ test("shapeResultForChat leaves a result with no findings field alone", () => {
   const shaped = shapeResultForChat(config, result);
   assert.equal(shaped.findings, undefined);
   assert.equal(shaped.moreFindingsCount, undefined);
+});
+
+test("shapeResultForChat adds a progressNote for in-progress statuses", () => {
+  for (const status of ["pending", "researching", "running"]) {
+    const shaped = shapeResultForChat(config, { found: true, status });
+    assert.equal(shaped.progressNote, RESEARCH_IN_PROGRESS_NOTE);
+  }
+});
+
+test("shapeResultForChat adds no progressNote for a finished result", () => {
+  const shaped = shapeResultForChat(config, { found: true, status: "done" });
+  assert.equal(shaped.progressNote, undefined);
 });

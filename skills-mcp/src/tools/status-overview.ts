@@ -20,6 +20,15 @@ import { errorResult, textResult } from "../types.js";
 // overlap, matching /amy's own Coding Tasks card precedent.
 const MAX_ITEMS_PER_SECTION = 5;
 
+// Same gap and same fix as research-task-status.ts's RESEARCH_IN_PROGRESS_NOTE
+// (duplicated rather than shared for two call sites) - a research
+// project/queue entry sitting at pending/researching has nothing for the
+// user to do, but nothing here said so, so the model invented "waiting
+// for you" framing when asked what the next step was.
+const RESEARCH_IN_PROGRESS_NOTE =
+  "no action needed - runs automatically in the background and will complete without further input";
+const IN_PROGRESS_STATUSES = ["pending", "researching", "running"];
+
 export function registerStatusOverview(server: McpServer, config: Config): void {
   server.registerTool(
     "status_overview",
@@ -56,6 +65,10 @@ export function registerStatusOverview(server: McpServer, config: Config): void 
             activityType: p.activity_type,
             progress: p.activity_type === "coding" ? p.coding_task_status : p.research_queue_status,
             prUrl: p.coding_task_pr_url ?? undefined,
+            note:
+              p.activity_type === "research" && p.research_queue_status && IN_PROGRESS_STATUSES.includes(p.research_queue_status)
+                ? RESEARCH_IN_PROGRESS_NOTE
+                : undefined,
           })),
           recentCodingTasks: codingTasks.map((t) => ({
             id: t.id,
@@ -63,7 +76,12 @@ export function registerStatusOverview(server: McpServer, config: Config): void 
             status: t.status,
             prUrl: t.pr_url ?? undefined,
           })),
-          recentResearch: researchQueue.map((r) => ({ id: r.id, topic: r.topic, status: r.status })),
+          recentResearch: researchQueue.map((r) => ({
+            id: r.id,
+            topic: r.topic,
+            status: r.status,
+            note: IN_PROGRESS_STATUSES.includes(r.status) ? RESEARCH_IN_PROGRESS_NOTE : undefined,
+          })),
         });
       } catch (e) {
         return errorResult(`status_overview failed: ${e instanceof Error ? e.message : String(e)}`);

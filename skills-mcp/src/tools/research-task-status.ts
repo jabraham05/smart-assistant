@@ -20,14 +20,29 @@ import { errorResult, textResult } from "../types.js";
 // untruncated list) for the rest.
 export const MAX_FINDINGS_INLINE = 3;
 
-export function shapeResultForChat(config: Config, result: ResearchStatus): ResearchStatus & { documentUrl?: string; moreFindingsCount?: number } {
-  const shaped: ResearchStatus & { documentUrl?: string; moreFindingsCount?: number } = { ...result };
+// Real gap found via live dogfooding: a status of "pending" or
+// "researching" has no next-step field anywhere in this shape, and with
+// nothing honest to say the model invented "waiting for you to take the
+// next step" framing when asked - there was genuinely nothing for the
+// user to do, since the queue drains automatically (event-bus's periodic
+// drain). Same string duplicated in status-overview.ts rather than a
+// shared module for two call sites.
+export const RESEARCH_IN_PROGRESS_NOTE =
+  "No action needed on your end - this runs automatically in the background (including idle/overnight " +
+  "time) and will complete without any further input from you.";
+const IN_PROGRESS_STATUSES = ["pending", "researching", "running"];
+
+export function shapeResultForChat(config: Config, result: ResearchStatus): ResearchStatus & { documentUrl?: string; moreFindingsCount?: number; progressNote?: string } {
+  const shaped: ResearchStatus & { documentUrl?: string; moreFindingsCount?: number; progressNote?: string } = { ...result };
   if (result.sessionId) {
     shaped.documentUrl = `${config.chatUiUrl}/research/${result.sessionId}`;
   }
   if (result.findings && result.findings.length > MAX_FINDINGS_INLINE) {
     shaped.moreFindingsCount = result.findings.length - MAX_FINDINGS_INLINE;
     shaped.findings = result.findings.slice(0, MAX_FINDINGS_INLINE);
+  }
+  if (result.status && IN_PROGRESS_STATUSES.includes(result.status)) {
+    shaped.progressNote = RESEARCH_IN_PROGRESS_NOTE;
   }
   return shaped;
 }
@@ -55,7 +70,9 @@ export function registerResearchTaskStatus(server: McpServer, config: Config, ch
         "things, use status_overview instead. Findings are capped at a few per call " +
         "on purpose (see `moreFindingsCount` when present) — mention in your own words what you " +
         "were given, note there's more if `moreFindingsCount` is set, and include `documentUrl` " +
-        "so the user can read the rest there.",
+        "so the user can read the rest there. If `progressNote` is present, relay it honestly — " +
+        "it means the status is still in-progress with nothing for the user to do; don't invent " +
+        "your own 'waiting on you' framing when this field is absent from a finished result.",
       inputSchema: {
         topic: z
           .string()
