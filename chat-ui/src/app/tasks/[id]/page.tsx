@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { getTaskContextActivity } from "@/lib/event-bus-client";
 import { ActivityFeedItem } from "@/components/activity/ActivityFeedItem";
 
@@ -15,9 +16,9 @@ export default async function TaskDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
-      <a href="/" className="text-xs text-indigo-400 hover:text-indigo-300">
+      <Link href="/" className="text-xs text-indigo-400 hover:text-indigo-300">
         ← Home
-      </a>
+      </Link>
       <p className="mt-4 text-xs font-medium text-zinc-500">Task</p>
       <h1 className="mt-1 text-2xl font-semibold tracking-tight text-zinc-100">{taskContext.objective}</h1>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
