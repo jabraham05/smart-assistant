@@ -468,3 +468,49 @@ Two-part fix, same "prompt guidance + deterministic backstop" pattern used throu
 **Verified live**: asked for an update on a deliberately nonexistent task context id. Logs showed multiple real attempts with different parameters each time (the model actually trying to diagnose and adjust, not repeating the identical failing call) before correctly falling back to the deterministic honest-failure message once the id genuinely didn't exist - the intended behavior: retry when there's something to fix, admit failure honestly when there isn't, never confabulate success either way.
 
 (Also fixed a stale pre-existing test in `classify-tools.test.ts` that never got updated when `project_propose` was added to the `self-growth` group in the prior coding-projects feature.)
+
+### 2026-09-24 — `status_overview`: a real "what's going on" tool, plus another safety-net false positive it exposed
+
+Two more real traces from live dogfooding: asked broadly about progress
+across several concurrent interests (car, Linux, Python), the model
+guessed one specific topic for `research_task_status` and answered
+narrowly. Asked about coding tasks, it had `code_task`/`code_task_status`
+bound (both scoped to checking one thing) but no way to *list* anything,
+so it fell back to `task_context_manage(action='list')` - a completely
+different concept (generic personal reminders, unrelated to coding or
+research) - and presented mostly-`abandoned` leftover test entries as the
+answer.
+
+Root cause in both: **no chat-accessible tool ever answered "what's in
+progress across everything,"** even though every piece of underlying data
+already had a list endpoint built for the `/amy` web dashboard earlier
+this session (knowledge-engine's `GET /projects`/`GET /research-queue`,
+coding-orchestrator's `GET /tasks`). New skills-mcp tool `status_overview`
+fetches all three in parallel and returns one consolidated summary - no
+new backend work, purely wiring already-built endpoints into chat. Bound
+to `goals`/`research`/`self-growth` (same multi-group membership
+`project_propose` already uses). `research_task_status`/`code_task_status`
+descriptions gained a one-line disambiguation ("one specific topic/this
+conversation's task - for a broad question, use status_overview instead").
+
+Small related fix, same trace: `task_context_manage`'s `list` with no
+`status` returned *every* task_context ever created, which is how the
+abandoned test debris surfaced. Defaults to `status='open'` now; the model
+can still ask for the full history explicitly.
+
+**A second, more interesting bug surfaced while verifying live**: a real,
+successful `task_context_manage(list)` call - correctly answering "list my
+open tasks" - still got overridden with the hardcoded
+`REQUIRED_TOOL_FAILURE_MESSAGE`. Cause: the message classified into
+`'goals'` (binding `goal_manage`/`status_overview`), and
+`hasUnsatisfiedRequiredTool` only ever excused `task_context_manage` when
+it was the *only* bound tool - with real `'goals'` capability tools also
+bound, it kept checking "was `goal_manage`/`status_overview` called" and
+ignored that `task_context_manage` had validly answered the same kind of
+question instead. `task_context_manage` and `goal_manage` genuinely
+overlap ("things to do") - this wasn't a wrong tool choice. Fixed by
+passing `relevantGroups` through and treating `task_context_manage` as
+satisfying the requirement whenever `'goals'` is among the classified
+groups, regardless of which other `'goals'` tools were bound. Verified
+live: the exact failing message now returns the real task instead of the
+fallback.

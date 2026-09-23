@@ -20,6 +20,11 @@ export interface Config {
   tavilyApiKey?: string;
   knowledgeEngineUrl: string;
   memoryEngineUrl: string;
+  // lib/coding-orchestrator-client.ts's listCodingTasks - direct to
+  // coding-orchestrator, not the old CODING_TASK_WEBHOOK_URL n8n shim
+  // code_task/code_task_status still use for submission. A new,
+  // read-only caller into the same service.
+  codingOrchestratorUrl: string;
   // Unlike every other *Url field above, this must be reachable from the
   // user's own browser, not just from inside the Docker network - it's
   // used to build a real clickable link (research_task_status's
@@ -99,6 +104,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // config-missing error path. Replaces the old RESEARCH_*_WEBHOOK_URL
     // vars that pointed at research_pipeline's n8n webhooks.
     knowledgeEngineUrl: env.KNOWLEDGE_ENGINE_URL || "http://knowledge-engine:3005",
+    codingOrchestratorUrl: env.CODING_ORCHESTRATOR_URL || "http://coding-orchestrator:3003",
     memoryEngineUrl: env.MEMORY_ENGINE_URL || "http://memory-engine:3007",
     chatUiUrl: env.CHAT_UI_URL || "http://localhost:3000",
   };

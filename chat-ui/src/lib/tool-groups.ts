@@ -36,6 +36,7 @@ const GROUP_FOR_TOOL: Record<string, string> = {
   research_task_status: "research",
   goal_manage: "goals",
   project_propose: "goals",
+  status_overview: "goals",
 };
 
 const OTHER_GROUP = "other";

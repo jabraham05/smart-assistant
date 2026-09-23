@@ -153,3 +153,39 @@ export async function proposeProject(
   });
   return jsonOrThrow<ProjectProposeResult>(res, "Project proposal");
 }
+
+export interface ProjectListItem {
+  id: number;
+  title: string;
+  status: string; // proposed | active | done | rejected
+  activity_type: string; // research | coding
+  research_queue_status: string | null;
+  coding_task_status: string | null;
+  coding_task_pr_url: string | null;
+}
+
+// Powers status_overview - reuses knowledge-engine's GET /projects as-is
+// (already enriches each row with the linked research_queue/coding_task's
+// live status - see knowledge-engine/src/db.ts's listProjects), the same
+// data the /amy web dashboard shows, now available from chat too.
+export async function listProjects(config: Config, status?: string): Promise<ProjectListItem[]> {
+  const url = new URL(`${config.knowledgeEngineUrl}/projects`);
+  if (status) url.searchParams.set("status", status);
+  const res = await fetch(url);
+  const data = await jsonOrThrow<{ projects: ProjectListItem[] }>(res, "Project list");
+  return data.projects;
+}
+
+export interface ResearchQueueItem {
+  id: number;
+  topic: string;
+  status: string; // pending | researching | done | failed
+  created_at: string;
+}
+
+export async function listResearchQueue(config: Config, limit = 10): Promise<ResearchQueueItem[]> {
+  const url = new URL(`${config.knowledgeEngineUrl}/research-queue`);
+  const res = await fetch(url);
+  const data = await jsonOrThrow<{ queue: ResearchQueueItem[] }>(res, "Research queue list");
+  return data.queue.slice(0, limit);
+}
