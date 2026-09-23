@@ -29,7 +29,13 @@ export function registerProjectPropose(server: McpServer, config: Config): void 
         "call creates exactly one project, so N ideas need N calls in this same reply, not one call " +
         "for the group. Only ever use a title/rationale/domain the user actually said or that you " +
         "yourself proposed earlier in this exact conversation - never invent or substitute a " +
-        "different topic than what was discussed, even if a similarly-worded past project exists.",
+        "different topic than what was discussed, even if a similarly-worded past project exists. " +
+        "That also means: if the CURRENT request is for one single idea, call this tool exactly " +
+        "once for it - never call it again with a reworded title/domain/activityType to 'try again' " +
+        "after a result comes back, whether that result succeeded or reported a duplicate. A " +
+        "duplicate result is not a signal to retry with variations; it means the work is already " +
+        "covered, so just relay that to the user (see the tool result's own instruction on a " +
+        "duplicate).",
       inputSchema: {
         title: z
           .string()
@@ -68,7 +74,9 @@ export function registerProjectPropose(server: McpServer, config: Config): void 
         if (result.duplicate) {
           return textResult(
             `A similar project already exists (#${result.id}: "${result.title}", status: ${result.status}) - ` +
-              `didn't create a new one. Tell the user it's already proposed/in progress rather than proposing again.`,
+              `didn't create a new one. STOP: do not call project_propose again for this idea, even with a ` +
+              `different title, domain, or activityType - that would just hit this same duplicate check again. ` +
+              `Tell the user about project #${result.id} instead.`,
           );
         }
         return textResult(

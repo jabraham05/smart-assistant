@@ -36,6 +36,16 @@ export interface Config {
   eventBusUrl: string;
   memoryEngineUrl: string;
   knowledgeEngineUrl: string;
+  // Same two-signal gate as knowledge-engine's routeToWebThreshold/
+  // minKeywordOverlap (see its router.ts's decideRoute) - a recency-boosted
+  // RRF score alone can't tell a genuine match from an unrelated "best of
+  // a bad bunch" memory that only ranked because nothing better existed.
+  // Real bug found live: a stale, unrelated memory (~0.029 RRF score, well
+  // above this threshold on score alone) got injected into an unrelated
+  // conversation and primed the model into repeating a tool call - the
+  // keyword-overlap gate is what actually would have caught that case.
+  memoryMinRelevanceScore: number;
+  memoryMinKeywordOverlap: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -72,5 +82,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     eventBusUrl: env.EVENT_BUS_URL || "http://event-bus:3004",
     memoryEngineUrl: env.MEMORY_ENGINE_URL || "http://memory-engine:3007",
     knowledgeEngineUrl: env.KNOWLEDGE_ENGINE_URL || "http://knowledge-engine:3005",
+    // Same default value as knowledge-engine's routeToWebThreshold - both
+    // are RRF scores from the identical k=60 formula, so the same scale
+    // applies.
+    memoryMinRelevanceScore: env.MEMORY_MIN_RELEVANCE_SCORE ? Number(env.MEMORY_MIN_RELEVANCE_SCORE) : 0.012,
+    memoryMinKeywordOverlap: env.MEMORY_MIN_KEYWORD_OVERLAP ? Number(env.MEMORY_MIN_KEYWORD_OVERLAP) : 1,
   };
 }

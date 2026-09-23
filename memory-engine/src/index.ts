@@ -79,6 +79,8 @@ app.post("/search", async (req, res) => {
       taskContextId: r.task_context_id,
       createdAt: r.created_at,
       score: r.rrf_score,
+      keywordOverlapCount: r.keyword_overlap_count,
+      queryLexemeCount: r.query_lexeme_count,
     }));
     res.json({ results });
   } catch (e) {
