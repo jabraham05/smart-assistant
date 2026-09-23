@@ -69,7 +69,8 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
         "if the user says to cancel, drop, delete, or forget about a task, use action='update' " +
         "status='abandoned', never status='done' (that specifically means the objective was " +
         "actually achieved, not that tracking stopped). An 'abandoned' task no longer shows up in " +
-        "the open-tasks list you're shown each turn, the same as 'done'. action='list' shows tasks by status. " +
+        "the open-tasks list you're shown each turn, the same as 'done'. action='list' defaults to " +
+        "open (active/waiting_for_user) tasks - pass status explicitly for abandoned/done history. " +
         "For a genuinely multi-step task, use action='plan' once, right after action='create', " +
         "to break it into an explicit ordered list of steps - then action='advance_step' each " +
         "time a step actually completes, fails, or gets blocked, so progress stays accurate " +
@@ -131,7 +132,14 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
         }
 
         if (action === "list") {
-          const tasks = await listTaskContexts(config, status);
+          // Real bug found via live testing: an unscoped list() returned
+          // every task_context ever created, including old abandoned
+          // test/debug entries ("Phase 6b notification test", duplicate
+          // Japan-trip variants) - presented as if they were current. The
+          // model can still explicitly pass status='abandoned'/'done' for
+          // the full history; omitting it should mean "what's open," not
+          // "everything."
+          const tasks = await listTaskContexts(config, status ?? "open");
           if (tasks.length === 0) return textResult("No task contexts found.");
           const enriched = await Promise.all(
             tasks.map(async (t) => {

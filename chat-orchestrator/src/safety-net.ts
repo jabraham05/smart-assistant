@@ -91,8 +91,20 @@ export function hasUnsatisfiedRequiredTool(
   toolPolicy: string,
   boundTools: string[],
   calledTools: string[],
+  relevantGroups: string[] = [],
 ): boolean {
   if (toolPolicy !== "required") return false;
+  // Real bug found via live testing: "list my open tasks" classified into
+  // 'goals' (binding goal_manage/project_propose/status_overview) but was
+  // correctly answered by task_context_manage instead - a real, genuine
+  // overlap (both track "things to do"), not a wrong tool choice. The
+  // successful task_context_manage call still got overridden by the
+  // hardcoded failure message below, because it only ever satisfied this
+  // check when it was the ONLY bound tool at all - any other 'goals' tool
+  // being bound too made a genuinely correct answer look like a failure.
+  if (relevantGroups.includes("goals") && calledTools.includes("task_context_manage")) {
+    return false;
+  }
   const boundCapabilityTools = boundTools.filter((t) => !ALWAYS_BOUND_TOOLS.includes(t));
   if (boundCapabilityTools.length > 0) {
     return !boundCapabilityTools.some((t) => calledTools.includes(t));

@@ -13,9 +13,11 @@ export function registerCodeTaskStatus(server: McpServer, config: Config, chatSe
     {
       title: "Check on a coding task's progress",
       description:
-        "Check the current progress of a coding task started earlier in this conversation — " +
+        "Check the current progress of a coding task started earlier in THIS conversation — " +
         "what phase it's in (planning, coding, testing, reviewing), its latest status update, " +
-        "and the pull request link once one exists.",
+        "and the pull request link once one exists. For a broad 'what are my coding tasks' " +
+        "question, or one that might have been started elsewhere/by a project, use " +
+        "status_overview instead.",
       inputSchema: {},
     },
     async () => {

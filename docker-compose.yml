@@ -174,6 +174,10 @@ services:
       # memory_recall's manual retrieval path - same backend
       # chat-orchestrator's automatic per-turn retrieval uses.
       MEMORY_ENGINE_URL: http://memory-engine:3007
+      # status_overview's listCodingTasks - direct to coding-orchestrator,
+      # not the CODING_TASK_WEBHOOK_URL n8n shim above (that's submission
+      # only). Same always-on-infra tier as KNOWLEDGE_ENGINE_URL.
+      CODING_ORCHESTRATOR_URL: http://coding-orchestrator:3003
     networks: [assistant-net]
 
   # Docker-outside-of-Docker sandbox: spins up a fresh, disposable container

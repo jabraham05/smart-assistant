@@ -17,7 +17,15 @@ test("expandGroupsToTools de-duplicates across overlapping groups and ignores un
   const tools = expandGroupsToTools(["self-growth", "not-a-real-group"]);
   assert.deepEqual(
     new Set(tools),
-    new Set(["calculate", "task_context_manage", "skill_propose", "code_task", "code_task_status", "project_propose"]),
+    new Set([
+      "calculate",
+      "task_context_manage",
+      "skill_propose",
+      "code_task",
+      "code_task_status",
+      "project_propose",
+      "status_overview",
+    ]),
   );
 });
 

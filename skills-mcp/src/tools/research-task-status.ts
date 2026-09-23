@@ -50,7 +50,9 @@ export function registerResearchTaskStatus(server: McpServer, config: Config, ch
         "and drains them during idle/overnight time, so \"what have you found out about the " +
         "robotic arm\" can be true even if no research_task was ever explicitly started here. " +
         "When genuinely unsure which to use, pass `topic` — it also finds tasks started in this " +
-        "conversation if the topic matches closely enough. Findings are capped at a few per call " +
+        "conversation if the topic matches closely enough. This is for ONE specific topic you " +
+        "already have in mind - for a broad 'how's everything going' question spanning multiple " +
+        "things, use status_overview instead. Findings are capped at a few per call " +
         "on purpose (see `moreFindingsCount` when present) — mention in your own words what you " +
         "were given, note there's more if `moreFindingsCount` is set, and include `documentUrl` " +
         "so the user can read the rest there.",

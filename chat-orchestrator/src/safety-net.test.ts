@@ -82,3 +82,33 @@ test("hasUnsatisfiedRequiredTool is satisfied if any bound capability tool was c
     false,
   );
 });
+
+// Real bug found via live testing: "list my open tasks" classified into
+// 'goals' (binding goal_manage/status_overview) but was correctly answered
+// by task_context_manage instead - a genuine overlap, not a wrong tool
+// choice. The successful call still got flagged as unsatisfied and
+// overridden with the hardcoded failure message, since task_context_manage
+// only ever excused itself when it was the ONLY bound tool at all.
+test("hasUnsatisfiedRequiredTool does not flag task_context_manage when 'goals' is a relevant group, even with other goals tools bound", () => {
+  assert.equal(
+    hasUnsatisfiedRequiredTool(
+      "required",
+      ["calculate", "task_context_manage", "goal_manage", "status_overview"],
+      ["task_context_manage"],
+      ["goals"],
+    ),
+    false,
+  );
+});
+
+test("hasUnsatisfiedRequiredTool still flags an unrelated group even if task_context_manage was called", () => {
+  assert.equal(
+    hasUnsatisfiedRequiredTool(
+      "required",
+      ["calculate", "task_context_manage", "weather_get"],
+      ["task_context_manage"],
+      ["info"],
+    ),
+    true,
+  );
+});

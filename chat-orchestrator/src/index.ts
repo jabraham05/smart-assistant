@@ -344,12 +344,12 @@ app.post("/webhook", async (req, res) => {
     // (elaborate on wrong information instead of admitting it didn't
     // check), so this is the one guarantee in this whole safety net that
     // isn't itself model output.
-    if (hasUnsatisfiedRequiredTool(toolPolicy, boundToolNames, calledTools)) {
+    if (hasUnsatisfiedRequiredTool(toolPolicy, boundToolNames, calledTools, relevantGroups)) {
       emit("trace", undefined, { kind: "retry", attempt: attempt + 1, reason: "required_tool" });
       const retry = await runTurn(chatInput + REQUIRED_TOOL_RETRY_NUDGE);
       if (retry.output.trim()) finalText = retry.output;
 
-      if (hasUnsatisfiedRequiredTool(toolPolicy, boundToolNames, calledTools)) {
+      if (hasUnsatisfiedRequiredTool(toolPolicy, boundToolNames, calledTools, relevantGroups)) {
         finalText = REQUIRED_TOOL_FAILURE_MESSAGE;
       }
     }
