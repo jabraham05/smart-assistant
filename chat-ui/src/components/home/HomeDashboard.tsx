@@ -246,7 +246,7 @@ export function HomeDashboard() {
       {/* Compact top row - goals, tasks, events at a glance, each capped
           so this row never pushes Activity below the fold. */}
       <div className="grid shrink-0 grid-cols-1 gap-4 md:grid-cols-3">
-        <Card title="Goals" count={summary?.goals.length ?? 0} className="h-64">
+        <Card title="Goals" count={summary?.goals.length ?? 0} className="h-96">
           {!summary && !error && <EmptyRow text="Loading…" />}
           {summary && summary.goals.length === 0 && <EmptyRow text="No active goals." />}
           <ul className="space-y-1.5">
@@ -254,7 +254,7 @@ export function HomeDashboard() {
           </ul>
         </Card>
 
-        <Card title="Todos" count={openTodos.length} className="h-64">
+        <Card title="Todos" count={openTodos.length} className="h-96">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -291,7 +291,7 @@ export function HomeDashboard() {
           </ul>
         </Card>
 
-        <Card title="Upcoming Events" count={summary?.upcomingEvents.length ?? 0} className="h-64">
+        <Card title="Upcoming Events" count={summary?.upcomingEvents.length ?? 0} className="h-96">
           {!summary && !error && <EmptyRow text="Loading…" />}
           {summary && !summary.calendarConfigured && <EmptyRow text="Calendar isn't configured." />}
           {summary && summary.calendarConfigured && summary.upcomingEvents.length === 0 && (
