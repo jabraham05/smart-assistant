@@ -5,10 +5,11 @@ export async function GET(req: NextRequest) {
   const limitParam = req.nextUrl.searchParams.get("limit");
   const source = req.nextUrl.searchParams.get("source") ?? undefined;
   const type = req.nextUrl.searchParams.get("type") ?? undefined;
+  const originSessionId = req.nextUrl.searchParams.get("originSessionId") ?? undefined;
   const limit = limitParam ? Number(limitParam) : 50;
 
   try {
-    const events = await listRecentEvents(Number.isFinite(limit) ? limit : 50, source, type);
+    const events = await listRecentEvents(Number.isFinite(limit) ? limit : 50, source, type, originSessionId);
     return NextResponse.json(events);
   } catch (e) {
     console.error("failed to fetch events from event-bus:", e);

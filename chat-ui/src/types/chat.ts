@@ -149,6 +149,7 @@ export interface TaskContext {
   status: string;
   next_action: string | null;
   origin_session_id: string | null;
+  source: string; // amy | user - see postgres/init/19-add-task-context-source.sql
   created_at: string;
   updated_at: string;
 }

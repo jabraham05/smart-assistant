@@ -88,3 +88,39 @@ async function postProjectAction(id: number, action: "approve" | "reject" | "com
 export const approveProject = (id: number) => postProjectAction(id, "approve");
 export const rejectProject = (id: number) => postProjectAction(id, "reject");
 export const completeProject = (id: number) => postProjectAction(id, "complete");
+
+// Artifact Registry's search box - ported from the old ops-dashboard's
+// knowledge-engine-client.ts (ops-dashboard is retired, this is its only
+// piece worth keeping).
+export interface KnowledgeSearchRequest {
+  query: string;
+  domain?: string;
+  metadataFilter?: Record<string, unknown>;
+  includeStale?: boolean;
+  topK?: number;
+}
+
+export interface KnowledgeSearchResult {
+  content: string;
+  documentTitle: string;
+  domain: string;
+  pageNumber?: number;
+  sectionPath?: string;
+  heading?: string;
+  score: number;
+}
+
+export async function knowledgeSearch(
+  req: KnowledgeSearchRequest
+): Promise<{ results: KnowledgeSearchResult[] } | { error: string }> {
+  const res = await fetch(`${KNOWLEDGE_ENGINE_URL}/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return { error: typeof data?.error === "string" ? data.error : `knowledge-engine returned ${res.status}` };
+  }
+  return data as { results: KnowledgeSearchResult[] };
+}

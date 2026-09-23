@@ -1,9 +1,8 @@
-# Root .dockerignore - needed because dashboard/Dockerfile is the one
-# service in this repo whose build context is the repo root (it needs to
-# COPY docs/ and README.md, which live outside its own directory - see
-# that Dockerfile's own comment). Without this, every service's
-# node_modules/.next/build output gets swept into that context too,
-# which is both slow and can fail outright on stray files (e.g. broken
+# Root .dockerignore - needed because chat-ui/Dockerfile builds from the
+# repo root (it needs to COPY docs/ and README.md, which live outside its
+# own directory - see that Dockerfile's own comment). Without this, every
+# service's node_modules/.next/build output gets swept into that context
+# too, which is both slow and can fail outright on stray files (e.g. broken
 # symlinks Next.js's file tracing can leave in .next/).
 **/node_modules
 **/.next

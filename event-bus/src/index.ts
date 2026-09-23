@@ -74,9 +74,12 @@ app.get("/events", async (req, res) => {
   const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 50;
   const source = typeof req.query.source === "string" ? req.query.source : undefined;
   const type = typeof req.query.type === "string" ? req.query.type : undefined;
+  // Amy Lab / Chat's session activity sidebar - filters the same
+  // append-only feed down to one conversation.
+  const originSessionId = typeof req.query.originSessionId === "string" ? req.query.originSessionId : undefined;
 
   try {
-    const events = await db.listRecentEvents(config, limit, source, type);
+    const events = await db.listRecentEvents(config, limit, source, type, originSessionId);
     res.json({ events });
   } catch (e) {
     console.error("failed to list events:", e);
@@ -182,7 +185,13 @@ app.get("/goals/:id/progress", async (req, res) => {
 // classification) since a task can span multiple capabilities - see
 // docs/chat-workflow.md.
 app.post("/task-contexts", async (req, res) => {
-  const body = req.body as { objective?: string; capability?: string; domain?: string; originSessionId?: string };
+  const body = req.body as {
+    objective?: string;
+    capability?: string;
+    domain?: string;
+    originSessionId?: string;
+    source?: string;
+  };
 
   if (!body.objective || typeof body.objective !== "string") {
     return res.status(400).json({ error: "objective is required" });
@@ -204,6 +213,7 @@ app.post("/task-contexts", async (req, res) => {
       capability: body.capability,
       domain: body.domain,
       originSessionId: body.originSessionId,
+      source: body.source,
     });
     res.status(201).json({ ...taskContext, duplicate: false });
   } catch (e) {

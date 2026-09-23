@@ -64,16 +64,18 @@ export function EventLogPanel({
   isLoading,
   error,
   onRefresh,
+  title = "event-bus",
 }: {
   events: EventBusEvent[];
   isLoading: boolean;
   error?: string;
   onRefresh: () => void;
+  title?: string;
 }) {
   return (
     <div className="flex h-full w-96 flex-col border-l border-gray-200 dark:border-gray-700">
       <div className="flex items-center justify-between border-b border-gray-200 p-2 dark:border-gray-700">
-        <span className="text-xs font-medium text-gray-600 dark:text-gray-300">event-bus</span>
+        <span className="text-xs font-medium text-gray-600 dark:text-gray-300">{title}</span>
         <button
           onClick={onRefresh}
           disabled={isLoading}

@@ -61,7 +61,13 @@ function getPool(config: Config): Pool {
 // optional source, since this is a debugging/visibility surface (see
 // docs/event-bus-and-goals.md), not a consumer-facing API with its own
 // access-control needs.
-export async function listRecentEvents(config: Config, limit: number, source?: string, type?: string): Promise<EventRow[]> {
+export async function listRecentEvents(
+  config: Config,
+  limit: number,
+  source?: string,
+  type?: string,
+  originSessionId?: string,
+): Promise<EventRow[]> {
   const conditions: string[] = [];
   const params: unknown[] = [];
   if (source) {
@@ -71,6 +77,10 @@ export async function listRecentEvents(config: Config, limit: number, source?: s
   if (type) {
     params.push(type);
     conditions.push(`type = $${params.length}`);
+  }
+  if (originSessionId) {
+    params.push(originSessionId);
+    conditions.push(`origin_session_id = $${params.length}`);
   }
   params.push(limit);
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -211,6 +221,7 @@ export interface TaskContextRow {
   unknowns: unknown[];
   next_action: string | null;
   origin_session_id: string | null;
+  source: string; // amy | user - see 19-add-task-context-source.sql
   created_at: string;
   updated_at: string;
 }
@@ -220,6 +231,7 @@ export interface InsertTaskContextInput {
   capability?: string;
   domain?: string;
   originSessionId?: string;
+  source?: string;
 }
 
 // Real bug found via live testing: a duplicate "wax the car" task got
@@ -260,10 +272,16 @@ export async function findOverlappingOpenTaskContext(
 
 export async function insertTaskContext(config: Config, input: InsertTaskContextInput): Promise<TaskContextRow> {
   const result = await getPool(config).query<TaskContextRow>(
-    `INSERT INTO task_contexts (objective, capability, domain, origin_session_id)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO task_contexts (objective, capability, domain, origin_session_id, source)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [input.objective, input.capability || null, input.domain || null, input.originSessionId || null],
+    [
+      input.objective,
+      input.capability || null,
+      input.domain || null,
+      input.originSessionId || null,
+      input.source || "amy",
+    ],
   );
   return result.rows[0];
 }

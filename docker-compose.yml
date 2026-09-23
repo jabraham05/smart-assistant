@@ -432,8 +432,12 @@ services:
 
   chat-ui:
     build:
-      context: ./chat-ui
-      dockerfile: Dockerfile
+      # Repo root, not ./chat-ui - it now needs to COPY docs/ and README.md
+      # from outside its own directory at build time for the Artifacts tab
+      # (see chat-ui/Dockerfile), the same reason the old ops-dashboard's
+      # build context was the repo root.
+      context: .
+      dockerfile: chat-ui/Dockerfile
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -458,59 +462,6 @@ services:
       # session or tool call ever made from here.
       SKILLS_MCP_URL: http://skills-mcp:3001
     depends_on: [chat-orchestrator, event-bus, skills-mcp]
-    networks: [assistant-net]
-
-  # Single-pane-of-glass monitoring UI for the whole stack - see
-  # docs/ops-dashboard.md. Same trust boundary as every other
-  # assistant-net service (LAN-only, no auth). Joins assistant-net since
-  # it needs to reach postgres/n8n/knowledge-engine/event-bus/skills-mcp
-  # directly, same reasoning as chat-ui.
-  dashboard:
-    build:
-      # Repo root, not ./dashboard like every other service here - this is
-      # the one service that needs to COPY files (docs/, README.md) from
-      # outside its own directory at build time (see dashboard/Dockerfile).
-      context: .
-      dockerfile: dashboard/Dockerfile
-    restart: unless-stopped
-    ports:
-      - "3006:3006"
-    environment:
-      PORT: "3006"
-      # Reuses the one existing `assistant` role/credential across all 5
-      # databases, same as every other service. No dedicated read-only role
-      # exists; the dashboard enforces read-only at the application layer
-      # instead (statement validation + a real Postgres READ ONLY
-      # transaction) - see dashboard/src/lib/readonly-sql.ts.
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_HOST: postgres
-      POSTGRES_USER: assistant
-      # Browser-facing (rendered as an <iframe src> / link href), so these
-      # must be host-published addresses the user's own browser can reach,
-      # not the internal Compose service names. Deliberately NOT prefixed
-      # NEXT_PUBLIC_ - that inlines a value at `next build` time (baked into
-      # the image), but these are only known at container runtime via
-      # docker-compose `environment:`. Read server-side (a Server Component
-      # or route handler sees live process.env on every request) and passed
-      # to the client as a prop instead - see dashboard/src/app/chat/page.tsx.
-      CHAT_UI_PUBLIC_URL: http://localhost:3000
-      N8N_PUBLIC_URL: http://localhost:5678
-      # Internal service URLs, used only from server-side API routes.
-      KNOWLEDGE_ENGINE_URL: http://knowledge-engine:3005
-      EVENT_BUS_URL: http://event-bus:3004
-      SKILLS_MCP_URL: http://skills-mcp:3001/mcp
-    volumes:
-      # Docker socket access for the Logs panel (dockerode), same precedent
-      # as sandbox-runner. docs/ and README.md are deliberately NOT
-      # bind-mounted here - confirmed live that both a single-file mount and
-      # a directory mount get stuck as empty on this machine's Docker
-      # Desktop, the same failure mode already documented for skills-mcp's
-      # Google Calendar key file. Baked into the image at build time
-      # instead (see dashboard/Dockerfile) - a doc edit needs a rebuild to
-      # show up, the same tradeoff already accepted elsewhere in this repo
-      # for the same reason.
-      - /var/run/docker.sock:/var/run/docker.sock
-    depends_on: [postgres, n8n, knowledge-engine, event-bus, skills-mcp, chat-ui]
     networks: [assistant-net]
 
   # Discord bridge: lets the user talk to Amy from their phone over DM,
