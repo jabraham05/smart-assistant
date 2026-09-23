@@ -7,6 +7,7 @@ import { useHomeActivity } from "@/hooks/useHomeActivity";
 import { useProjects } from "@/hooks/useProjects";
 import { ActivityFeedItem } from "@/components/activity/ActivityFeedItem";
 import type { Goal, TaskContext, UpcomingEvent } from "@/types/chat";
+import type { Project } from "@/lib/knowledge-engine-client";
 
 function formatEventTime(event: UpcomingEvent): string {
   const iso = event.start?.dateTime ?? event.start?.date;
@@ -28,13 +29,15 @@ function Card({
   title,
   count,
   children,
+  className = "",
 }: {
   title: string;
   count: number;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-white/10 bg-zinc-900/40 backdrop-blur-sm">
+    <section className={`flex min-h-0 flex-col rounded-xl border border-white/10 bg-zinc-900/40 backdrop-blur-sm ${className}`}>
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <h2 className="text-sm font-medium text-zinc-200">{title}</h2>
         <span className="rounded-full bg-white/5 px-2 py-0.5 font-mono text-[11px] text-zinc-500">{count}</span>
@@ -131,6 +134,46 @@ function EventRow({ event }: { event: UpcomingEvent }) {
   );
 }
 
+// Pinned to the top of Activity - an actionable item, not just something
+// that already happened, so it gets its own louder (amber) treatment and
+// inline Approve/Reject rather than blending into ActivityFeedItem's
+// plain informational rows.
+function ApprovalRow({
+  project,
+  onApprove,
+  onReject,
+}: {
+  project: Project;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <li className="rounded-lg border border-amber-500/20 bg-amber-500/[0.04] p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] font-medium uppercase tracking-wide text-amber-300">
+          needs approval
+        </span>
+      </div>
+      <p className="mt-1 text-sm font-medium text-zinc-100">{project.title}</p>
+      <p className="mt-0.5 text-xs text-zinc-500">{project.rationale}</p>
+      <div className="mt-2 flex gap-2">
+        <button
+          onClick={onApprove}
+          className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-indigo-500"
+        >
+          Approve
+        </button>
+        <button
+          onClick={onReject}
+          className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-zinc-300 transition-colors hover:bg-white/5"
+        >
+          Reject
+        </button>
+      </div>
+    </li>
+  );
+}
+
 export function HomeDashboard() {
   const { summary, isLoading, error, refresh } = useHomeSummary();
   const activity = useHomeActivity();
@@ -200,8 +243,18 @@ export function HomeDashboard() {
 
       {error && <p className="mb-3 text-xs text-rose-400">{error}</p>}
 
-      <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
-        <Card title="Todos" count={openTodos.length}>
+      {/* Compact top row - goals, tasks, events at a glance, each capped
+          so this row never pushes Activity below the fold. */}
+      <div className="grid shrink-0 grid-cols-1 gap-4 md:grid-cols-3">
+        <Card title="Goals" count={summary?.goals.length ?? 0} className="h-64">
+          {!summary && !error && <EmptyRow text="Loading…" />}
+          {summary && summary.goals.length === 0 && <EmptyRow text="No active goals." />}
+          <ul className="space-y-1.5">
+            {summary?.goals.map((goal) => <GoalRow key={goal.id} goal={goal} />)}
+          </ul>
+        </Card>
+
+        <Card title="Todos" count={openTodos.length} className="h-64">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -238,7 +291,7 @@ export function HomeDashboard() {
           </ul>
         </Card>
 
-        <Card title="Upcoming Events" count={summary?.upcomingEvents.length ?? 0}>
+        <Card title="Upcoming Events" count={summary?.upcomingEvents.length ?? 0} className="h-64">
           {!summary && !error && <EmptyRow text="Loading…" />}
           {summary && !summary.calendarConfigured && <EmptyRow text="Calendar isn't configured." />}
           {summary && summary.calendarConfigured && summary.upcomingEvents.length === 0 && (
@@ -248,49 +301,30 @@ export function HomeDashboard() {
             {summary?.upcomingEvents.map((event) => <EventRow key={event.id} event={event} />)}
           </ul>
         </Card>
+      </div>
 
-        <Card title="Recent Activity" count={activity.items.length}>
-          {activity.isLoading && activity.items.length === 0 && <EmptyRow text="Loading…" />}
-          {!activity.isLoading && activity.items.length === 0 && <EmptyRow text="Nothing recent." />}
+      {/* Activity - full width, fills the rest of the page. Approvals are
+          pinned to the top since they need a decision, not just a read. */}
+      <div className="mt-4 min-h-0 flex-1">
+        <Card title="Activity" count={proposedProjects.length + activity.items.length} className="h-full">
+          {proposedProjects.length === 0 && !activity.isLoading && activity.items.length === 0 && (
+            <EmptyRow text="Nothing recent." />
+          )}
+          {activity.isLoading && activity.items.length === 0 && proposedProjects.length === 0 && (
+            <EmptyRow text="Loading…" />
+          )}
           <ul className="space-y-1.5">
+            {proposedProjects.map((p) => (
+              <ApprovalRow
+                key={`approval-${p.id}`}
+                project={p}
+                onApprove={() => approve(p.id).then(refreshProjects)}
+                onReject={() => reject(p.id).then(refreshProjects)}
+              />
+            ))}
             {activity.items.map((item) => (
               <ActivityFeedItem key={item.id} label={item.category} summary={item.summary} occurredAt={item.occurredAt} />
             ))}
-          </ul>
-        </Card>
-
-        {proposedProjects.length > 0 && (
-          <Card title="Needing Approval" count={proposedProjects.length}>
-            <ul className="space-y-2">
-              {proposedProjects.map((p) => (
-                <li key={p.id} className="rounded-lg border border-amber-500/20 bg-amber-500/[0.04] p-2.5">
-                  <p className="text-sm font-medium text-zinc-100">{p.title}</p>
-                  <p className="mt-0.5 text-xs text-zinc-500">{p.rationale}</p>
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => approve(p.id).then(refreshProjects)}
-                      className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-indigo-500"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      onClick={() => reject(p.id).then(refreshProjects)}
-                      className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-zinc-300 transition-colors hover:bg-white/5"
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
-
-        <Card title="Goals" count={summary?.goals.length ?? 0}>
-          {!summary && !error && <EmptyRow text="Loading…" />}
-          {summary && summary.goals.length === 0 && <EmptyRow text="No active goals." />}
-          <ul className="space-y-1.5">
-            {summary?.goals.map((goal) => <GoalRow key={goal.id} goal={goal} />)}
           </ul>
         </Card>
       </div>
