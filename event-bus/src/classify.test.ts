@@ -13,6 +13,10 @@ test("classify: known (source, type) pairs return their configured rule", () => 
   assert.deepEqual(classify("google_calendar", "event_detected"), { priority: "low", notify: false });
   assert.deepEqual(classify("google_calendar", "event_starting_soon"), { priority: "high", notify: false });
   assert.deepEqual(classify("idle_reflection", "proactive_thought"), { priority: "high", notify: false });
+  assert.deepEqual(classify("task_context", "task_context_created"), { priority: "low", notify: false });
+  assert.deepEqual(classify("task_context", "task_context_updated"), { priority: "low", notify: false });
+  assert.deepEqual(classify("project", "project_created"), { priority: "low", notify: false });
+  assert.deepEqual(classify("research", "research_completed"), { priority: "low", notify: false });
 });
 
 test("classify: unrecognized (source, type) falls back to DEFAULT, not rejected", () => {
@@ -42,6 +46,10 @@ test("classify: every rule that defaults to notify:false stays that way (no acci
     ["google_calendar", "event_detected"],
     ["google_calendar", "event_starting_soon"],
     ["idle_reflection", "proactive_thought"],
+    ["task_context", "task_context_created"],
+    ["task_context", "task_context_updated"],
+    ["project", "project_created"],
+    ["research", "research_completed"],
   ];
   for (const [source, type] of sourceTypePairs) {
     assert.equal(classify(source, type).notify, false, `${source}.${type} should default to notify:false`);

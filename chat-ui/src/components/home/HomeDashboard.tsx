@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useHomeSummary } from "@/hooks/useHomeSummary";
-import { useEvents } from "@/hooks/useEvents";
+import { useHomeActivity } from "@/hooks/useHomeActivity";
 import { useProjects } from "@/hooks/useProjects";
+import { ActivityFeedItem } from "@/components/activity/ActivityFeedItem";
 import type { Goal, TaskContext, UpcomingEvent } from "@/types/chat";
 
 function formatEventTime(event: UpcomingEvent): string {
@@ -109,6 +111,9 @@ function TodoRow({
             >
               {task.source === "user" ? "you" : "amy"}
             </span>
+            <Link href={`/tasks/${task.id}`} className="shrink-0 text-[10px] text-indigo-400 hover:underline">
+              Details
+            </Link>
             {task.next_action && !done && <p className="text-xs text-zinc-500">Next: {task.next_action}</p>}
           </div>
         </div>
@@ -126,23 +131,9 @@ function EventRow({ event }: { event: UpcomingEvent }) {
   );
 }
 
-function ActivityRow({ event }: { event: { id: number; source: string; type: string; occurred_at: string } }) {
-  return (
-    <li className="rounded-lg border border-white/5 bg-white/[0.02] p-2.5 text-xs">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-zinc-300">{event.type.replace(/_/g, " ")}</span>
-        <span className="shrink-0 font-mono text-[10px] text-zinc-600">
-          {new Date(event.occurred_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-        </span>
-      </div>
-      <span className="font-mono text-[10px] uppercase tracking-wide text-zinc-600">{event.source}</span>
-    </li>
-  );
-}
-
 export function HomeDashboard() {
   const { summary, isLoading, error, refresh } = useHomeSummary();
-  const activity = useEvents();
+  const activity = useHomeActivity();
   const { projects, refresh: refreshProjects, approve, reject } = useProjects();
   const [newTodo, setNewTodo] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -258,12 +249,12 @@ export function HomeDashboard() {
           </ul>
         </Card>
 
-        <Card title="Recent Activity" count={activity.events.length}>
-          {activity.isLoading && activity.events.length === 0 && <EmptyRow text="Loading…" />}
-          {!activity.isLoading && activity.events.length === 0 && <EmptyRow text="Nothing recent." />}
+        <Card title="Recent Activity" count={activity.items.length}>
+          {activity.isLoading && activity.items.length === 0 && <EmptyRow text="Loading…" />}
+          {!activity.isLoading && activity.items.length === 0 && <EmptyRow text="Nothing recent." />}
           <ul className="space-y-1.5">
-            {activity.events.slice(0, 20).map((event) => (
-              <ActivityRow key={event.id} event={event} />
+            {activity.items.map((item) => (
+              <ActivityFeedItem key={item.id} label={item.category} summary={item.summary} occurredAt={item.occurredAt} />
             ))}
           </ul>
         </Card>

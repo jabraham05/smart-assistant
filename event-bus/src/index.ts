@@ -8,6 +8,7 @@ import { pollCalendar } from "./calendar-watch.js";
 import { getWorkLevel } from "./work-level.js";
 import { runOvernightDigest } from "./digest.js";
 import { stepTransitionNotification } from "./step-notifications.js";
+import { DIGEST_ALLOWLIST, summarizeEvent } from "./activity.js";
 
 const config = loadConfig(process.env);
 
@@ -216,6 +217,16 @@ app.post("/task-contexts", async (req, res) => {
       source: body.source,
     });
     res.status(201).json({ ...taskContext, duplicate: false });
+
+    // Feeds the Home activity feed (see activity.ts) - fire after
+    // responding, a failure here must never block task creation itself.
+    ingestEvent(config, {
+      source: "task_context",
+      type: "task_context_created",
+      payload: { taskContextId: taskContext.id, objective: taskContext.objective },
+      originSessionId: body.originSessionId,
+      taskContextId: taskContext.id,
+    }).catch((e) => console.error(`failed to publish task_context_created for ${taskContext.id}:`, e));
   } catch (e) {
     console.error("failed to create task context:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -266,6 +277,49 @@ app.get("/home-summary", async (req, res) => {
   });
 });
 
+// GET /home-activity?limit=20 - the curated, cross-entity "what happened"
+// feed for chat-ui's Home page: research done, project created, task
+// updated, goal progress (see activity.ts's DIGEST_ALLOWLIST for exactly
+// which (source, type) event pairs qualify, plus goal_progress_log read
+// directly). Deliberately separate from GET /events (the unscoped
+// firehose Chat's debug sidebar still uses) and /home-summary (current
+// state, not history).
+app.get("/home-activity", async (req, res) => {
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 20;
+  const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : 20;
+
+  try {
+    const [events, goalProgress] = await Promise.all([
+      db.listDigestEvents(config, DIGEST_ALLOWLIST, limit),
+      db.listRecentGoalProgress(config, limit),
+    ]);
+
+    const items = [
+      ...events.map((e) => ({
+        id: `event-${e.id}`,
+        category: e.source === "research" ? "research" : e.source === "project" ? "project" : "task",
+        summary: summarizeEvent(e),
+        occurredAt: e.occurred_at,
+        taskContextId: e.task_context_id,
+      })),
+      ...goalProgress.map((g) => ({
+        id: `goal-progress-${g.id}`,
+        category: "goal",
+        summary: `Progress on goal "${g.goal_title}"${g.note ? `: ${g.note}` : ""}.`,
+        occurredAt: g.created_at,
+        taskContextId: null as number | null,
+      })),
+    ]
+      .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+      .slice(0, limit);
+
+    res.json({ items });
+  } catch (e) {
+    console.error("failed to build home activity feed:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 // GET /task-contexts/match?text=... - scoped relevance injection for the
 // chat system prompt, mirroring /goals/match below. Real bug found via
 // live dogfooding: GET /task-contexts?status=open (above) was injected
@@ -302,6 +356,19 @@ app.patch("/task-contexts/:id", async (req, res) => {
     }
     const updated = await db.updateTaskContext(config, taskContextId, body);
     res.json(updated);
+
+    // Only a real status transition counts as feed-worthy "task updated" -
+    // objective/capability/domain edits are visible in task_context_log's
+    // own history (see the per-task detail feed) without adding Home noise.
+    if (updated && body.status && body.status !== existing.status) {
+      ingestEvent(config, {
+        source: "task_context",
+        type: "task_context_updated",
+        payload: { taskContextId, objective: updated.objective, status: updated.status },
+        originSessionId: existing.origin_session_id ?? undefined,
+        taskContextId,
+      }).catch((e) => console.error(`failed to publish task_context_updated for ${taskContextId}:`, e));
+    }
   } catch (e) {
     console.error(`failed to update task context ${taskContextId}:`, e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -370,6 +437,48 @@ app.get("/task-contexts/:id/steps", async (req, res) => {
     res.json({ steps });
   } catch (e) {
     console.error(`failed to list steps for task context ${taskContextId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// GET /task-contexts/:id/activity - the detailed, task-scoped feed behind
+// chat-ui's new task detail page: log notes + step status transitions +
+// any events tagged with this task (task_context_created/updated),
+// merged and sorted oldest-first. Supersedes exposing db.getTaskContextLog
+// as its own route - nothing needs the log in isolation from the rest of
+// the task's history.
+app.get("/task-contexts/:id/activity", async (req, res) => {
+  const taskContextId = Number(req.params.id);
+  if (!Number.isInteger(taskContextId)) {
+    return res.status(400).json({ error: "invalid task context id" });
+  }
+
+  try {
+    const taskContext = await db.getTaskContext(config, taskContextId);
+    if (!taskContext) {
+      return res.status(404).json({ error: `task context ${taskContextId} not found` });
+    }
+
+    const [log, steps, events] = await Promise.all([
+      db.getTaskContextLog(config, taskContextId),
+      db.listTaskContextSteps(config, taskContextId),
+      db.listEventsForTaskContext(config, taskContextId),
+    ]);
+
+    const items = [
+      ...log.map((l) => ({ id: `log-${l.id}`, kind: "note" as const, summary: l.note ?? "", occurredAt: l.created_at })),
+      ...steps.map((s) => ({
+        id: `step-${s.id}`,
+        kind: "step" as const,
+        summary: `Step ${s.step_index + 1} (${s.description}): ${s.status.replace(/_/g, " ")}`,
+        occurredAt: s.updated_at,
+      })),
+      ...events.map((e) => ({ id: `event-${e.id}`, kind: "event" as const, summary: summarizeEvent(e), occurredAt: e.occurred_at })),
+    ].sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
+
+    res.json({ taskContext, items });
+  } catch (e) {
+    console.error(`failed to build activity feed for task context ${taskContextId}:`, e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

@@ -1,4 +1,4 @@
-import type { EventBusEvent, HomeSummary, TaskContext } from "@/types/chat";
+import type { EventBusEvent, HomeActivityItem, HomeSummary, TaskContext, TaskContextActivity } from "@/types/chat";
 
 // Server-side only, same "no client-side secrets/URLs" shape as
 // honcho-client.ts - event-bus is internal-only (no published port), so
@@ -45,6 +45,30 @@ export async function getHomeSummary(): Promise<HomeSummary> {
   const res = await fetch(`${EVENT_BUS_URL}/home-summary`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`event-bus /home-summary failed with ${res.status}`);
+  }
+  return res.json();
+}
+
+// Home dashboard's curated "what happened" feed - see event-bus's
+// activity.ts for what qualifies. Distinct from listRecentEvents above,
+// which is the unscoped firehose Chat's debug sidebar uses.
+export async function getHomeActivity(limit = 20): Promise<HomeActivityItem[]> {
+  const url = new URL(`${EVENT_BUS_URL}/home-activity`);
+  url.searchParams.set("limit", String(limit));
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`event-bus /home-activity failed with ${res.status}`);
+  }
+  const data = (await res.json()) as { items: HomeActivityItem[] };
+  return data.items;
+}
+
+// The task detail page's full, granular activity trail for one task_context.
+export async function getTaskContextActivity(taskContextId: string | number): Promise<TaskContextActivity | undefined> {
+  const res = await fetch(`${EVENT_BUS_URL}/task-contexts/${taskContextId}/activity`, { cache: "no-store" });
+  if (res.status === 404) return undefined;
+  if (!res.ok) {
+    throw new Error(`event-bus /task-contexts/${taskContextId}/activity failed with ${res.status}`);
   }
   return res.json();
 }

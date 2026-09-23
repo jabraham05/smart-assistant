@@ -50,9 +50,25 @@ export async function notifyResearchComplete(
   findings: VerifiedFinding[],
   failed: boolean,
 ): Promise<void> {
-  if (!info.originSessionId) return;
-
   const summary = buildSummary(info.topic, findings, failed);
+
+  // Feeds the Home activity feed (see event-bus's activity.ts) - the
+  // foreground counterpart to logAwaitingDigest's own publish below, so
+  // "research done" shows up on Home whether or not the run was
+  // background/deferred. Runs even with no origin_session_id (the direct
+  // chat-reply notify below requires one, this doesn't).
+  fetch(`${config.eventBusUrl}/events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source: "research",
+      type: "research_completed",
+      payload: { topic: info.topic, summary, failed },
+      originSessionId: info.originSessionId,
+    }),
+  }).catch((e) => console.error(`notifyResearchComplete: failed to publish research_completed event for session ${info.sessionId}:`, e));
+
+  if (!info.originSessionId) return;
 
   try {
     await getN8nPool(config).query(`INSERT INTO n8n_chat_histories (session_id, message) VALUES ($1, $2::jsonb)`, [
