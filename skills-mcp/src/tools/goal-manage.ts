@@ -25,7 +25,11 @@ export function registerGoalManage(server: McpServer, config: Config, chatSessio
         "been logged, real matches only, never a guess. Use action='list' for 'what are my " +
         "goals' / 'what am I tracking'. action='update' only changes the fields you provide " +
         "— use it to mark a goal 'done' or 'abandoned' when the user says so, or to adjust " +
-        "its title/description/keywords.",
+        "its title/description/keywords. Goals, projects, task contexts, and coding tasks are four " +
+        "separate things with their own independent numeric ids - 'ID 8' is ambiguous across them " +
+        "(a real mix-up found via live testing: an abandoned goal #8 got confused with an unrelated " +
+        "active project #8). Always say 'goal #N' (the `ref` field below) when referring to one in " +
+        "conversation, never a bare number.",
       inputSchema: {
         action: z.enum(["create", "list", "update", "progress"]).describe("Which goal operation to perform."),
         // coerce, not number(): the model sometimes sends a stringified
@@ -50,21 +54,21 @@ export function registerGoalManage(server: McpServer, config: Config, chatSessio
         if (action === "create") {
           if (!title?.trim()) return errorResult("title is required for action='create'.");
           const goal = await createGoal(config, { title, description, keywords, originSessionId: chatSessionId });
-          return textResult({ id: goal.id, title: goal.title, keywords: goal.keywords, status: goal.status });
+          return textResult({ id: goal.id, ref: `goal #${goal.id}`, title: goal.title, keywords: goal.keywords, status: goal.status });
         }
 
         if (action === "list") {
           const goals = await listGoals(config, status);
           if (goals.length === 0) return textResult("No goals found.");
           return textResult(
-            goals.map((g) => ({ id: g.id, title: g.title, status: g.status, updatedAt: g.updated_at })),
+            goals.map((g) => ({ id: g.id, ref: `goal #${g.id}`, title: g.title, status: g.status, updatedAt: g.updated_at })),
           );
         }
 
         if (action === "update") {
           if (!goalId) return errorResult("goalId is required for action='update'.");
           const goal = await updateGoal(config, goalId, { title, description, keywords, status });
-          return textResult({ id: goal.id, title: goal.title, status: goal.status });
+          return textResult({ id: goal.id, ref: `goal #${goal.id}`, title: goal.title, status: goal.status });
         }
 
         // action === "progress"
@@ -74,7 +78,7 @@ export function registerGoalManage(server: McpServer, config: Config, chatSessio
           return textResult(`No progress logged yet for "${goal.title}".`);
         }
         return textResult({
-          goal: { id: goal.id, title: goal.title, status: goal.status },
+          goal: { id: goal.id, ref: `goal #${goal.id}`, title: goal.title, status: goal.status },
           progress: progress.map((p) => ({ note: p.note, at: p.created_at })),
         });
       } catch (e) {
