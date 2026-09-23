@@ -46,6 +46,14 @@ export interface Config {
   // How many hours of continuous low work-level must pass between
   // idle-reflection reasoning runs (see /idle-reflection-check).
   idleReflectionMinHours: number;
+  // Real gap found via live testing: the research queue only ever drained
+  // on a calendar wake-event (a specific "Wake Up"-titled event) - with
+  // none ever created, two real topics sat at 'pending' for over a day
+  // with zero attempts to drain them. This gates an independent periodic
+  // drain on /calendar/poll-check's existing ~10min cadence, same
+  // scanner_state-throttle pattern as idleReflectionMinHours above, so
+  // draining doesn't depend on the user maintaining a calendar convention.
+  researchQueueDrainMinHours: number;
   // Separate, stricter cooldown specifically for the "message the user
   // directly" outcome (see /idle-reflection-check's canMessageUser and
   // /idle-reflection-messaged) - deliberately independent of
@@ -102,6 +110,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     codingTasksDbName: env.CODING_TASKS_DB_NAME || "coding_tasks",
     researchDbName: env.RESEARCH_DB_NAME || "research",
     idleReflectionMinHours: env.IDLE_REFLECTION_MIN_HOURS ? Number(env.IDLE_REFLECTION_MIN_HOURS) : 4,
+    // Shorter than idleReflectionMinHours - draining doesn't message the
+    // user directly (results fold into the next digest), so it's lower
+    // stakes and can run more often.
+    researchQueueDrainMinHours: env.RESEARCH_QUEUE_DRAIN_MIN_HOURS ? Number(env.RESEARCH_QUEUE_DRAIN_MIN_HOURS) : 2,
     idleReflectionMessageMinHours: env.IDLE_REFLECTION_MESSAGE_MIN_HOURS
       ? Number(env.IDLE_REFLECTION_MESSAGE_MIN_HOURS)
       : 24,
