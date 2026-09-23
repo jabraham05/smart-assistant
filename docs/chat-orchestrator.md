@@ -514,3 +514,39 @@ satisfying the requirement whenever `'goals'` is among the classified
 groups, regardless of which other `'goals'` tools were bound. Verified
 live: the exact failing message now returns the real task instead of the
 fallback.
+
+### 2026-09-24 — `project_complete`: finishing a project from chat, not just the dashboard
+
+Direct follow-up to a real question after `status_overview` shipped: what
+does "ready to complete" actually mean, and is there a way to finish a
+project without opening `/amy`? There wasn't - consolidation only ever
+existed as a dashboard button (`POST /projects/:id/complete`, already
+built). New `project_complete` (skills-mcp) wraps that same endpoint for
+chat, resolvable by `projectId` (from a `status_overview` "project #N"
+reference) or by `topic` (fuzzy title lookup) when the model doesn't have
+the id handy. A 409 from the underlying endpoint (research not finished
+yet, or a real coding failure reason) is relayed honestly as a normal
+text result, not thrown as an error - an expected outcome, not a tool
+failure. Bound to `goals`/`research`/`self-growth` (same multi-group
+membership `project_propose`/`status_overview` already use), added to
+`ACTION_TOOLS`, and "completed"/"finished"/"consolidated"/"wrapped up"
+added to the confabulation verb list (none were covered before - a claim
+like "I've finished the project" with no real call would have slipped
+past undetected).
+
+**Real bug found via live testing, fixed same pass**: the first live test
+used a topic paraphrase ("verifying project_complete chat tool") against
+the actual title ("Verify project_complete chat tool") - a plain
+substring check found nothing, since "verify"/"verifying" don't contain
+each other. Replaced with word-overlap matching (split both into
+lowercase word tokens, pick the project sharing the most), the same
+lenient-matching spirit as this project's SQL-side lexeme-overlap topic
+lookups, done in plain JS since skills-mcp has no direct database access
+to run that technique itself.
+
+**Verified live, end to end**: proposed and approved a real test project,
+drained its research to completion, then asked "can you finish up the
+project about verifying project_complete chat tool" in a real chat
+message - it correctly resolved the fuzzy topic match, called
+`project_complete`, and the project's `status`/`document_id` in Postgres
+confirmed a real completion, not a confabulated one.
