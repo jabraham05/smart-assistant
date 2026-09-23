@@ -21,7 +21,10 @@ export function ChatWindow() {
   const { messages, isSending, isLoadingHistory, sendMessage } = useChat(activeSessionId);
   const [sidePanel, setSidePanel] = useState<SidePanel>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
-  const eventsState = useEvents();
+  // Scoped to the active session - this is the per-conversation activity
+  // sidebar (tool calls, research pulled, goals/tasks created), not the
+  // global feed Home's Recent Activity card shows.
+  const eventsState = useEvents(activeSessionId);
   const registryState = useRegistry();
 
   const toggleSidePanel = (panel: SidePanel) => {
@@ -32,10 +35,12 @@ export function ChatWindow() {
   useEffect(() => {
     if (sidePanel === "events") eventsState.refresh();
     if (sidePanel === "registry") registryState.refresh();
-    // Both refresh callbacks are stable (useCallback with no deps) - only
-    // re-fetch when a panel is actually opened, not on every render.
+    // registryState.refresh is stable (useCallback with no deps);
+    // eventsState.refresh's identity changes with activeSessionId, which is
+    // exactly the re-fetch trigger needed when switching sessions with the
+    // panel already open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sidePanel]);
+  }, [sidePanel, activeSessionId, eventsState.refresh]);
 
   const handleSend = async (content: string) => {
     const isNewSession = !sessions.some((s) => s.id === activeSessionId);
@@ -82,7 +87,7 @@ export function ChatWindow() {
               checked={sidePanel === "events"}
               onChange={() => toggleSidePanel("events")}
             />
-            event-bus
+            session activity
           </label>
           <span className="text-xs text-gray-400 dark:text-gray-500">Click a message for turn detail</span>
         </div>
@@ -125,6 +130,7 @@ export function ChatWindow() {
           isLoading={eventsState.isLoading}
           error={eventsState.error}
           onRefresh={eventsState.refresh}
+          title="this session's activity"
         />
       )}
     </div>
