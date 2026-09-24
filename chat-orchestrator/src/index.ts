@@ -9,7 +9,7 @@ import { formatSkillsCatalog } from "./skills-catalog.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { SkillsMcpClient } from "./mcp-client.js";
 import { searchMemory, ingestMemory, isRelevantMemory } from "./memory-engine-client.js";
-import { enqueueResearchTopic } from "./knowledge-engine-client.js";
+import { enqueueResearchTopic, listOpenProjects } from "./knowledge-engine-client.js";
 import { matchTaskContexts, matchGoals } from "./event-bus-client.js";
 import { runAgentLoop, type AgentTool, type AgentTraceEvent } from "./agent-loop.js";
 import {
@@ -116,7 +116,7 @@ app.post("/webhook", async (req, res) => {
       ? lastExchange.map((m) => `${m.role}: ${m.content}`).join("\n")
       : undefined;
 
-    const [classification, personaSystemPrompt, activeSkills, memoryResults, openTasks, relevantGoals] = await Promise.all([
+    const [classification, personaSystemPrompt, activeSkills, memoryResults, openTasks, relevantGoals, openProjects] = await Promise.all([
       classifyRelevantTools(config.ollamaHost, config.classifierModel, chatInput, recentContext),
       db.getPersonaSystemPrompt(config).catch((e) => {
         console.error("getPersonaSystemPrompt failed:", e);
@@ -147,6 +147,12 @@ app.post("/webhook", async (req, res) => {
       // searchMemory above.
       matchTaskContexts(config, chatInput),
       matchGoals(config, chatInput),
+      // Always-on, unlike matchTaskContexts/matchGoals above - not scoped
+      // to this message's text, since the whole point is catching a
+      // re-proposal the model wouldn't otherwise recognize as related (see
+      // system-prompt.ts's openProjects field). listOpenProjects is
+      // fail-silent internally (never throws), same as searchMemory above.
+      listOpenProjects(config),
     ]);
     const { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background, knowledgeGapTopic, behaviorFeedback } =
       classification;
@@ -227,6 +233,7 @@ app.post("/webhook", async (req, res) => {
       relevantMemories,
       openTasks,
       relevantGoals,
+      openProjects,
       needsPlanningNudge: needsPlanning,
       narrateBeforeSlowAnswer,
     });

@@ -28,6 +28,16 @@ export function buildSystemPrompt(input: {
   // matcher) - only genuinely relevant goals, not every open goal every
   // turn. Same always-on-regardless-of-memoryPolicy reasoning as openTasks.
   relevantGoals?: { id: number; title: string; status: string }[];
+  // Unlike openTasks/relevantGoals, deliberately NOT relevance-filtered to
+  // this message - a short, capped list (knowledge-engine-client.ts's
+  // listOpenProjects) of every currently proposed/active project, shown
+  // every turn regardless of topic. The whole point is catching a
+  // re-proposal the model wouldn't otherwise recognize as a duplicate
+  // (see project_propose's own dedup, which only catches close title
+  // matches) - filtering this by this-message relevance would defeat that,
+  // since the risk is exactly a message that DOESN'T obviously match the
+  // original wording.
+  openProjects?: { id: number; title: string; status: string }[];
   // Set when needsPlanning=true and no open task context already exists
   // for this thread - a one-time nudge to call
   // task_context_manage(action='create') then action='plan' before
@@ -99,6 +109,12 @@ export function buildSystemPrompt(input: {
     ? `Relevant to one of the user's ongoing goals:\n${input.relevantGoals.map((g) => `- [goal #${g.id}, ${g.status}] ${g.title}`).join("\n")}`
     : "";
 
+  const openProjectsLine = input.openProjects?.length
+    ? `Projects already proposed or active (check here before calling project_propose again for something similar - if the user's idea overlaps with one of these, tell them about the existing project instead of proposing a new one):\n${input.openProjects
+        .map((p) => `- [project #${p.id}, ${p.status}] ${p.title}`)
+        .join("\n")}`
+    : "";
+
   const needsPlanningLine = input.needsPlanningNudge
     ? "This looks like a multi-step task. Before working on it, call task_context_manage with " +
       "action='create' (if you haven't already tracked this), then action='plan' with an ordered " +
@@ -123,6 +139,7 @@ export function buildSystemPrompt(input: {
     relevantMemoriesLine,
     openTasksLine,
     relevantGoalsLine,
+    openProjectsLine,
     needsPlanningLine,
     narrateLine,
     skillsLine,

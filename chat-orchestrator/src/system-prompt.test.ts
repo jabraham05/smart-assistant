@@ -85,6 +85,31 @@ test("buildSystemPrompt omits open tasks/goals sections when empty", () => {
   assert.ok(!prompt.includes("Relevant to one of the user's ongoing goals"));
 });
 
+test("buildSystemPrompt includes openProjects when present", () => {
+  const prompt = buildSystemPrompt({
+    personaSystemPrompt: "You are Amy.",
+    now: new Date("2026-09-21T12:00:00Z"),
+    userCard: [],
+    userCardForAmy: [],
+    skillsCatalogText: "",
+    openProjects: [{ id: 8, title: "Robotics arm design and construction basics", status: "active" }],
+  });
+  assert.ok(prompt.includes("Projects already proposed or active"));
+  assert.ok(prompt.includes("[project #8, active] Robotics arm design and construction basics"));
+});
+
+test("buildSystemPrompt omits openProjects section when empty or absent", () => {
+  const prompt = buildSystemPrompt({
+    personaSystemPrompt: "You are Amy.",
+    now: new Date("2026-09-21T12:00:00Z"),
+    userCard: [],
+    userCardForAmy: [],
+    skillsCatalogText: "",
+    openProjects: [],
+  });
+  assert.ok(!prompt.includes("Projects already proposed or active"));
+});
+
 test("buildSystemPrompt includes the needsPlanning nudge only when set", () => {
   const withNudge = buildSystemPrompt({
     personaSystemPrompt: "You are Amy.",
