@@ -1,0 +1,120 @@
+"""Env-driven config, same shape and defaults as chat-orchestrator/src/config.ts -
+this service runs alongside chat-orchestrator during Phase 1, not in place of it,
+so every default here deliberately matches the TypeScript service's own defaults
+(same Ollama host, same model, same Postgres/Redis/internal-service URLs) rather
+than diverging - the two should be interchangeable except for which port each
+listens on.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class PostgresConfig:
+    host: str
+    port: int
+    # Personas/skills live in n8n's own database (the physical tables backing
+    # its Data Table feature) - same database chat-orchestrator/coding-orchestrator
+    # already read/write directly.
+    n8n_database: str
+    user: str
+    password: str
+
+
+@dataclass(frozen=True)
+class RedisConfig:
+    host: str
+    port: int
+    # 0 for the production instance, 1 for the test instance - keeps session
+    # buffers from colliding between the two, matching chat-orchestrator's
+    # own REDIS_DB convention exactly.
+    db: int
+
+
+@dataclass(frozen=True)
+class Config:
+    port: int
+    ollama_host: str
+    chat_model: str
+    classifier_model: str
+    agent_max_iterations: int
+    num_ctx: int
+    # Timeout (seconds) for the model call on any agent-loop iteration after
+    # a tool has already been called this turn - mirrors chat-orchestrator's
+    # postToolTimeoutMs, since PydanticAI's own httpx-based Ollama client
+    # still needs an explicit, generous timeout for the post-tool synthesis
+    # call (the exact call that produced the silent-timeout bug fixed in
+    # chat-orchestrator this session).
+    post_tool_timeout_seconds: float
+    skills_mcp_url: str
+    postgres: PostgresConfig
+    # 'public' (the real views onto n8n's live Data Tables) for production,
+    # 'chat_test' for the side-by-side test instance - same convention as
+    # chat-orchestrator's dbSchema.
+    db_schema: str
+    redis: RedisConfig
+    honcho_api_key: str | None
+    honcho_workspace_id: str
+    event_bus_url: str
+    memory_engine_url: str
+    knowledge_engine_url: str
+    memory_min_relevance_score: float
+    memory_min_keyword_overlap: int
+
+
+def _int_env(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    return int(value) if value else default
+
+
+def _float_env(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    return float(value) if value else default
+
+
+def load_config(env: dict[str, str] | None = None) -> Config:
+    env = env if env is not None else dict(os.environ)
+
+    postgres_password = env.get("POSTGRES_PASSWORD")
+    if not postgres_password:
+        raise RuntimeError("POSTGRES_PASSWORD is required")
+
+    return Config(
+        # Distinct default port from chat-orchestrator (3006) and
+        # chat-orchestrator-test (3009) - runs alongside both during Phase 1.
+        port=_int_env("PORT", 3010),
+        ollama_host=env.get("OLLAMA_HOST") or "http://ollama:11434",
+        # Same model chat-orchestrator uses - this migration is about the
+        # runtime/orchestration mechanism, not a model swap.
+        chat_model=env.get("CHAT_MODEL") or "qwen3:8b",
+        classifier_model=env.get("CHAT_CLASSIFIER_MODEL") or "qwen3:8b",
+        agent_max_iterations=_int_env("CHAT_AGENT_MAX_ITERATIONS", 10),
+        num_ctx=_int_env("CHAT_NUM_CTX", 16384),
+        post_tool_timeout_seconds=_float_env("CHAT_POST_TOOL_TIMEOUT_SECONDS", 120.0),
+        skills_mcp_url=env.get("SKILLS_MCP_URL") or "http://skills-mcp:3001",
+        postgres=PostgresConfig(
+            host=env.get("POSTGRES_HOST") or "postgres",
+            port=_int_env("POSTGRES_PORT", 5432),
+            n8n_database=env.get("N8N_DB_NAME") or "n8n",
+            user=env.get("POSTGRES_USER") or "assistant",
+            password=postgres_password,
+        ),
+        db_schema=env.get("CHAT_DB_SCHEMA") or "public",
+        redis=RedisConfig(
+            host=env.get("REDIS_HOST") or "redis",
+            port=_int_env("REDIS_PORT", 6379),
+            db=_int_env("REDIS_DB", 0),
+        ),
+        honcho_api_key=env.get("HONCHO_API_KEY") or None,
+        honcho_workspace_id=env.get("HONCHO_WORKSPACE_ID") or "smart-assistant",
+        event_bus_url=env.get("EVENT_BUS_URL") or "http://event-bus:3004",
+        memory_engine_url=env.get("MEMORY_ENGINE_URL") or "http://memory-engine:3007",
+        knowledge_engine_url=env.get("KNOWLEDGE_ENGINE_URL") or "http://knowledge-engine:3005",
+        # Same default value as knowledge-engine's routeToWebThreshold - both
+        # are RRF scores from the identical k=60 formula.
+        memory_min_relevance_score=_float_env("MEMORY_MIN_RELEVANCE_SCORE", 0.012),
+        memory_min_keyword_overlap=_int_env("MEMORY_MIN_KEYWORD_OVERLAP", 1),
+    )

@@ -1,0 +1,357 @@
+"""Python equivalent of chat-orchestrator/src/index.ts - the Python equivalent
+of chat-orchestrator/src/index.ts's turn orchestration: classify → assemble
+system prompt → run the PydanticAI agent, streamed → apply the safety-net
+retries → persist to Honcho/Redis/memory-engine.
+
+Preserves the exact NDJSON wire contract chat-ui/discord-bot already parse
+(same {type, content, metadata: {nodeId, nodeName: "AI Agent", ...}} shape) -
+this is a hard constraint, not a nice-to-have, since neither client is in
+scope for this rebuild phase. Not yet wired into chat-ui/discord-bot's
+webhook URL - runs alongside chat-orchestrator until proven via eval-harness
+parity + a real soak period (see the plan's Phase 1 checkpoint).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+from dataclasses import dataclass, field
+
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
+from pydantic_ai.messages import FunctionToolCallEvent, FunctionToolResultEvent, PartDeltaEvent, TextPartDelta
+
+from . import event_bus_client, honcho_client, knowledge_client, memory_client, session_memory
+from .agent import AgentDeps, build_agent
+from .classify import classify_relevant_tools
+from .config import Config, load_config
+from .db import get_active_instruction_skills, get_persona_system_prompt
+from .safety_net import (
+    REQUIRED_TOOL_FAILURE_MESSAGE,
+    REQUIRED_TOOL_RETRY_NUDGE,
+    SEARCH_RETRY_NUDGE,
+    has_unfulfilled_search_intent,
+    has_unsatisfied_required_tool,
+    is_confabulated_action,
+)
+from .system_prompt import OpenProject, OpenTask, RelevantGoal, SystemPromptInput, build_system_prompt
+from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
+
+config = load_config()
+app = FastAPI()
+
+# Same literal string chat-ui/discord-bot already key off of - both clients
+# only ever treat a type:"item" event with metadata.nodeName:"AI Agent" as
+# reply text.
+_NODE_NAME = "AI Agent"
+
+# Same cap as chat-orchestrator's own tool-error retry loop.
+_MAX_TOOL_ERROR_RETRIES = 3
+
+
+@dataclass
+class _TurnState:
+    """Mutable state threaded through one turn's retry attempts - mirrors
+    index.ts's calledTools/lastToolResultRef closures."""
+
+    attempt: int = 0
+    called_tools: list[str] = field(default_factory=list)
+    last_tool_error: tuple[str, str] | None = None  # (tool_name, error_text)
+
+
+def _emit(item_index: list[int]):
+    def emitter(event_type: str, content: str | None = None, trace: dict | None = None) -> str:
+        event = {
+            "type": event_type,
+            **({"content": content} if content is not None else {}),
+            **({"trace": trace} if trace is not None else {}),
+            "metadata": {
+                "nodeId": "agent-service",
+                "nodeName": _NODE_NAME,
+                "itemIndex": item_index[0],
+                "runIndex": 0,
+                "timestamp": int(time.time() * 1000),
+            },
+        }
+        item_index[0] += 1
+        return json.dumps(event) + "\n"
+
+    return emitter
+
+
+async def _run_turn(
+    config: Config,
+    session_id: str,
+    system_prompt: str,
+    user_prompt: str,
+    relevant_tools: list[str],
+    state: _TurnState,
+    emit,
+) -> tuple[str, list[str]]:
+    """One attempt at a full agent turn - streams NDJSON as it goes,
+    returns (final_text, chunks_yielded). Wrapped in try/except so a thrown
+    error (timeout, ToolRetryError, UnexpectedModelBehavior - all
+    confirmed-real failure modes found via live testing this session)
+    degrades to an empty result the caller's existing empty-output retry
+    already handles, instead of propagating past the whole safety net -
+    the exact bug class fixed in chat-orchestrator this session."""
+    state.attempt += 1
+    chunks: list[str] = []
+    text_parts: list[str] = []
+    open_tool_calls: dict[str, str] = {}  # tool_call_id -> tool_name
+
+    try:
+        agent = build_agent(config, session_id, system_prompt)
+        async with agent:
+            async with agent.run_stream_events(
+                user_prompt, deps=AgentDeps(relevant_tools=relevant_tools)
+            ) as stream:
+                async for event in stream:
+                    if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                        text_parts.append(event.delta.content_delta)
+                        chunks.append(emit("item", event.delta.content_delta))
+                    elif isinstance(event, FunctionToolCallEvent):
+                        tool_name = event.part.tool_name
+                        open_tool_calls[event.part.tool_call_id] = tool_name
+                        state.called_tools.append(tool_name)
+                        chunks.append(
+                            emit(
+                                "trace",
+                                trace={
+                                    "kind": "tool_call",
+                                    "attempt": state.attempt,
+                                    "name": tool_name,
+                                    "args": event.part.args_as_dict() if hasattr(event.part, "args_as_dict") else {},
+                                },
+                            )
+                        )
+                    elif isinstance(event, FunctionToolResultEvent):
+                        # Real, live-verified finding: event.content is always
+                        # None on this event - the actual result lives on
+                        # event.part (a ToolReturnPart on success, a
+                        # RetryPromptPart on a tool-level error/validation
+                        # failure).
+                        tool_name = getattr(event.part, "tool_name", None) or open_tool_calls.get(
+                            event.part.tool_call_id, ""
+                        )
+                        is_error = type(event.part).__name__ == "RetryPromptPart"
+                        result_text = str(event.part.content)
+                        if is_error:
+                            state.last_tool_error = (tool_name, result_text)
+                        else:
+                            state.last_tool_error = None
+                        chunks.append(
+                            emit(
+                                "trace",
+                                trace={
+                                    "kind": "tool_result",
+                                    "attempt": state.attempt,
+                                    "name": tool_name,
+                                    "result": result_text[:4000],
+                                    "isError": is_error,
+                                },
+                            )
+                        )
+        return "".join(text_parts), chunks
+    except Exception:
+        logger.exception("agent turn threw for session %s (attempt %d)", session_id, state.attempt)
+        return "", chunks
+
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    body = await request.json()
+    chat_input = body.get("chatInput")
+    session_id = body.get("sessionId")
+    if not chat_input or not session_id:
+        return {"error": "chatInput and sessionId are required"}, 400
+
+    async def stream():
+        item_index = [0]
+        emit = _emit(item_index)
+
+        try:
+            full_history = await session_memory.get_recent_history(config, session_id)
+            recent_context = None
+            if full_history:
+                last_two = full_history[-2:]
+                recent_context = "\n".join(f"{m.role}: {m.content}" for m in last_two)
+
+            classification, persona_prompt, active_skills, memory_results, open_tasks, relevant_goals, open_projects = (
+                await asyncio.gather(
+                    classify_relevant_tools(config.ollama_host, config.classifier_model, chat_input, recent_context),
+                    get_persona_system_prompt(config),
+                    get_active_instruction_skills(config),
+                    memory_client.search_memory(config, chat_input),
+                    event_bus_client.match_task_contexts(config, chat_input),
+                    event_bus_client.match_goals(config, chat_input),
+                    knowledge_client.list_open_projects(config),
+                )
+            )
+
+            if classification.knowledge_gap_topic:
+                asyncio.create_task(
+                    knowledge_client.enqueue_research_topic(
+                        config, classification.knowledge_gap_topic, session_id=session_id
+                    )
+                )
+
+            relevant_memories = [
+                m.content
+                for m in memory_results
+                if memory_client.is_relevant_memory(
+                    m, config.memory_min_relevance_score, config.memory_min_keyword_overlap
+                )
+            ] if classification.memory_policy != "none" else []
+
+            user_card: list[str] = []
+            user_card_for_amy: list[str] = []
+            if classification.memory_policy != "none":
+                await honcho_client.ensure_session_exists(config, session_id)
+                await honcho_client.set_user_observe_config(config, session_id)
+                user_card, user_card_for_amy = await asyncio.gather(
+                    honcho_client.get_user_card(config), honcho_client.get_user_card_for_amy(config)
+                )
+
+            system_prompt = build_system_prompt(
+                SystemPromptInput(
+                    persona_system_prompt=persona_prompt or "You are Amy, a helpful personal assistant.",
+                    now=datetime.now(timezone.utc),
+                    user_card=user_card,
+                    user_card_for_amy=user_card_for_amy,
+                    skills_catalog_text="\n\n".join(
+                        f"## {s.name}\n{s.description}\n\n{s.instructions}" for s in active_skills
+                    ),
+                    relevant_memories=relevant_memories,
+                    open_tasks=[OpenTask(id=t.id, objective=t.objective, status=t.status) for t in open_tasks],
+                    relevant_goals=[RelevantGoal(id=g.id, title=g.title, status=g.status) for g in relevant_goals],
+                    open_projects=[OpenProject(id=p.id, title=p.title, status=p.status) for p in open_projects],
+                    needs_planning_nudge=classification.needs_planning,
+                    narrate_before_slow_answer=classification.needs_planning
+                    or classification.background
+                    or "research" in classification.relevant_groups
+                    or "web" in classification.relevant_groups,
+                )
+            )
+
+            yield emit(
+                "trace",
+                trace={
+                    "kind": "classify",
+                    "boundTools": classification.relevant_tools,
+                    "relevantGroups": classification.relevant_groups,
+                    "toolPolicy": classification.tool_policy,
+                    "memoryPolicy": classification.memory_policy,
+                    "needsPlanning": classification.needs_planning,
+                    "background": classification.background,
+                },
+            )
+            yield emit("begin")
+
+            state = _TurnState()
+            final_text, chunks = await _run_turn(
+                config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit
+            )
+            for c in chunks:
+                yield c
+
+            # One-shot empty-output retry - same shape as chat-orchestrator's.
+            if not final_text.strip():
+                yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "empty_output"})
+                final_text, chunks = await _run_turn(
+                    config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit
+                )
+                for c in chunks:
+                    yield c
+
+            if not final_text.strip():
+                final_text = "No response was generated for that message — try asking again."
+
+            # Deterministic tool-error retry, up to a small cap.
+            retries = 0
+            while state.last_tool_error and retries < _MAX_TOOL_ERROR_RETRIES:
+                tool_name, error_text = state.last_tool_error
+                retries += 1
+                yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "tool_error"})
+                retry_prompt = (
+                    f'{chat_input} (Your last "{tool_name}" call failed: {error_text} — diagnose the cause, '
+                    "make the minimal necessary change, and call it again right now before replying. "
+                    "Don't just say you'll check again later.)"
+                )
+                retry_text, chunks = await _run_turn(
+                    config, session_id, system_prompt, retry_prompt, classification.relevant_tools, state, emit
+                )
+                for c in chunks:
+                    yield c
+                if retry_text.strip():
+                    final_text = retry_text
+
+            bound_tools = classification.relevant_tools
+
+            if has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools):
+                yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "search_intent"})
+                retry_text, chunks = await _run_turn(
+                    config, session_id, system_prompt, chat_input + SEARCH_RETRY_NUDGE, bound_tools, state, emit
+                )
+                for c in chunks:
+                    yield c
+                if retry_text.strip():
+                    final_text = retry_text
+
+            if is_confabulated_action(final_text, bound_tools, state.called_tools):
+                yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "confabulation"})
+                nudge = (
+                    " (Your last reply claimed to have done something, but no matching tool was actually "
+                    "called - either actually call the right tool now, or answer without claiming you did.)"
+                )
+                retry_text, chunks = await _run_turn(
+                    config, session_id, system_prompt, chat_input + nudge, bound_tools, state, emit
+                )
+                for c in chunks:
+                    yield c
+                if retry_text.strip():
+                    final_text = retry_text
+
+            if has_unsatisfied_required_tool(
+                classification.tool_policy, bound_tools, state.called_tools, classification.relevant_groups
+            ):
+                yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "required_tool"})
+                retry_text, chunks = await _run_turn(
+                    config,
+                    session_id,
+                    system_prompt,
+                    chat_input + REQUIRED_TOOL_RETRY_NUDGE,
+                    bound_tools,
+                    state,
+                    emit,
+                )
+                for c in chunks:
+                    yield c
+                if retry_text.strip():
+                    final_text = retry_text
+                if has_unsatisfied_required_tool(
+                    classification.tool_policy, bound_tools, state.called_tools, classification.relevant_groups
+                ):
+                    final_text = REQUIRED_TOOL_FAILURE_MESSAGE
+
+            yield emit("end")
+
+            memory_domain = ",".join(classification.relevant_groups) or None
+            memory_task_context_id = open_tasks[0].id if open_tasks else None
+            await asyncio.gather(
+                honcho_client.store_turn(config, session_id, chat_input, final_text),
+                session_memory.append_turn(config, session_id, chat_input, final_text),
+                memory_client.ingest_memory(config, session_id, "user", chat_input, memory_domain, memory_task_context_id),
+                memory_client.ingest_memory(
+                    config, session_id, "assistant", final_text, memory_domain, memory_task_context_id
+                ),
+            )
+        except Exception as e:
+            logger.exception("chat turn failed for session %s", session_id)
+            yield emit("error", str(e))
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")

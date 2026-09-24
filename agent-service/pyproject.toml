@@ -1,0 +1,35 @@
+[project]
+name = "agent-service"
+version = "0.1.0"
+description = "PydanticAI-based agent runtime for Amy - Phase 1 of the infrastructure rebuild, running alongside chat-orchestrator (not replacing it) until proven via eval-harness parity + a real soak period."
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic-ai-slim[openai,mcp]>=1.0.0",
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "asyncpg>=0.30.0",
+  "redis>=5.2.0",
+  "httpx>=0.28.0",
+  # Python's zoneinfo has no bundled IANA database on Windows (and some
+  # minimal Linux base images) - explicit dependency rather than assuming
+  # the OS provides it, since system_prompt.py's Pacific-time formatting
+  # is load-bearing (matches chat-orchestrator's own dateLine exactly).
+  "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
