@@ -4,12 +4,24 @@ networks:
   assistant-net:
   # Ephemeral per-task sandbox containers join this network only — never
   # assistant-net. They have no legitimate reason to reach postgres/n8n/
-  # ollama/Honcho, and this keeps that structurally true rather than just
-  # a convention. Default bridge driver still NATs outbound (git clone,
+  # Honcho, and this keeps that structurally true rather than just a
+  # convention. Default bridge driver still NATs outbound (git clone,
   # package installs work normally), it's just not bridged to the other
   # services.
+  #
+  # Ollama is the one deliberate exception (see its own service block) -
+  # OpenHands' agent-server container (openhands-runner's spawned
+  # workspace) makes LLM calls in-process, unlike coding-orchestrator's
+  # architecture where the orchestrator itself calls Ollama and only
+  # relays resulting shell commands into the sandbox. Ollama holds no
+  # secrets, unlike everything else this network is isolated from.
   sandbox-net:
     name: sandbox-net
+    # Created manually per the README's setup step (`docker network create
+    # sandbox-net`), not by compose - must be marked external or compose
+    # refuses to attach any service to it ("exists but was not created by
+    # compose").
+    external: true
 
 volumes:
   postgres-data:
@@ -76,7 +88,17 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    networks: [assistant-net]
+    # Also on sandbox-net (unlike every other assistant-net service) -
+    # real, live-verified requirement: OpenHands' agent-server container
+    # (spawned by openhands-runner, network-isolated to sandbox-net same as
+    # sandbox-runner's own spawned containers) makes its own LLM calls
+    # in-process, unlike coding-orchestrator's architecture where the
+    # orchestrator itself calls Ollama and only relays resulting shell
+    # commands into the sandbox. Ollama holds no secrets/credentials
+    # (unlike Postgres/Honcho/GITHUB_TOKEN, all deliberately unreachable
+    # from sandbox-net) - a narrow, justified exception, not a general
+    # network merge.
+    networks: [assistant-net, sandbox-net]
 
   # One-shot: forces the default model to load into VRAM right after startup,
   # so the very first real request doesn't pay the cold-load cost. Combined
@@ -222,6 +244,11 @@ services:
       PORT: "3003"
       OLLAMA_HOST: http://ollama:11434
       SANDBOX_RUNNER_URL: http://sandbox-runner:3002
+      # Phase 2 of the infrastructure rebuild - not yet called by anything
+      # (see the plan's own soak-period requirement before pipeline.ts's
+      # internal Coder/Tester agent-loop is actually replaced by a call
+      # here). Present now so the wiring lands in one place once it is.
+      OPENHANDS_RUNNER_URL: http://openhands-runner:3011
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       # Dedicated database (see postgres/init/03-create-coding-tasks-db.sql),
       # not the old codingproposals1/codingtasklog01 n8n Data Tables.
@@ -230,9 +257,47 @@ services:
       HONCHO_WORKSPACE_ID: smart-assistant
       CODING_TASKS_REPO_URL: ${CODING_TASKS_REPO_URL}
       # Deliberately absent: GITHUB_TOKEN. PR proposal still goes entirely
-      # through sandbox-runner's own /propose-pr endpoint, same as before -
-      # this service never receives or handles the token itself.
+      # through sandbox-runner's/openhands-runner's own /propose-pr
+      # endpoint, same as before - this service never receives or handles
+      # the token itself.
     depends_on: [postgres, ollama, sandbox-runner]
+    networks: [assistant-net]
+
+  # Phase 2 of the infrastructure rebuild (see the plan co-designed and
+  # live-verified this session) - wraps the OpenHands SDK as an alternative
+  # coding execution engine to coding-orchestrator's own hand-rolled
+  # Coder/Tester agent-loop. Not yet wired into coding-orchestrator's
+  # pipeline - runs standalone until proven the same way agent-service was
+  # (real fixture-repo verification + a soak period) before pipeline.ts
+  # actually calls it.
+  #
+  # Like sandbox-runner, needs docker.sock mounted (DockerWorkspace launches
+  # OpenHands' own official agent-server container itself) and is the only
+  # place GITHUB_TOKEN is set, for the same reason documented on
+  # sandbox-runner below - n8n/any workflow-execution-persisting service
+  # must never see it. The container DockerWorkspace launches joins
+  # sandbox-net (SANDBOX_NETWORK), never assistant-net, and the token is
+  # never forwarded into it - see task_runner.py's clone/push isolation.
+  openhands-runner:
+    build:
+      context: ./openhands-runner
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3011:3011"
+    environment:
+      PORT: "3011"
+      OLLAMA_HOST: http://ollama:11434
+      # qwen3:8b, not coding-orchestrator's qwen2.5-coder:7b - confirmed
+      # live this session: qwen2.5-coder fails structurally with OpenHands
+      # (narrates tool calls as prose instead of invoking them), qwen3:8b
+      # makes real, correctly-executed tool calls end-to-end.
+      CODER_MODEL: qwen3:8b
+      SANDBOX_NETWORK: sandbox-net
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on: [ollama]
     networks: [assistant-net]
 
   # Owns the events/goals subsystem: event ingestion, deterministic
