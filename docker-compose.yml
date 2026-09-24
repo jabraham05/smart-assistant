@@ -398,6 +398,35 @@ services:
     depends_on: [postgres, redis, ollama, skills-mcp, event-bus, memory-engine]
     networks: [assistant-net]
 
+  # Phase 1 of the infrastructure rebuild (PydanticAI as the agent runtime -
+  # see the architecture co-designed in this session's plan) - runs
+  # ALONGSIDE chat-orchestrator, not in place of it, until proven via
+  # eval-harness parity + a real soak period. chat-ui/discord-bot's webhook
+  # URL stays pointed at chat-orchestrator throughout Phase 1; nothing here
+  # is live-traffic-serving yet.
+  agent-service:
+    build:
+      context: ./agent-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3010:3010"
+    environment:
+      PORT: "3010"
+      OLLAMA_HOST: http://ollama:11434
+      SKILLS_MCP_URL: http://skills-mcp:3001
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CHAT_DB_SCHEMA: public
+      REDIS_HOST: redis
+      REDIS_DB: "2"
+      HONCHO_API_KEY: ${HONCHO_API_KEY}
+      HONCHO_WORKSPACE_ID: smart-assistant
+      EVENT_BUS_URL: http://event-bus:3004
+      MEMORY_ENGINE_URL: http://memory-engine:3007
+      KNOWLEDGE_ENGINE_URL: http://knowledge-engine:3005
+    depends_on: [postgres, redis, ollama, skills-mcp, event-bus, memory-engine]
+    networks: [assistant-net]
+
   # Side-by-side test instance of the same image/codebase - differs only by
   # env var (CHAT_DB_SCHEMA/REDIS_DB), never a per-request flag. Lets a
   # persona/skill change be tried against chat_test.personas/chat_test.skills
