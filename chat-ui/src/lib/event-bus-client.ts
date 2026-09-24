@@ -88,6 +88,22 @@ export async function createTodo(objective: string): Promise<TaskContext> {
   return res.json();
 }
 
+// Full task-context browse for Amy Lab's Plans tab - distinct from
+// getHomeSummary's openTasks (capped, status="open" only, bundled with
+// goals/calendar). Status filter optional; omitting it returns the full
+// history, same "explicit ask for everything" convention as
+// task_context_manage's own list action.
+export async function listAllTaskContexts(status?: string): Promise<TaskContext[]> {
+  const url = new URL(`${EVENT_BUS_URL}/task-contexts`);
+  if (status) url.searchParams.set("status", status);
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`event-bus /task-contexts failed with ${res.status}`);
+  }
+  const data = (await res.json()) as { taskContexts: TaskContext[] };
+  return data.taskContexts;
+}
+
 export async function updateTodo(
   id: number,
   fields: Partial<Pick<TaskContext, "objective" | "status">>,

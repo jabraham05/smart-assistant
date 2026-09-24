@@ -461,7 +461,14 @@ services:
       # registered-tool catalog via its plain GET /tools route, no MCP
       # session or tool call ever made from here.
       SKILLS_MCP_URL: http://skills-mcp:3001
-    depends_on: [chat-orchestrator, event-bus, skills-mcp]
+      # Amy Lab's Persona tab (GET /api/persona-snapshot) - a second,
+      # distinct base path into chat-orchestrator alongside N8N_WEBHOOK_URL
+      # above (that one already points at /webhook specifically).
+      CHAT_ORCHESTRATOR_URL: http://chat-orchestrator:3006
+      # Amy Lab's Memory tab (GET/POST /api/memory) - first chat-ui caller
+      # of memory-engine.
+      MEMORY_ENGINE_URL: http://memory-engine:3007
+    depends_on: [chat-orchestrator, event-bus, skills-mcp, knowledge-engine, coding-orchestrator, memory-engine]
     networks: [assistant-net]
 
   # Discord bridge: lets the user talk to Amy from their phone over DM,

@@ -89,6 +89,26 @@ app.post("/search", async (req, res) => {
   }
 });
 
+// Plain browse, newest first - powers Amy Lab's Memory tab default view
+// (chat-ui/src/app/api/memory), distinct from /search's relevance-ranked
+// query mode above. Offset-based pagination (limit/offset), matching this
+// codebase's existing simple pagination conventions elsewhere.
+app.get("/entries", async (req, res) => {
+  const limitParam = Number(req.query.limit);
+  const offsetParam = Number(req.query.offset);
+  const limit = Number.isInteger(limitParam) && limitParam > 0 ? Math.min(limitParam, 100) : 20;
+  const offset = Number.isInteger(offsetParam) && offsetParam >= 0 ? offsetParam : 0;
+  const domain = typeof req.query.domain === "string" ? req.query.domain : undefined;
+
+  try {
+    const entries = await db.listRecentEntries(config, { limit, offset, domain });
+    res.json({ entries });
+  } catch (e) {
+    console.error("failed to list memory entries:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 app.listen(config.port, "0.0.0.0", () => {
   console.log(`memory-engine listening on :${config.port}`);
 });

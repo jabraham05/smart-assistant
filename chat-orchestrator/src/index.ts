@@ -425,6 +425,27 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
+// Read-only - powers Amy Lab's Persona tab (chat-ui's new
+// /api/persona-snapshot proxy), replacing that page's previous hardcoded
+// structural description with the REAL persona text and active
+// instruction skills. Reuses the exact same db.ts reads system-prompt
+// assembly already does per-turn internally - nothing new is queried,
+// this just exposes what was already being read. Persona editing still
+// only ever happens in n8n's Data Table UI, same standing convention as
+// everywhere else in this service.
+app.get("/persona-snapshot", async (_req, res) => {
+  try {
+    const [personaSystemPrompt, activeSkills] = await Promise.all([
+      db.getPersonaSystemPrompt(config),
+      db.getActiveInstructionSkills(config),
+    ]);
+    res.json({ personaSystemPrompt: personaSystemPrompt ?? FALLBACK_PERSONA, activeSkills });
+  } catch (e) {
+    console.error("persona-snapshot failed:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 app.listen(config.port, "0.0.0.0", () => {
   console.log(`chat-orchestrator listening on :${config.port} (schema=${config.dbSchema}, redisDb=${config.redis.db})`);
 });

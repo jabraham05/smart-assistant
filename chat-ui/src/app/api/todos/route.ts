@@ -1,5 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createTodo, updateTodo } from "@/lib/event-bus-client";
+import { createTodo, updateTodo, listAllTaskContexts } from "@/lib/event-bus-client";
+
+// Powers Amy Lab's Plans tab - full task-context list, optionally
+// status-filtered, distinct from /api/home's capped openTasks summary.
+export async function GET(req: NextRequest) {
+  const status = req.nextUrl.searchParams.get("status") ?? undefined;
+  try {
+    const taskContexts = await listAllTaskContexts(status);
+    return NextResponse.json({ taskContexts });
+  } catch (e) {
+    console.error("failed to list task contexts:", e);
+    return NextResponse.json({ error: "failed to reach event-bus" }, { status: 502 });
+  }
+}
 
 export async function POST(req: NextRequest) {
   let body: { objective?: string };

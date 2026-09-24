@@ -52,6 +52,30 @@ export async function insertMemoryEntry(config: Config, input: InsertMemoryEntry
   return result.rows[0];
 }
 
+export interface ListRecentEntriesOptions {
+  limit: number;
+  offset: number;
+  domain?: string;
+}
+
+// Powers Amy Lab's Memory tab browse view (chat-ui/src/app/api/memory) -
+// the first way to see what's actually in this store without going
+// through /search's relevance ranking. Plain offset pagination, matching
+// this codebase's existing simple limit/offset conventions elsewhere
+// (no cursor-based scheme needed at this scale).
+export async function listRecentEntries(config: Config, options: ListRecentEntriesOptions): Promise<MemoryEntryRow[]> {
+  const { limit, offset, domain } = options;
+  const result = await getPool(config).query<MemoryEntryRow>(
+    `SELECT id, session_id, role, content, domain, task_context_id, created_at
+     FROM memory_entries
+     WHERE ($3::text IS NULL OR domain = $3)
+     ORDER BY created_at DESC
+     LIMIT $1 OFFSET $2`,
+    [limit, offset, domain ?? null],
+  );
+  return result.rows;
+}
+
 export interface MemorySearchRow extends MemoryEntryRow {
   rrf_score: number;
   // Real keyword overlap between the query and this result's content, and
