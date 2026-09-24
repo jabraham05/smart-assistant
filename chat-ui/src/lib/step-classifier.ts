@@ -20,6 +20,9 @@ const TOOL_LABELS: Record<string, { kind: StepKind; label: string }> = {
   research_task: { kind: "tool_call", label: "Starting research" },
   research_task_status: { kind: "tool_call", label: "Checking research progress" },
   goal_manage: { kind: "tool_call", label: "Updating your goals" },
+  project_propose: { kind: "tool_call", label: "Proposing a project" },
+  status_overview: { kind: "tool_call", label: "Checking on everything in progress" },
+  project_complete: { kind: "tool_call", label: "Wrapping up a project" },
 };
 
 export function classifyTool(name: string): { kind: StepKind; label: string } {
