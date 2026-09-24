@@ -128,6 +128,11 @@ export interface ProjectProposeResult {
   // this is that existing row, not a newly-inserted one - see
   // knowledge-engine's POST /projects dedup check.
   duplicate?: boolean;
+  // knowledge-engine's dedup response already includes the full existing
+  // row (SELECT p.*), this just surfaces it in the type so project-propose.ts
+  // can embed it in the inline chat card it builds for both the fresh and
+  // duplicate-hit cases.
+  rationale?: string;
 }
 
 // Direct to knowledge-engine's POST /projects, not an n8n webhook - unlike

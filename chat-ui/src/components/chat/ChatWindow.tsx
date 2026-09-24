@@ -6,6 +6,7 @@ import { useChat } from "@/hooks/useChat";
 import { useSessions } from "@/hooks/useSessions";
 import { useEvents } from "@/hooks/useEvents";
 import { useRegistry } from "@/hooks/useRegistry";
+import { useProjects } from "@/hooks/useProjects";
 import { MessageBubble } from "./MessageBubble";
 import { InputBar } from "./InputBar";
 import { SessionList } from "./SessionList";
@@ -26,6 +27,10 @@ export function ChatWindow() {
   // global feed Home's Recent Activity card shows.
   const eventsState = useEvents(activeSessionId);
   const registryState = useRegistry();
+  // Only approve/reject are used here (not projects/refresh) - inline
+  // proposal cards act on the same knowledge-engine endpoints Home's
+  // ApprovalRow already calls, no duplicated fetch logic.
+  const { approve: approveProject, reject: rejectProject, actionError: projectActionError } = useProjects();
 
   const toggleSidePanel = (panel: SidePanel) => {
     setSelectedTurnId(null);
@@ -104,9 +109,12 @@ export function ChatWindow() {
                 (message.id === selectedTurnId || messages[index + 1]?.id === selectedTurnId)
               }
               onSelect={() => handleSelectTurn(message, index)}
+              approveProject={approveProject}
+              rejectProject={rejectProject}
             />
           ))}
         </div>
+        {projectActionError && <p className="px-4 pb-1 text-xs text-rose-400">{projectActionError}</p>}
         <InputBar onSend={handleSend} disabled={isSending} />
       </div>
       {selectedAssistant && (

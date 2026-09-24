@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ChatMessage, HonchoMessage, N8nStreamEvent } from "@/types/chat";
 import { classifyTool } from "@/lib/step-classifier";
+import { parseProjectCard } from "@/lib/project-card";
 
 function honchoMessagesToChat(messages: HonchoMessage[]): ChatMessage[] {
   return messages.map((m) => ({
@@ -103,6 +104,11 @@ export function useChat(sessionId: string) {
                 if (idx !== undefined && steps[idx]) {
                   steps[idx] = { ...steps[idx], status: isError ? "error" : "done", finishedAt: timestamp };
                   openSteps.delete(key);
+                }
+
+                const card = parseProjectCard(event.trace);
+                if (card) {
+                  return { ...m, steps, rawEvents, trace, projectCards: [...(m.projectCards ?? []), card] };
                 }
               }
 

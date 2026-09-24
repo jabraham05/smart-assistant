@@ -15,6 +15,23 @@ export interface ChatMessage {
   // runs, so this turn's reply is genuinely empty - flagged here so the UI
   // can show something instead of a blank bubble.
   isEmpty?: boolean;
+  // Parsed from a project_propose tool_result's [[PROJECT_CARD]] marker
+  // (see lib/project-card.ts) - lets this message render an inline
+  // approve/reject card instead of requiring a trip to the Home dashboard.
+  projectCards?: ProjectProposalCard[];
+}
+
+// Mirrors the JSON skills-mcp's project-propose.ts embeds in its tool
+// result's [[PROJECT_CARD]] marker.
+export interface ProjectProposalCard {
+  id: number;
+  title: string;
+  rationale: string;
+  status: string;
+  // True when this card describes an EXISTING project that project_propose's
+  // dedup check matched, not a freshly-created one - see project-card.ts's
+  // consumer, ProjectProposalCard.tsx, for the two render modes.
+  duplicate: boolean;
 }
 
 export interface ChatRequest {

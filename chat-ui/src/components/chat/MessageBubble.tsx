@@ -1,15 +1,20 @@
 import type { ChatMessage } from "@/types/chat";
 import { StepIndicator } from "./StepIndicator";
 import { MarkdownContent } from "./MarkdownContent";
+import { ProjectProposalCard } from "./ProjectProposalCard";
 
 export function MessageBubble({
   message,
   isSelected,
   onSelect,
+  approveProject,
+  rejectProject,
 }: {
   message: ChatMessage;
   isSelected?: boolean;
   onSelect?: () => void;
+  approveProject?: (id: number) => Promise<void>;
+  rejectProject?: (id: number) => Promise<void>;
 }) {
   const isUser = message.role === "user";
 
@@ -45,6 +50,16 @@ export function MessageBubble({
       >
         {!isUser && message.steps && <StepIndicator steps={message.steps} />}
         <MarkdownContent content={message.content} isUser={isUser} />
+        {!isUser && message.projectCards && message.projectCards.length > 0 && approveProject && rejectProject && (
+          // Stops propagation so clicking Approve/Reject doesn't also toggle
+          // turn detail underneath it - same reasoning as MarkdownContent's
+          // own link override.
+          <div onClick={(e) => e.stopPropagation()}>
+            {message.projectCards.map((card) => (
+              <ProjectProposalCard key={card.id} card={card} approve={approveProject} reject={rejectProject} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

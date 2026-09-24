@@ -35,7 +35,8 @@ export function registerProjectPropose(server: McpServer, config: Config): void 
         "after a result comes back, whether that result succeeded or reported a duplicate. A " +
         "duplicate result is not a signal to retry with variations; it means the work is already " +
         "covered, so just relay that to the user (see the tool result's own instruction on a " +
-        "duplicate).",
+        "duplicate). The tool result ends with a [[PROJECT_CARD]]...[[/PROJECT_CARD]] line - that is " +
+        "for the chat client to render an approve/reject button, never repeat or mention it yourself.",
       inputSchema: {
         title: z
           .string()
@@ -71,16 +72,30 @@ export function registerProjectPropose(server: McpServer, config: Config): void 
     async ({ title, rationale, domain, activityType, repoUrl }) => {
       try {
         const result = await proposeProject(config, { title, rationale, domain, activityType, repoUrl });
+        // A single delimited JSON line appended after the prose, parsed
+        // client-side (chat-ui/src/lib/project-card.ts) to render an inline
+        // approve/reject card on the chat message - reuses the existing
+        // tool-result trace channel rather than a new NDJSON/MCP
+        // structured-content path. The model should never repeat this line;
+        // it's for chat-ui's own use, not conversational content.
+        const card = JSON.stringify({
+          id: result.id,
+          title: result.title,
+          rationale: result.rationale ?? rationale,
+          status: result.status,
+          duplicate: result.duplicate ?? false,
+        });
+        const marker = `\n[[PROJECT_CARD]]${card}[[/PROJECT_CARD]]`;
         if (result.duplicate) {
           return textResult(
             `A similar project already exists (#${result.id}: "${result.title}", status: ${result.status}) - ` +
               `didn't create a new one. STOP: do not call project_propose again for this idea, even with a ` +
               `different title, domain, or activityType - that would just hit this same duplicate check again. ` +
-              `Tell the user about project #${result.id} instead.`,
+              `Tell the user about project #${result.id} instead.${marker}`,
           );
         }
         return textResult(
-          `Project "${result.title}" proposed (#${result.id}) - awaiting your review on the /amy dashboard.`,
+          `Project "${result.title}" proposed (#${result.id}) - awaiting your review.${marker}`,
         );
       } catch (e) {
         return errorResult(`project_propose failed: ${e instanceof Error ? e.message : String(e)}`);
