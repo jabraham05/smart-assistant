@@ -18,7 +18,7 @@ export interface CodingTaskListItem {
 export async function listCodingTasks(config: Config, limit = 10): Promise<CodingTaskListItem[]> {
   const url = new URL(`${config.codingOrchestratorUrl}/tasks`);
   url.searchParams.set("limit", String(limit));
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) {
     throw new Error(`coding-orchestrator /tasks failed: ${res.status}`);
   }

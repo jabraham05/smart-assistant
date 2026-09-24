@@ -171,7 +171,13 @@ export interface ProjectListItem {
 export async function listProjects(config: Config, status?: string): Promise<ProjectListItem[]> {
   const url = new URL(`${config.knowledgeEngineUrl}/projects`);
   if (status) url.searchParams.set("status", status);
-  const res = await fetch(url);
+  // Unlike its two status_overview siblings (listCodingTasks/
+  // listResearchQueue), this call had no timeout at all - an up-but-hung
+  // knowledge-engine stalled the whole tool call (and therefore the whole
+  // chat turn) indefinitely, since a hung promise never reaches any
+  // try/catch. AbortSignal.timeout turns that into a real rejection the
+  // status-overview.ts call site's own .catch(() => []) can now handle.
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
   const data = await jsonOrThrow<{ projects: ProjectListItem[] }>(res, "Project list");
   return data.projects;
 }
@@ -185,7 +191,7 @@ export interface ResearchQueueItem {
 
 export async function listResearchQueue(config: Config, limit = 10): Promise<ResearchQueueItem[]> {
   const url = new URL(`${config.knowledgeEngineUrl}/research-queue`);
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
   const data = await jsonOrThrow<{ queue: ResearchQueueItem[] }>(res, "Research queue list");
   return data.queue.slice(0, limit);
 }

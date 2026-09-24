@@ -5,6 +5,14 @@ export interface Config {
   classifierModel: string;
   agentMaxIterations: number;
   numCtx: number;
+  // Timeout for the ollamaChat call on any agent-loop iteration after a
+  // tool has already been called this turn - deliberately looser than
+  // ollamaChat's own 60s default, since a large tool result (e.g.
+  // status_overview's multi-section blob) makes that synthesis call
+  // systematically slower than plain tool selection. See agent-loop.ts's
+  // postToolTimeoutMs and index.ts's runTurn wrapper for the retry that
+  // now catches a timeout past even this.
+  postToolTimeoutMs: number;
   skillsMcpUrl: string;
   postgres: {
     host: string;
@@ -63,6 +71,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     classifierModel: env.CHAT_CLASSIFIER_MODEL || "qwen3:8b",
     agentMaxIterations: env.CHAT_AGENT_MAX_ITERATIONS ? Number(env.CHAT_AGENT_MAX_ITERATIONS) : 10,
     numCtx: env.CHAT_NUM_CTX ? Number(env.CHAT_NUM_CTX) : 16384,
+    postToolTimeoutMs: env.CHAT_POST_TOOL_TIMEOUT_MS ? Number(env.CHAT_POST_TOOL_TIMEOUT_MS) : 120_000,
     skillsMcpUrl: env.SKILLS_MCP_URL || "http://skills-mcp:3001",
     postgres: {
       host: env.POSTGRES_HOST || "postgres",

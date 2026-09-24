@@ -81,7 +81,7 @@ export function registerStatusOverview(server: McpServer, config: Config): void 
     async () => {
       try {
         const [projects, codingTasks, researchQueue] = await Promise.all([
-          listProjects(config),
+          listProjects(config).catch(() => []),
           listCodingTasks(config, MAX_ITEMS_PER_SECTION).catch(() => []),
           listResearchQueue(config, MAX_ITEMS_PER_SECTION).catch(() => []),
         ]);

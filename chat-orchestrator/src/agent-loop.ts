@@ -21,6 +21,18 @@ export interface AgentLoopOptions {
   maxIterations: number;
   label?: string;
   numCtx?: number;
+  // Passed straight through to ollamaChat's own timeoutMs (defaults to its
+  // 60s). Used for iteration 1 (tool selection), where the prompt is
+  // smallest.
+  timeoutMs?: number;
+  // Used instead of timeoutMs for every iteration after the first tool
+  // call has actually executed - a large tool result (e.g. status_overview's
+  // multi-section blob) makes that synthesis call systematically slower
+  // than tool selection, and a single fixed ceiling for both was causing
+  // real, live-reported silent turn failures (thrown timeout skips the
+  // whole safety net - see index.ts's runTurn wrapper). Falls back to
+  // timeoutMs (then ollamaChat's own default) if unset.
+  postToolTimeoutMs?: number;
   // Called once per iteration a tool_calls response is seen, before the
   // tools actually execute - lets the caller know an action tool was
   // genuinely invoked this turn (see safety-net.ts's confabulation check),
@@ -130,6 +142,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     { role: "user", content: options.userPrompt },
   ];
 
+  let calledAnyTool = false;
   for (let iteration = 1; iteration <= options.maxIterations; iteration++) {
     messages = trimHistoryToBudget(messages, numCtx, protectedCount);
     const { message } = await ollamaChat(options.ollamaHost, {
@@ -137,6 +150,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       messages,
       tools: ollamaTools,
       numCtx,
+      timeoutMs: calledAnyTool ? (options.postToolTimeoutMs ?? options.timeoutMs) : options.timeoutMs,
     });
 
     const toolCalls = message.tool_calls ?? [];
@@ -153,6 +167,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     }
 
     options.onToolCalls?.(toolCalls.map((c) => c.function.name));
+    calledAnyTool = true;
 
     messages.push({ role: "assistant", content: message.content ?? "", tool_calls: toolCalls });
 

@@ -269,26 +269,44 @@ app.post("/webhook", async (req, res) => {
     const lastToolResultRef: { current: { name: string; result: string; isError: boolean } | null } = {
       current: null,
     };
-    const runTurn = (userPrompt: string) => {
+    // Wrapped in try/catch so a thrown ollamaChat error (timeout or network
+    // failure - see ollama.ts's fixed-then-scaled AbortController timeout)
+    // degrades to the same "empty result" shape a plain empty completion
+    // already produces, instead of propagating past every retry below
+    // straight to the outer catch (which only ever emits type:"error", never
+    // type:"item" - a real, live-reported silent failure, disproportionately
+    // hit by status_overview's unusually large tool result making the
+    // post-tool synthesis call slower). Every call site below already
+    // tolerates an empty/unchanged result gracefully (the first call falls
+    // into the one-shot empty-output retry; every later retry only updates
+    // finalText when it got real text back) - normalizing here is enough to
+    // fix all of them without touching their own logic.
+    const runTurn = async (userPrompt: string) => {
       attempt++;
       const thisAttempt = attempt;
       lastToolResultRef.current = null;
-      return runAgentLoop({
-        ollamaHost: config.ollamaHost,
-        model: config.chatModel,
-        systemPrompt,
-        userPrompt,
-        history,
-        tools,
-        maxIterations: config.agentMaxIterations,
-        numCtx: config.numCtx,
-        label: sessionId,
-        onToolCalls: (names) => calledTools.push(...names),
-        onTrace: (event) => {
-          emit("trace", undefined, { ...event, attempt: thisAttempt });
-          if (event.kind === "tool_result") lastToolResultRef.current = event;
-        },
-      });
+      try {
+        return await runAgentLoop({
+          ollamaHost: config.ollamaHost,
+          model: config.chatModel,
+          systemPrompt,
+          userPrompt,
+          history,
+          tools,
+          maxIterations: config.agentMaxIterations,
+          numCtx: config.numCtx,
+          postToolTimeoutMs: config.postToolTimeoutMs,
+          label: sessionId,
+          onToolCalls: (names) => calledTools.push(...names),
+          onTrace: (event) => {
+            emit("trace", undefined, { ...event, attempt: thisAttempt });
+            if (event.kind === "tool_result") lastToolResultRef.current = event;
+          },
+        });
+      } catch (e) {
+        console.error(`chat agent-loop threw for session ${sessionId} (attempt ${thisAttempt}):`, e);
+        return { output: "", iterations: 0, exhaustedIterations: false };
+      }
     };
 
     let result = await runTurn(chatInput);
