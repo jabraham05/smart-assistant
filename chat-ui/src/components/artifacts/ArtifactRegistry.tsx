@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { DocEntry } from "@/lib/docs-source";
 import type { Project } from "@/lib/knowledge-engine-client";
 import type { CodingTask } from "@/lib/coding-orchestrator-client";
 import type { KnowledgeSearchResult } from "@/lib/knowledge-engine-client";
+import { useRegistry } from "@/hooks/useRegistry";
 
-type Tab = "research" | "projects" | "learning";
+type Tab = "research" | "projects" | "learning" | "skills";
 
 function StatusBadge({ label }: { label: string }) {
   return (
@@ -152,6 +153,39 @@ function SearchBox() {
   );
 }
 
+// Reuses the same skills-mcp tool-registry fetch AgentRegistryPanel (chat's
+// debug side panel) already calls - world-facing "what Amy can do", kept
+// deliberately separate from Amy Lab's self-improvement surface (persona,
+// memory, context engine), per the user's own stated split between the two
+// pages.
+function SkillsTab() {
+  const { tools, isLoading, error, refresh } = useRegistry();
+
+  useEffect(() => {
+    refresh();
+    // refresh is a stable useCallback with no deps - fine to omit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (isLoading && tools.length === 0) return <p className="text-xs text-zinc-600">Loading…</p>;
+  if (error) return <p className="text-xs text-rose-400">{error}</p>;
+  if (tools.length === 0) return <p className="text-xs text-zinc-600">No skills registered.</p>;
+
+  return (
+    <ul className="space-y-2">
+      {tools.map((tool) => (
+        <li key={tool.name} className="rounded-xl border border-white/10 bg-zinc-900/40 p-4">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-medium text-zinc-100">{tool.title || tool.name}</p>
+            <span className="shrink-0 font-mono text-[10px] text-zinc-600">{tool.name}</span>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">{tool.description}</p>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function ArtifactRegistry({
   docs,
   projects,
@@ -166,10 +200,14 @@ export function ArtifactRegistry({
   const codingProjects = projects.filter((p) => p.activity_type === "coding");
   const unwrappedCodingTasks = codingTasks.filter((t) => !codingProjects.some((p) => p.coding_task_id === t.id));
 
-  const TABS: { id: Tab; label: string; count: number }[] = [
+  const TABS: { id: Tab; label: string; count: number | null }[] = [
     { id: "research", label: "Research", count: research.length },
     { id: "projects", label: "Projects", count: codingProjects.length + unwrappedCodingTasks.length },
     { id: "learning", label: "Learning", count: docs.length },
+    // No server-rendered count (useRegistry fetches client-side on tab
+    // activation, not in the page's initial Promise.all) - omitted rather
+    // than shown as a misleading 0 before the first fetch resolves.
+    { id: "skills", label: "Skills", count: null },
   ];
 
   return (
@@ -190,7 +228,7 @@ export function ArtifactRegistry({
               tab === t.id ? "font-medium text-indigo-300" : "text-zinc-500 hover:text-zinc-300"
             }`}
           >
-            {t.label} <span className="font-mono text-xs text-zinc-600">({t.count})</span>
+            {t.label} {t.count !== null && <span className="font-mono text-xs text-zinc-600">({t.count})</span>}
             {tab === t.id && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-indigo-400" />}
           </button>
         ))}
@@ -235,6 +273,8 @@ export function ArtifactRegistry({
             ))}
           </ul>
         )}
+
+        {tab === "skills" && <SkillsTab />}
       </div>
     </div>
   );

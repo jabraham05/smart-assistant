@@ -1,3 +1,5 @@
+import { fetchTimeoutSignal } from "./fetch-timeout";
+
 // Server-side only, same "no client-side secrets/URLs" shape as
 // knowledge-engine-client.ts - coding-orchestrator is internal-only (no
 // published port), so this only ever runs from a Next.js API route.
@@ -20,7 +22,7 @@ export async function getCodingTasks(status?: string, limit?: number): Promise<C
   const url = new URL(`${CODING_ORCHESTRATOR_URL}/tasks`);
   if (status) url.searchParams.set("status", status);
   if (limit) url.searchParams.set("limit", String(limit));
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, { cache: "no-store", signal: fetchTimeoutSignal() });
   if (!res.ok) {
     throw new Error(`coding-orchestrator /tasks failed with ${res.status}`);
   }

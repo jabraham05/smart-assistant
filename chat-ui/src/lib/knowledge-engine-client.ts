@@ -1,3 +1,5 @@
+import { fetchTimeoutSignal } from "./fetch-timeout";
+
 // Server-side only, same "no client-side secrets/URLs" shape as
 // event-bus-client.ts/skills-registry-client.ts - knowledge-engine is
 // internal-only (no published port), so this only ever runs server-side
@@ -36,7 +38,10 @@ export interface ResearchSessionDetail {
 }
 
 export async function getResearchDetail(id: string): Promise<ResearchSessionDetail | null> {
-  const res = await fetch(`${KNOWLEDGE_ENGINE_URL}/research/${encodeURIComponent(id)}`, { cache: "no-store" });
+  const res = await fetch(`${KNOWLEDGE_ENGINE_URL}/research/${encodeURIComponent(id)}`, {
+    cache: "no-store",
+    signal: fetchTimeoutSignal(),
+  });
   if (res.status === 404) return null;
   if (!res.ok) {
     throw new Error(`knowledge-engine /research/${id} failed with ${res.status}`);
@@ -68,7 +73,7 @@ export interface Project {
 export async function getProjects(status?: string): Promise<Project[]> {
   const url = new URL(`${KNOWLEDGE_ENGINE_URL}/projects`);
   if (status) url.searchParams.set("status", status);
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, { cache: "no-store", signal: fetchTimeoutSignal() });
   if (!res.ok) {
     throw new Error(`knowledge-engine /projects failed with ${res.status}`);
   }
@@ -77,7 +82,10 @@ export async function getProjects(status?: string): Promise<Project[]> {
 }
 
 async function postProjectAction(id: number, action: "approve" | "reject" | "complete"): Promise<Project> {
-  const res = await fetch(`${KNOWLEDGE_ENGINE_URL}/projects/${id}/${action}`, { method: "POST" });
+  const res = await fetch(`${KNOWLEDGE_ENGINE_URL}/projects/${id}/${action}`, {
+    method: "POST",
+    signal: fetchTimeoutSignal(),
+  });
   const body = await res.json();
   if (!res.ok) {
     throw new Error(body.error ?? `knowledge-engine /projects/${id}/${action} failed with ${res.status}`);
@@ -117,6 +125,7 @@ export async function knowledgeSearch(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
+    signal: fetchTimeoutSignal(),
   });
   const data = await res.json();
   if (!res.ok) {

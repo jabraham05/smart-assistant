@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { withTimeout } from "./fetch-timeout";
 
 // docs/ and README.md (as readme.md) are baked into the image at build
 // time (see chat-ui/Dockerfile) rather than bind-mounted - confirmed live
@@ -15,7 +16,7 @@ export interface DocEntry {
 }
 
 export async function listDocs(): Promise<DocEntry[]> {
-  const files = await readdir(DOCS_DIR);
+  const files = await withTimeout(readdir(DOCS_DIR));
   const entries = files
     .filter((f) => f.endsWith(".md"))
     .map((f) => ({ slug: f.replace(/\.md$/, ""), title: titleCase(f.replace(/\.md$/, "")) }));
@@ -30,7 +31,7 @@ export async function readDoc(slug: string): Promise<string> {
   if (slug.includes("/") || slug.includes("\\") || slug.includes("..")) {
     throw new Error("invalid doc slug");
   }
-  return readFile(path.join(DOCS_DIR, `${slug}.md`), "utf8");
+  return withTimeout(readFile(path.join(DOCS_DIR, `${slug}.md`), "utf8"));
 }
 
 function titleCase(slug: string): string {
