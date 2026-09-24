@@ -1,0 +1,25 @@
+[project]
+name = "openhands-runner"
+version = "0.1.0"
+description = "Phase 2 of the infrastructure rebuild - wraps the OpenHands SDK as coding-orchestrator's execution engine, replacing its own hand-rolled Coder/Tester agent-loop while coding-orchestrator keeps owning task/session tracking, DB, and notifications."
+requires-python = ">=3.12"
+dependencies = [
+  "openhands-sdk>=1.49.0",
+  "openhands-tools>=1.49.0",
+  "openhands-workspace>=1.49.0",
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
