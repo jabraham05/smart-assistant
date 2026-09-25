@@ -77,6 +77,12 @@ export interface Config {
   // POST /projects/:id/approve and consolidateProject both fire
   // fire-and-forget episode writes here.
   graphitiServiceUrl: string;
+  // Phase 4 of the infrastructure rebuild - real page-content extraction
+  // (JS rendering + anti-bot fallback), used by lib/html-extract.ts's
+  // extractUrl. Always-on internal infra, same tier as graphitiServiceUrl -
+  // extractUrl falls back to its own plain fetch()+JSDOM+Readability path
+  // if this is genuinely unreachable, so this is not a hard dependency.
+  scraplingServiceUrl: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -118,5 +124,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     researchQueueDedupMinOverlap: env.RESEARCH_QUEUE_DEDUP_MIN_OVERLAP ? Number(env.RESEARCH_QUEUE_DEDUP_MIN_OVERLAP) : 2,
     researchQueueDrainLimit: env.RESEARCH_QUEUE_DRAIN_LIMIT ? Number(env.RESEARCH_QUEUE_DRAIN_LIMIT) : 3,
     graphitiServiceUrl: env.GRAPHITI_SERVICE_URL || "http://graphiti-service:3012",
+    scraplingServiceUrl: env.SCRAPLING_SERVICE_URL || "http://scrapling-service:3013",
   };
 }

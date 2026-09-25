@@ -551,6 +551,34 @@ services:
     depends_on: [ollama, falkordb]
     networks: [assistant-net]
 
+  # Phase 4 of the infrastructure rebuild - the real HTTP fetch step behind
+  # knowledge-engine's extractUrl (lib/html-extract.ts), replacing a plain
+  # fetch() that had no JS rendering and no anti-bot evasion. Fetcher (no
+  # browser, cheap) is the default path; StealthyFetcher (a real browser)
+  # is only used as a fallback when the plain fetch fails or is blocked -
+  # not bundled/used unconditionally. Returns raw HTML, not pre-extracted
+  # content - real, live-verified finding this session: Scrapling's own
+  # .markdown() conversion does NOT do Readability-style boilerplate
+  # stripping (tested against a real Wikipedia article, it returned the
+  # nav sidebar instead of the article), so knowledge-engine's own already-
+  # proven JSDOM+Readability pass still does the actual article extraction,
+  # just fed better-fetched HTML than a plain fetch() alone could get.
+  # StealthyFetcher's browser genuinely works but adds a real ~658MB
+  # footprint (baked into this image at build time, not downloaded lazily
+  # on first fallback use - see Dockerfile) - a deliberate choice given
+  # this machine's already-documented resource contention, not a
+  # limitation forgotten about. Revisit if the plain-fetch path proves
+  # insufficient often enough in practice to justify bundling both by
+  # default instead of falling back.
+  scrapling-service:
+    build:
+      context: ./scrapling-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "3013"
+    networks: [assistant-net]
+
   # Side-by-side test instance of the same image/codebase - differs only by
   # env var (CHAT_DB_SCHEMA/REDIS_DB), never a per-request flag. Lets a
   # persona/skill change be tried against chat_test.personas/chat_test.skills
