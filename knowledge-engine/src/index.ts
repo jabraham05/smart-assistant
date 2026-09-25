@@ -404,6 +404,23 @@ app.post("/projects/:id/approve", async (req, res) => {
       return res.status(409).json({ error: `project ${projectId} is not proposed (status: ${project.status})` });
     }
 
+    // Phase 3 of the infrastructure rebuild: the human deciding to approve
+    // a project is exactly the kind of meaningful moment the decision/
+    // project/growth ledger exists for - true regardless of which path
+    // below actually resolves it (coding, research, already-known), so
+    // fired once here rather than duplicated in every branch. Fire-and-
+    // forget - a slow/unreachable graphiti-service must never delay or
+    // break project approval itself.
+    fetch(`${config.graphitiServiceUrl}/episodes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: `project-approved-${project.id}`,
+        episodeBody: `The user approved the project "${project.title}" (${project.activity_type}). Rationale: ${project.rationale}`,
+        sourceDescription: "project_approved event",
+      }),
+    }).catch((e) => console.error(`failed to write project_approved episode for project ${project.id}:`, e));
+
     if (project.activity_type === "coding") {
       const { taskId } = await startCodingTask(config, {
         task: project.rationale,

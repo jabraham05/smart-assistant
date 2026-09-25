@@ -27,6 +27,7 @@ volumes:
   postgres-data:
   n8n-data:
   ollama-data:
+  falkordb-data:
 
 services:
   postgres:
@@ -389,7 +390,11 @@ services:
       # coding-activity project's approve/complete steps call
       # coding-orchestrator directly, not through the old n8n webhook shim.
       CODING_ORCHESTRATOR_URL: http://coding-orchestrator:3003
-    depends_on: [postgres, ollama, coding-orchestrator]
+      # Phase 3 of the infrastructure rebuild - POST /projects/:id/approve
+      # and engine/consolidate.ts's writeConsolidatedEpisode both fire
+      # episode writes here.
+      GRAPHITI_SERVICE_URL: http://graphiti-service:3012
+    depends_on: [postgres, ollama, coding-orchestrator, graphiti-service]
     networks: [assistant-net]
 
   # Self-hosted cross-conversation memory retrieval - deliberately its own
@@ -502,6 +507,48 @@ services:
       MEMORY_ENGINE_URL: http://memory-engine:3007
       KNOWLEDGE_ENGINE_URL: http://knowledge-engine:3005
     depends_on: [postgres, redis, ollama, skills-mcp, event-bus, memory-engine]
+    networks: [assistant-net]
+
+  # Phase 3 of the infrastructure rebuild's storage backend - the graph
+  # database graphiti-service (below) actually writes to. Picked over
+  # Neo4j (a JVM service, too heavy given this machine's already-
+  # documented resource contention) and over Kuzu (graphiti-core's own
+  # embedded option - rejected after a real deprecation warning surfaced
+  # live this session: "the upstream Kuzu project is no longer maintained,
+  # migrate to Neo4j or FalkorDB"). Confirmed live this session as
+  # genuinely lightweight: 163MB image, ~71MB idle memory. A Redis fork/
+  # module, not compatible with and not a replacement for this project's
+  # own `redis` service above - needs its own container.
+  falkordb:
+    image: falkordb/falkordb:latest
+    restart: unless-stopped
+    volumes:
+      - falkordb-data:/var/lib/falkordb/data
+    networks: [assistant-net]
+
+  # The write path for Phase 3's decision/project/growth ledger (see the
+  # plan co-designed earlier this session) - a deliberate graph of
+  # meaningful moments (project approved, goal created, project
+  # consolidated), written by Amy's own code only at those moments, never
+  # raw per-turn conversation ingestion. Additive to Honcho (still does
+  # its own passive per-turn "dreaming," unchanged) and memory-engine
+  # (raw hybrid recall, no LLM) - not a replacement for either. Live-
+  # verified this session before any of this code was written: a real
+  # add_episode call against this exact stack (FalkorDB + Ollama) correctly
+  # extracted real entities/relationships from a test episode and a
+  # search query correctly retrieved them back - see graphiti_client.py's
+  # own comment for the full finding.
+  graphiti-service:
+    build:
+      context: ./graphiti-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "3012"
+      OLLAMA_HOST: http://ollama:11434
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: "6379"
+    depends_on: [ollama, falkordb]
     networks: [assistant-net]
 
   # Side-by-side test instance of the same image/codebase - differs only by

@@ -72,6 +72,11 @@ export interface Config {
   // POST /calendar/poll-check (draining the research queue on wake). See
   // the "Self-Learning Research Queue" plan.
   knowledgeEngineUrl: string;
+  // Phase 3 of the infrastructure rebuild - the decision/project/growth
+  // ledger. Always-on internal infra, same tier as knowledgeEngineUrl -
+  // POST /goals fires a fire-and-forget episode write here on a real new
+  // goal, same pattern as its existing research-queue auto-seed call.
+  graphitiServiceUrl: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -122,5 +127,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     digestModel: env.DIGEST_MODEL || "qwen3:8b",
     tavilyApiKey: env.TAVILY_API_KEY || undefined,
     knowledgeEngineUrl: env.KNOWLEDGE_ENGINE_URL || "http://knowledge-engine:3005",
+    graphitiServiceUrl: env.GRAPHITI_SERVICE_URL || "http://graphiti-service:3012",
   };
 }
