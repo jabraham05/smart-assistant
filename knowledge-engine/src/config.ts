@@ -72,6 +72,11 @@ export interface Config {
   // /calendar/poll-check) - keeps an overnight run bounded rather than
   // draining an entire backlog in one go.
   researchQueueDrainLimit: number;
+  // Phase 3 of the infrastructure rebuild - the decision/project/growth
+  // ledger. Always-on internal infra, same tier as eventBusUrl above -
+  // POST /projects/:id/approve and consolidateProject both fire
+  // fire-and-forget episode writes here.
+  graphitiServiceUrl: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -112,5 +117,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     researchQueueMaxPending: env.RESEARCH_QUEUE_MAX_PENDING ? Number(env.RESEARCH_QUEUE_MAX_PENDING) : 50,
     researchQueueDedupMinOverlap: env.RESEARCH_QUEUE_DEDUP_MIN_OVERLAP ? Number(env.RESEARCH_QUEUE_DEDUP_MIN_OVERLAP) : 2,
     researchQueueDrainLimit: env.RESEARCH_QUEUE_DRAIN_LIMIT ? Number(env.RESEARCH_QUEUE_DRAIN_LIMIT) : 3,
+    graphitiServiceUrl: env.GRAPHITI_SERVICE_URL || "http://graphiti-service:3012",
   };
 }

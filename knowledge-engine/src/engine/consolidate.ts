@@ -8,6 +8,26 @@ export interface ConsolidateResult {
   documentId: number;
 }
 
+// Phase 3 of the infrastructure rebuild: a project reaching "done," with a
+// real synthesized write-up already in hand, is the single highest-value
+// moment for the decision/project/growth ledger - the markdown itself
+// makes a far richer episode body than the raw approval moment. Shared by
+// all three consolidation paths below rather than duplicated three times.
+// Fire-and-forget, same reasoning as every other graphiti-service call in
+// this codebase: a slow/unreachable graphiti-service must never delay or
+// break project consolidation itself.
+function writeConsolidatedEpisode(config: Config, project: db.ProjectRow, markdown: string): void {
+  fetch(`${config.graphitiServiceUrl}/episodes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: `project-consolidated-${project.id}`,
+      episodeBody: markdown,
+      sourceDescription: "project_consolidated event",
+    }),
+  }).catch((e) => console.error(`failed to write project_consolidated episode for project ${project.id}:`, e));
+}
+
 // The step the whole "projects" feature exists for: turning finished work
 // into an actual write-up, not just scattered rows (structured findings/
 // citations for research, a diff/reviewer verdict for coding) - no
@@ -56,6 +76,7 @@ export async function consolidateFromExistingKnowledge(
   });
   await db.setDocumentMarkdown(config, document.id, markdown);
   await db.updateProject(config, project.id, { status: "done", documentId: document.id });
+  writeConsolidatedEpisode(config, project, markdown);
   return { documentId: document.id };
 }
 
@@ -103,6 +124,7 @@ async function consolidateResearchProject(config: Config, project: db.ProjectRow
 
   await db.setDocumentMarkdown(config, detail.session.document_id, markdown);
   await db.updateProject(config, project.id, { status: "done", documentId: detail.session.document_id });
+  writeConsolidatedEpisode(config, project, markdown);
   return { documentId: detail.session.document_id };
 }
 
@@ -152,5 +174,6 @@ async function consolidateCodingProject(config: Config, project: db.ProjectRow):
   });
   await db.setDocumentMarkdown(config, document.id, markdown);
   await db.updateProject(config, project.id, { status: "done", documentId: document.id });
+  writeConsolidatedEpisode(config, project, markdown);
   return { documentId: document.id };
 }

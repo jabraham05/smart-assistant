@@ -123,6 +123,21 @@ app.post("/goals", async (req, res) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ topic: goal.title, originSessionId: goal.origin_session_id ?? undefined, triggerSource: "goal_created" }),
     }).catch((e) => console.error("failed to auto-seed research queue from new goal:", e));
+
+    // Phase 3 of the infrastructure rebuild: a real new goal is exactly the
+    // kind of meaningful moment the decision/project/growth ledger exists
+    // for - fire-and-forget, same reasoning as the research-queue call
+    // above (a slow/unreachable graphiti-service must never delay or
+    // break goal creation itself).
+    fetch(`${config.graphitiServiceUrl}/episodes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: `goal-created-${goal.id}`,
+        episodeBody: `The user set a new goal: "${goal.title}".${goal.description ? ` ${goal.description}` : ""}`,
+        sourceDescription: "goal_created event",
+      }),
+    }).catch((e) => console.error("failed to write goal_created episode to graphiti-service:", e));
   } catch (e) {
     console.error("failed to create goal:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });

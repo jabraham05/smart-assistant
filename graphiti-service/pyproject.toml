@@ -1,0 +1,21 @@
+[project]
+name = "graphiti-service"
+version = "0.1.0"
+description = "Phase 3 of the infrastructure rebuild - a deliberate decision/project/growth ledger, written by Amy's own code only at meaningful moments (project approved, goal created, project consolidated), never raw per-turn conversation ingestion. Additive to Honcho and memory-engine, not a replacement for either."
+requires-python = ">=3.12"
+dependencies = [
+  "graphiti-core[falkordb]>=0.30.0",
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  # Real, live-verified finding: graphiti_core.llm_client.client imports
+  # httpx directly but doesn't declare it as its own dependency - omitting
+  # this crashes the whole import chain at startup with ModuleNotFoundError.
+  "httpx>=0.27.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
