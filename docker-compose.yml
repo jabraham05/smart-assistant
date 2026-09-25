@@ -244,10 +244,14 @@ services:
       PORT: "3003"
       OLLAMA_HOST: http://ollama:11434
       SANDBOX_RUNNER_URL: http://sandbox-runner:3002
-      # Phase 2 of the infrastructure rebuild - not yet called by anything
-      # (see the plan's own soak-period requirement before pipeline.ts's
-      # internal Coder/Tester agent-loop is actually replaced by a call
-      # here). Present now so the wiring lands in one place once it is.
+      # Phase 2 of the infrastructure rebuild - wired into pipeline.ts but
+      # off by default (see config.ts's useOpenHandsRunner). Existing-repo
+      # tasks only; from-scratch tasks always use sandbox-runner regardless
+      # of this flag, since openhands-runner doesn't implement sandbox-
+      # runner's from-scratch template-seeding. Flip to "true" only after
+      # the same soak-period validation agent-service (Phase 1) went
+      # through before chat-orchestrator was ever pointed away from.
+      USE_OPENHANDS_RUNNER: ${USE_OPENHANDS_RUNNER:-false}
       OPENHANDS_RUNNER_URL: http://openhands-runner:3011
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       # Dedicated database (see postgres/init/03-create-coding-tasks-db.sql),
@@ -266,10 +270,11 @@ services:
   # Phase 2 of the infrastructure rebuild (see the plan co-designed and
   # live-verified this session) - wraps the OpenHands SDK as an alternative
   # coding execution engine to coding-orchestrator's own hand-rolled
-  # Coder/Tester agent-loop. Not yet wired into coding-orchestrator's
-  # pipeline - runs standalone until proven the same way agent-service was
-  # (real fixture-repo verification + a soak period) before pipeline.ts
-  # actually calls it.
+  # Coder/Tester agent-loop. Wired into pipeline.ts, gated behind
+  # coding-orchestrator's USE_OPENHANDS_RUNNER (off by default) - stays
+  # off until proven the same way agent-service was (real fixture-repo
+  # verification, live-verified this session against a real repo end to
+  # end, plus a soak period) before the flag flips to "true" anywhere.
   #
   # Like sandbox-runner, needs docker.sock mounted (DockerWorkspace launches
   # OpenHands' own official agent-server container itself) and is the only
@@ -295,6 +300,11 @@ services:
       CODER_MODEL: qwen3:8b
       SANDBOX_NETWORK: sandbox-net
       GITHUB_TOKEN: ${GITHUB_TOKEN}
+      # Same defaults coding-orchestrator's own config.ts already uses -
+      # `git commit` refuses to run without an identity configured, which
+      # the spawned agent-server container has none of by default.
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-smart-assistant-bot}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-smart-assistant-bot@users.noreply.github.com}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on: [ollama]

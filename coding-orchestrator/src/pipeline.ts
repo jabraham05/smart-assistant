@@ -1,6 +1,7 @@
 import type { Config } from "./config.js";
 import * as db from "./db.js";
 import * as sandbox from "./sandbox-client.js";
+import * as openhands from "./openhands-client.js";
 import { ollamaChat, parseJsonContent } from "./ollama.js";
 import { runAgentLoop, truncateToolResult, type AgentTool } from "./agent-loop.js";
 import { notifyOrigin } from "./notify.js";
@@ -49,13 +50,24 @@ interface RetryFeedback {
 interface TaskContext {
   taskId: number;
   task: string;
+  // Populated only on the "sandbox" engine path (see runTaskPipeline) -
+  // openhands-runner owns its own container for the duration of a single
+  // /run-task call, so there's no persistent containerId/workingDir to
+  // track here.
   containerId: string;
   workingDir: string;
+  // Populated only on the "openhands" engine path - the repo openhands-
+  // runner clones itself. Restricted to existing-repo tasks (see
+  // runTaskPipeline) since openhands-runner doesn't implement sandbox-
+  // runner's from-scratch template-seeding.
+  repoUrl: string;
+  ref: string;
   testCommand: string;
   // Pre-formatted (formatSkills) - fetched once per task, not per attempt,
   // since active skills don't change mid-task.
   coderSkillsText: string;
   testerSkillsText: string;
+  engine: "sandbox" | "openhands";
 }
 
 // Matched against write_file's filename to refuse Tester edits to config
@@ -436,6 +448,91 @@ async function runAttempt(
   return { diff, testResult, reviewerVerdict };
 }
 
+// OpenHands engine path (Phase 2, see config.ts's useOpenHandsRunner) -
+// replaces runCoderRound + runTesterRound + the manual getDiff/runTests
+// calls with a single call to openhands-runner, which owns the actual
+// agent loop (clone, edit, test, retry-on-test-failure) itself. Amy still
+// owns everything downstream of that: the Reviewer call and finalizeTask's
+// approve/retry/give-up policy are unchanged from the sandbox-runner path,
+// same "Amy owns policy/orchestration, OpenHands owns the coding loop"
+// split the architecture was designed around.
+//
+// Known limitation, not yet addressed: unlike the sandbox-runner path
+// (one container persists across every attempt for this task, so a
+// Reviewer-triggered retry continues from the previous attempt's edits),
+// openhands-runner clones fresh on every call - a Reviewer 'retry' verdict
+// here restarts from a clean checkout, losing the prior attempt's edits.
+// This doesn't affect openhands-runner's own internal test-driven retries
+// (which do persist state within a single call), only the rarer case
+// where tests pass but the Reviewer still judges the implementation wrong.
+async function runAttemptViaOpenHands(
+  config: Config,
+  ctx: TaskContext,
+  plan: string,
+  attemptNumber: number,
+  feedback: RetryFeedback | null,
+): Promise<AttemptResult | { failed: true; feedback: RetryFeedback }> {
+  const taskDescription = buildAgentUserPrompt(ctx, plan, feedback);
+
+  let result: openhands.RunTaskResult;
+  try {
+    result = await openhands.runTask(config.openhandsRunnerUrl, {
+      taskId: ctx.taskId,
+      taskDescription,
+      repoUrl: ctx.repoUrl,
+      ref: ctx.ref,
+      testCommand: ctx.testCommand,
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    await db.logPhase(config, ctx.taskId, attemptNumber, "openhands_agent", "error", "", message);
+    return {
+      failed: true,
+      feedback: {
+        source: "coder",
+        message:
+          `openhands-runner failed to complete: ${message}. Check the current state of the repository ` +
+          "and continue from there with a different, more targeted approach.",
+      },
+    };
+  }
+
+  await db.logPhase(
+    config,
+    ctx.taskId,
+    attemptNumber,
+    "openhands_agent",
+    "success",
+    `${result.summary} (${result.attempts} internal attempt(s))`,
+  );
+
+  // Reviewer/finalizeTask both expect sandbox.ExecResult's shape -
+  // openhands-runner's test output isn't split into separate stdout/stderr
+  // streams (task_runner.py's own last_test_output is already combined),
+  // so stderr stays empty rather than duplicating the combined text into
+  // both fields.
+  const testResult: sandbox.ExecResult = {
+    exitCode: result.testExitCode,
+    stdout: result.testOutput,
+    stderr: "",
+    timedOut: false,
+    durationMs: 0,
+  };
+  await db.logPhase(
+    config,
+    ctx.taskId,
+    attemptNumber,
+    "test_run",
+    "success",
+    `exit code: ${testResult.exitCode}\n\n${testResult.stdout}`,
+  );
+
+  const reviewerVerdict = await callReviewer(config, ctx.task, result.diff, testResult);
+  await db.logPhase(config, ctx.taskId, attemptNumber, "reviewer", "success", JSON.stringify(reviewerVerdict));
+
+  return { diff: result.diff, testResult, reviewerVerdict };
+}
+
 async function finalizeTask(
   config: Config,
   ctx: TaskContext,
@@ -471,15 +568,30 @@ async function finalizeTask(
   if (!row.target_repo_url || !row.target_repo_url.includes("github.com")) return;
 
   const branchName = `coding-agent/${row.project_folder}`;
-  const prResult = await sandbox.proposePr(config.sandboxRunnerUrl, {
-    repoUrl: row.target_repo_url,
-    baseRef: row.target_ref,
-    patch: result.diff,
-    branchName,
-    commitMessage: row.task_description.slice(0, 72),
-    prTitle: row.task_description.slice(0, 72),
-    prBody: result.reviewerVerdict.reason,
-  });
+  // openhands-runner's /propose-pr re-clones and re-applies the diff itself
+  // (see openhands-runner/src/task_runner.py's propose_pr) rather than
+  // pushing from a container sandbox-runner already has open - same
+  // token-isolation guarantee (GITHUB_TOKEN embedded in the remote URL for
+  // exactly one push, then stripped), different transport.
+  const prResult =
+    ctx.engine === "openhands"
+      ? await openhands.proposePr(config.openhandsRunnerUrl, {
+          repoUrl: row.target_repo_url,
+          ref: row.target_ref,
+          branchName,
+          diff: result.diff,
+          prTitle: row.task_description.slice(0, 72),
+          prBody: result.reviewerVerdict.reason,
+        })
+      : await sandbox.proposePr(config.sandboxRunnerUrl, {
+          repoUrl: row.target_repo_url,
+          baseRef: row.target_ref,
+          patch: result.diff,
+          branchName,
+          commitMessage: row.task_description.slice(0, 72),
+          prTitle: row.task_description.slice(0, 72),
+          prBody: result.reviewerVerdict.reason,
+        });
   if (prResult.pushed && prResult.prUrl) {
     await db.updateTask(config, ctx.taskId, { pr_url: prResult.prUrl });
   } else {
@@ -491,8 +603,7 @@ async function finalizeTask(
     // restart, so a real failure like this can go unnoticed indefinitely.
     console.error(
       `coding task ${ctx.taskId}: approved but PR was not opened - pushed=${prResult.pushed}, ` +
-        `prUrl=${prResult.prUrl ?? "(none)"}, error=${prResult.error ?? "(none)"}, ` +
-        `pushExitCode=${prResult.pushExitCode}`,
+        `prUrl=${prResult.prUrl ?? "(none)"}, error=${prResult.error ?? "(none)"}`,
     );
     await db.updateTask(config, ctx.taskId, {
       latest_status: `Approved, but PR was not opened: ${prResult.error ?? "unknown error"}`,
@@ -520,40 +631,71 @@ export async function runTaskPipeline(config: Config, taskId: number): Promise<v
     const { plan, testCommand, template } = await callPlanner(config, task.task_description, isFromScratch);
     await db.logPhase(config, taskId, null, "plan", "success", plan);
 
-    // sandbox-runner's own /task route requires `repoUrl` unconditionally
-    // (it has no notion of "from scratch, use the fallback as primary") -
-    // so for a from-scratch task (no target_repo_url), the fallback repo
-    // must be sent AS repoUrl directly, with no separate fallback fields at
-    // all. Mirrors exactly the ternary the old n8n "Create Task Container"
-    // node used. `template` is only ever passed on this from-scratch
-    // branch - an existing repo's own conventions are never overridden,
-    // even if the Planner somehow still returned one.
-    const container = task.target_repo_url
-      ? await sandbox.createContainer(config.sandboxRunnerUrl, {
-          repoUrl: task.target_repo_url,
-          ref: task.target_ref,
-          projectFolder: "",
-          taskId: String(taskId),
-          fallbackRepoUrl: task.fallback_repo_url || undefined,
-          fallbackRef: "main",
-          fallbackProjectFolder: task.project_folder,
-        })
-      : await sandbox.createContainer(config.sandboxRunnerUrl, {
-          repoUrl: task.fallback_repo_url || undefined,
-          ref: "main",
-          projectFolder: task.project_folder,
-          taskId: String(taskId),
-          template: template === "none" ? undefined : template,
-        });
-    containerId = container.containerId;
-    await db.updateTask(config, taskId, {
-      container_id: container.containerId,
-      target_repo_url: container.actualRepoUrl,
-      project_folder: container.actualProjectFolder,
-      latest_status: "Planning the approach",
-    });
+    // Phase 2 (see config.ts's useOpenHandsRunner) - only existing-repo
+    // tasks can use the openhands-runner engine. openhands-runner has no
+    // notion of sandbox-runner's from-scratch template-seeding, and a
+    // from-scratch task has no repoUrl for it to clone in the first place,
+    // so that path always falls back to the sandbox-runner engine below
+    // regardless of the flag.
+    const useOpenHands = config.useOpenHandsRunner && !isFromScratch;
 
-    try {
+    let ctx: TaskContext;
+    if (useOpenHands) {
+      // No sandbox-runner container to create here - openhands-runner owns
+      // its own container for the duration of each /run-task call (see
+      // runAttemptViaOpenHands below). containerId is left undefined, so
+      // the cleanup in `finally` naturally skips sandbox.destroyContainer.
+      await db.updateTask(config, taskId, { latest_status: "Planning the approach" });
+      const [coderSkills, testerSkills] = await Promise.all([
+        db.getActiveCodingSkills(config, "coder", null),
+        db.getActiveCodingSkills(config, "tester", null),
+      ]);
+      ctx = {
+        taskId,
+        task: task.task_description,
+        containerId: "",
+        workingDir: "",
+        repoUrl: task.target_repo_url as string,
+        ref: task.target_ref,
+        testCommand: task.test_command || testCommand,
+        coderSkillsText: formatSkills(coderSkills),
+        testerSkillsText: formatSkills(testerSkills),
+        engine: "openhands",
+      };
+    } else {
+      // sandbox-runner's own /task route requires `repoUrl` unconditionally
+      // (it has no notion of "from scratch, use the fallback as primary") -
+      // so for a from-scratch task (no target_repo_url), the fallback repo
+      // must be sent AS repoUrl directly, with no separate fallback fields
+      // at all. Mirrors exactly the ternary the old n8n "Create Task
+      // Container" node used. `template` is only ever passed on this
+      // from-scratch branch - an existing repo's own conventions are never
+      // overridden, even if the Planner somehow still returned one.
+      const container = task.target_repo_url
+        ? await sandbox.createContainer(config.sandboxRunnerUrl, {
+            repoUrl: task.target_repo_url,
+            ref: task.target_ref,
+            projectFolder: "",
+            taskId: String(taskId),
+            fallbackRepoUrl: task.fallback_repo_url || undefined,
+            fallbackRef: "main",
+            fallbackProjectFolder: task.project_folder,
+          })
+        : await sandbox.createContainer(config.sandboxRunnerUrl, {
+            repoUrl: task.fallback_repo_url || undefined,
+            ref: "main",
+            projectFolder: task.project_folder,
+            taskId: String(taskId),
+            template: template === "none" ? undefined : template,
+          });
+      containerId = container.containerId;
+      await db.updateTask(config, taskId, {
+        container_id: container.containerId,
+        target_repo_url: container.actualRepoUrl,
+        project_folder: container.actualProjectFolder,
+        latest_status: "Planning the approach",
+      });
+
       // Fetched once per task, not per attempt/round - active skills don't
       // change mid-task, and this avoids a DB round-trip on every retry.
       const skillsTemplate = template === "none" ? null : template;
@@ -562,23 +704,30 @@ export async function runTaskPipeline(config: Config, taskId: number): Promise<v
         db.getActiveCodingSkills(config, "tester", skillsTemplate),
       ]);
 
-      const ctx: TaskContext = {
+      ctx = {
         taskId,
         task: task.task_description,
         containerId: container.containerId,
         workingDir: container.workingDir,
+        repoUrl: "",
+        ref: "",
         testCommand: task.test_command || testCommand,
         coderSkillsText: formatSkills(coderSkills),
         testerSkillsText: formatSkills(testerSkills),
+        engine: "sandbox",
       };
+    }
 
+    try {
       let feedback: RetryFeedback | null = null;
       let result: AttemptResult | { failed: true; feedback: RetryFeedback } | undefined;
       let attempt = 1;
 
       for (; attempt <= config.maxAttempts; attempt++) {
         await db.updateTask(config, taskId, { latest_status: `Attempt ${attempt}: coding in progress`, attempt_count: attempt });
-        result = await runAttempt(config, ctx, plan, attempt, feedback);
+        result = useOpenHands
+          ? await runAttemptViaOpenHands(config, ctx, plan, attempt, feedback)
+          : await runAttempt(config, ctx, plan, attempt, feedback);
 
         if ("failed" in result) {
           if (attempt === config.maxAttempts) break;

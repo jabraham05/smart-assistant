@@ -54,6 +54,8 @@ class ProposePrRequest(BaseModel):
     ref: str = "main"
     branchName: str
     diff: str
+    prTitle: str
+    prBody: str = ""
 
 
 class ProposePrResponse(BaseModel):
@@ -64,7 +66,9 @@ class ProposePrResponse(BaseModel):
 
 @app.post("/propose-pr", response_model=ProposePrResponse)
 async def propose_pr_endpoint(req: ProposePrRequest):
-    pushed, pr_url, error = propose_pr(config, req.repoUrl, req.ref, req.branchName, req.diff)
+    pushed, pr_url, error = propose_pr(
+        config, req.repoUrl, req.ref, req.branchName, req.diff, req.prTitle, req.prBody
+    )
     return ProposePrResponse(pushed=pushed, prUrl=pr_url, error=error)
 
 
