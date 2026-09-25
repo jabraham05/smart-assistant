@@ -21,7 +21,14 @@ from dataclasses import dataclass, field
 
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
-from pydantic_ai.messages import FunctionToolCallEvent, FunctionToolResultEvent, PartDeltaEvent, TextPartDelta
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+)
 
 from . import event_bus_client, honcho_client, knowledge_client, memory_client, session_memory
 from .agent import AgentDeps, build_agent
@@ -111,7 +118,19 @@ async def _run_turn(
                 user_prompt, deps=AgentDeps(relevant_tools=relevant_tools)
             ) as stream:
                 async for event in stream:
-                    if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                    # Real, live-verified finding: PartDeltaEvent only ever
+                    # carries INCREMENTAL updates to an already-started part.
+                    # The first chunk of a new text part - including its
+                    # entire initial content, not just one character -
+                    # arrives on PartStartEvent instead. Handling only
+                    # PartDeltaEvent silently dropped that first chunk from
+                    # every single response (reproduced 100% consistently
+                    # across repeated identical requests - "PHASE1TEST" came
+                    # back as "ASE1TEST" every time, never once correct).
+                    if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart) and event.part.content:
+                        text_parts.append(event.part.content)
+                        chunks.append(emit("item", event.part.content))
+                    elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
                         text_parts.append(event.delta.content_delta)
                         chunks.append(emit("item", event.delta.content_delta))
                     elif isinstance(event, FunctionToolCallEvent):

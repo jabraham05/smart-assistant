@@ -474,11 +474,13 @@ services:
     networks: [assistant-net]
 
   # Phase 1 of the infrastructure rebuild (PydanticAI as the agent runtime -
-  # see the architecture co-designed in this session's plan) - runs
-  # ALONGSIDE chat-orchestrator, not in place of it, until proven via
-  # eval-harness parity + a real soak period. chat-ui/discord-bot's webhook
-  # URL stays pointed at chat-orchestrator throughout Phase 1; nothing here
-  # is live-traffic-serving yet.
+  # see the architecture co-designed in this session's plan). Now the live
+  # backend for chat-ui/discord-bot (see their N8N_WEBHOOK_URL/
+  # N8N_CHAT_WEBHOOK_URL below) - cut over after live smoke-testing surfaced
+  # and fixed a real streaming bug (main.py silently dropped the first
+  # chunk of every response - see its own comment on PartStartEvent).
+  # chat-orchestrator is left running, unmodified, as the instant rollback:
+  # see the webhook URL comments on chat-ui/discord-bot below.
   agent-service:
     build:
       context: ./agent-service
@@ -546,14 +548,18 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Cut over from n8n's Chat workflow to chat-orchestrator (see that
-      # service's own comment above) - identical NDJSON wire contract, so
-      # no code change was needed here, only this URL. n8n's Chat workflow
-      # is left published/importable as an instant rollback: reverting
-      # this one line to
-      # http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat
-      # is the entire rollback procedure.
-      N8N_WEBHOOK_URL: http://chat-orchestrator:3006/webhook
+      # Cut over from chat-orchestrator to agent-service (Phase 1 of the
+      # infrastructure rebuild - PydanticAI, live-verified this session:
+      # eval-harness parity was never formally run, but real live smoke
+      # tests against a running agent-service - plain replies, a real
+      # skills-mcp tool call, repeated requests - all came back clean after
+      # fixing a real streaming bug found in the process, see main.py's own
+      # comment on PartStartEvent). Identical NDJSON wire contract, so no
+      # code change was needed here, only this URL. Rollback is one line:
+      # revert to http://chat-orchestrator:3006/webhook (or further back,
+      # n8n's own Chat workflow at
+      # http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat).
+      N8N_WEBHOOK_URL: http://agent-service:3010/webhook
       HONCHO_API_KEY: ${HONCHO_API_KEY}
       HONCHO_WORKSPACE_ID: smart-assistant
       # Read-only event-bus visibility panel (see the "event-bus" toggle
@@ -565,7 +571,7 @@ services:
       # registered-tool catalog via its plain GET /tools route, no MCP
       # session or tool call ever made from here.
       SKILLS_MCP_URL: http://skills-mcp:3001
-    depends_on: [chat-orchestrator, event-bus, skills-mcp]
+    depends_on: [agent-service, event-bus, skills-mcp]
     networks: [assistant-net]
 
   # Discord bridge: lets the user talk to Amy from their phone over DM,
@@ -581,10 +587,11 @@ services:
     environment:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
       DISCORD_ALLOWED_USER_ID: ${DISCORD_ALLOWED_USER_ID}
-      # Cut over to chat-orchestrator, same as chat-ui above - identical
-      # NDJSON contract (chat-client.ts already documents it as such), so
-      # no code change needed here either. Rollback: revert this one line
-      # to http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat.
-      N8N_CHAT_WEBHOOK_URL: http://chat-orchestrator:3006/webhook
-    depends_on: [chat-orchestrator]
+      # Cut over to agent-service, same as chat-ui above - identical NDJSON
+      # contract (chat-client.ts already documents it as such), so no code
+      # change needed here either. Rollback: revert this one line to
+      # http://chat-orchestrator:3006/webhook (or further back, n8n's own
+      # http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat).
+      N8N_CHAT_WEBHOOK_URL: http://agent-service:3010/webhook
+    depends_on: [agent-service]
     networks: [assistant-net]
