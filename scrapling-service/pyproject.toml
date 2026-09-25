@@ -1,0 +1,17 @@
+[project]
+name = "scrapling-service"
+version = "0.1.0"
+description = "Phase 4 of the infrastructure rebuild - the real HTTP fetch step behind knowledge-engine's extractUrl, replacing a plain fetch() with no JS rendering and no anti-bot evasion. Fetcher (no browser, cheap) is the default path; StealthyFetcher (a real browser, ~658MB footprint - live-verified this session) is a fallback used only when the plain fetch fails or is blocked. Returns raw HTML, not pre-extracted content - knowledge-engine's own JSDOM+Readability pipeline still does the actual article extraction, since Scrapling's own .markdown() conversion doesn't do Readability-style boilerplate stripping."
+requires-python = ">=3.12"
+dependencies = [
+  "scrapling[fetchers,rag]>=0.4.0",
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

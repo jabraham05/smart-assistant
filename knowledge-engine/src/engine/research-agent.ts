@@ -74,7 +74,7 @@ export async function runResearchAgent(config: Config, topic: string, domain?: s
         required: ["url"],
       },
       execute: async (args) => {
-        const page = await extractUrl(String(args.url));
+        const page = await extractUrl(config.scraplingServiceUrl, String(args.url));
         return truncateToolResult(page.text);
       },
     },

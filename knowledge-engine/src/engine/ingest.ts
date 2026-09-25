@@ -47,7 +47,7 @@ export async function ingestDocument(config: Config, input: IngestInput): Promis
 
   if (input.sourceType === "url") {
     if (!input.url) throw new Error("url is required when sourceType is 'url'");
-    const extracted = await extractUrl(input.url);
+    const extracted = await extractUrl(config.scraplingServiceUrl, input.url);
     title = title || extracted.title || undefined;
     originUrl = input.url;
     pendingChunks = chunkText(extracted.text).map((content) => ({ content }));
