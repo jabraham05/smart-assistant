@@ -39,6 +39,13 @@ class Config:
     # for the exact duration of one clone and one push.
     github_token: str | None
     health_check_timeout: float
+    # Real, live-verified finding: `git commit` refuses to run at all
+    # without a configured author identity ("Please tell me who you are"),
+    # and the spawned agent-server container has none by default - same
+    # defaults coding-orchestrator's own config.ts already uses for this
+    # exact purpose.
+    git_author_name: str
+    git_author_email: str
 
 
 def load_config(env: dict[str, str] | None = None) -> Config:
@@ -59,4 +66,6 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         sandbox_network=env.get("SANDBOX_NETWORK") or "sandbox-net",
         github_token=env.get("GITHUB_TOKEN") or None,
         health_check_timeout=_float_env("HEALTH_CHECK_TIMEOUT", 180.0),
+        git_author_name=env.get("GIT_AUTHOR_NAME") or "smart-assistant-bot",
+        git_author_email=env.get("GIT_AUTHOR_EMAIL") or "smart-assistant-bot@users.noreply.github.com",
     )

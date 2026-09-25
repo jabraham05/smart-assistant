@@ -2,6 +2,16 @@ export interface Config {
   port: number;
   ollamaHost: string;
   sandboxRunnerUrl: string;
+  // Phase 2 of the infrastructure rebuild - off by default. When true,
+  // existing-repo tasks (from-scratch tasks still need sandbox-runner's
+  // template-seeding, which openhands-runner doesn't implement) run their
+  // Coder/Tester round through openhands-runner instead of this file's own
+  // hand-rolled agent-loop. Kept behind a flag, not a hard cutover, so the
+  // already-proven sandbox-runner path stays the live default through a
+  // soak period - same rollout shape Phase 1 (agent-service) used before
+  // chat-orchestrator was ever pointed away from.
+  useOpenHandsRunner: boolean;
+  openhandsRunnerUrl: string;
   plannerModel: string;
   coderModel: string;
   testerModel: string;
@@ -40,6 +50,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     port: env.PORT ? Number(env.PORT) : 3003,
     ollamaHost: env.OLLAMA_HOST || "http://ollama:11434",
     sandboxRunnerUrl: env.SANDBOX_RUNNER_URL || "http://sandbox-runner:3002",
+    useOpenHandsRunner: env.USE_OPENHANDS_RUNNER === "true",
+    openhandsRunnerUrl: env.OPENHANDS_RUNNER_URL || "http://openhands-runner:3011",
     // Same models already used by the coding_task_pipeline n8n workflow -
     // qwen3:14b for the deep-thinking Planner/Reviewer calls, qwen3:8b for
     // the tool-calling Coder/Tester agent loops.
