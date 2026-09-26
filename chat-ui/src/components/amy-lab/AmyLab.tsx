@@ -5,9 +5,20 @@ import { useSessions } from "@/hooks/useSessions";
 import { useEvents } from "@/hooks/useEvents";
 import { SessionList } from "@/components/chat/SessionList";
 import { EventLogPanel } from "@/components/chat/EventLogPanel";
+import { KnowledgeGraphView } from "@/components/amy-lab/KnowledgeGraphView";
+import { CodingProjectBreakdown } from "@/components/amy-lab/CodingProjectBreakdown";
+import { SuggestedUpgrades } from "@/components/amy-lab/SuggestedUpgrades";
 import type { EventBusEvent } from "@/types/chat";
 
-type Tab = "trace" | "system-prompt";
+type Tab = "trace" | "system-prompt" | "knowledge-graph" | "coding-projects" | "suggested-upgrades";
+
+const TAB_LABELS: Record<Tab, string> = {
+  trace: "Trace",
+  "system-prompt": "System Prompt",
+  "knowledge-graph": "Knowledge Graph",
+  "coding-projects": "Coding Projects",
+  "suggested-upgrades": "Suggested Upgrades",
+};
 
 // Mirrors chat-orchestrator/src/system-prompt.ts's buildSystemPrompt clause
 // order. Persona text, user cards, and the skills catalog aren't captured
@@ -168,7 +179,7 @@ export function AmyLab() {
       />
       <div className="flex flex-1 flex-col">
         <div className="flex items-center gap-1 border-b border-white/10 px-4 py-2">
-          {(["trace", "system-prompt"] as Tab[]).map((t) => (
+          {(["trace", "system-prompt", "knowledge-graph", "coding-projects", "suggested-upgrades"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -176,7 +187,7 @@ export function AmyLab() {
                 tab === t ? "bg-indigo-500/10 font-medium text-indigo-300" : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
               }`}
             >
-              {t === "trace" ? "Trace" : "System Prompt"}
+              {TAB_LABELS[t]}
             </button>
           ))}
         </div>
@@ -223,6 +234,12 @@ export function AmyLab() {
               </ul>
             </>
           )}
+
+          {tab === "knowledge-graph" && <KnowledgeGraphView />}
+
+          {tab === "coding-projects" && <CodingProjectBreakdown />}
+
+          {tab === "suggested-upgrades" && <SuggestedUpgrades />}
         </div>
       </div>
       <div className="flex h-full w-96 flex-col border-l border-white/10">

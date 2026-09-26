@@ -219,6 +219,16 @@ async def webhook(request: Request):
                     )
                 )
 
+            if classification.behavior_feedback:
+                asyncio.create_task(
+                    event_bus_client.publish_behavior_feedback(
+                        config,
+                        session_id,
+                        classification.behavior_feedback.category,
+                        classification.behavior_feedback.note,
+                    )
+                )
+
             relevant_memories = [
                 m.content
                 for m in memory_results

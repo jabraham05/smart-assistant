@@ -58,3 +58,27 @@ async def match_goals(config: Config, text: str) -> list[GoalSummary]:
     except Exception:
         logger.exception("match_goals failed")
         return []
+
+
+async def publish_behavior_feedback(config: Config, session_id: str, category: str, note: str) -> None:
+    """Direct port of chat-orchestrator's publishBehaviorFeedbackEvent - the
+    live backend (agent-service) computed this signal every turn but never
+    persisted it (confirmed via grep this session), meaning zero real
+    behavior-feedback data was being captured from production traffic.
+    Fire-and-forget, same swallow-and-log pattern as match_task_contexts/
+    match_goals above - a slow/unreachable event-bus must never affect the
+    actual chat turn."""
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{config.event_bus_url}/events",
+                json={
+                    "source": "agent_service",
+                    "type": "behavior_feedback",
+                    "payload": {"category": category, "note": note},
+                    "originSessionId": session_id,
+                },
+                timeout=10,
+            )
+    except Exception:
+        logger.exception("publish_behavior_feedback failed")

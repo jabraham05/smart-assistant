@@ -27,3 +27,25 @@ export async function getCodingTasks(status?: string, limit?: number): Promise<C
   const data = (await res.json()) as { tasks: CodingTask[] };
   return data.tasks;
 }
+
+export interface CodingTaskLogEntry {
+  id: number;
+  task_id: number;
+  attempt_number: number | null;
+  phase: string;
+  status: "success" | "error";
+  error_message: string | null;
+  content: string;
+  created_at: string;
+}
+
+// The phase/attempt breakdown for one coding task - Amy Lab's Coding
+// Projects tab drill-down.
+export async function getCodingTaskLog(taskId: number): Promise<CodingTaskLogEntry[]> {
+  const res = await fetch(`${CODING_ORCHESTRATOR_URL}/tasks/${taskId}/log`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`coding-orchestrator /tasks/${taskId}/log failed with ${res.status}`);
+  }
+  const data = (await res.json()) as { log: CodingTaskLogEntry[] };
+  return data.log;
+}

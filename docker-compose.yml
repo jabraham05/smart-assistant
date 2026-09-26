@@ -157,7 +157,17 @@ services:
       HOME_LOCATION: ${HOME_LOCATION}
       HOME_LATITUDE: ${HOME_LATITUDE}
       HOME_LONGITUDE: ${HOME_LONGITUDE}
-      SKILLS_PROPOSAL_WEBHOOK_URL: ${SKILLS_PROPOSAL_WEBHOOK_URL}
+      # skill_propose/skill-proposals routes - direct Postgres, always-on
+      # internal infra, same tier as CODING_ORCHESTRATOR_URL above. Real,
+      # live-verified finding: skill_propose used to POST to the
+      # skill_proposal_intake n8n workflow, which inserted into n8n's own
+      # internal `skills` Data Table - a store with no REST read/approve
+      # endpoint anywhere in this repo, so a human could only review
+      # proposals by opening n8n's UI directly. This is the first Postgres
+      # connection skills-mcp has ever owned (see
+      # postgres/init/21-create-skills-db.sql).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SKILLS_DB_NAME: skills
       # Calendar tools are optional — if GOOGLE_CALENDAR_ID is unset, they
       # return a clear error instead of the server failing to start. The key
       # file is baked into the image at build time (see skills-mcp/Dockerfile)
@@ -206,6 +216,7 @@ services:
       # POST /task and GET /task/status have existed and worked reliably
       # all session; both tools now call them directly.
       CODING_ORCHESTRATOR_URL: http://coding-orchestrator:3003
+    depends_on: [postgres]
     networks: [assistant-net]
 
   # Docker-outside-of-Docker sandbox: spins up a fresh, disposable container

@@ -6,6 +6,7 @@ import { registerDashboardDataRoute } from "./routes/dashboard-data.js";
 import { registerSpotifyActionRoute } from "./routes/spotify-action.js";
 import { registerCalendarEventsRoute } from "./routes/calendar-events.js";
 import { registerToolsRegistryRoute } from "./routes/tools-registry.js";
+import { registerSkillProposalsRoute } from "./routes/skill-proposals.js";
 
 const config = loadConfig(process.env);
 
@@ -30,6 +31,10 @@ registerCalendarEventsRoute(app, config);
 // Plain internal REST route, no LLM/MCP session involved - chat-ui's Agent
 // Registry panel fetches from this directly to browse what's registered.
 registerToolsRegistryRoute(app, config);
+
+// Plain internal REST route, no LLM/MCP session involved - chat-ui's Amy Lab
+// Suggested Upgrades tab reads/approves/rejects skill proposals directly.
+registerSkillProposalsRoute(app, config);
 
 // Stateless mode: a fresh McpServer + transport per request, no session
 // tracking. This is the simplest spec-compliant shape for an internal-only

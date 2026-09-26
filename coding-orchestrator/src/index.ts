@@ -96,6 +96,22 @@ app.get("/tasks/:id", async (req, res) => {
   }
 });
 
+// GET /tasks/:id/log - the phase/attempt breakdown for one task, for Amy
+// Lab's Coding Projects tab. Reads coding_task_log, written since day one
+// by db.logPhase in pipeline.ts but never read back until now.
+app.get("/tasks/:id/log", async (req, res) => {
+  const taskId = Number(req.params.id);
+  if (!Number.isInteger(taskId)) {
+    return res.status(400).json({ error: "invalid task id" });
+  }
+  try {
+    const log = await db.listTaskLog(config, taskId);
+    res.json({ log });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 app.listen(config.port, "0.0.0.0", () => {
   console.log(`coding-orchestrator listening on :${config.port}`);
 });
