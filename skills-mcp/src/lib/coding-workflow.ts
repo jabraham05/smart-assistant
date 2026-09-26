@@ -4,10 +4,17 @@ export interface CodingTaskRequest {
   task: string;
   // Omitted for a from-scratch task with no existing target repo — the
   // pipeline lands those in a shared coding_tasks repo instead (see
-  // n8n's Create Task Container node).
+  // coding-orchestrator's own fallback-repo handling).
   repoUrl?: string;
   ref?: string;
   testCommand?: string;
+  // No longer forwarded - real, live-verified finding: this was a
+  // n8n-workflow-specific parameter for seeding the old hand-rolled
+  // pipeline's Coder with initial file context. coding-orchestrator's own
+  // pipeline doesn't need it - its Coder already has real shell access to
+  // explore the repo itself (see pipeline.ts's agentTools/run_command).
+  // Kept in the tool's own input schema for backward compatibility with
+  // whatever a model might still send, just silently ignored now.
   contextCommand?: string;
   // The chat session this task was triggered from, if any — captured at
   // the MCP transport layer (see server.ts's RequestContext), not
@@ -16,21 +23,29 @@ export interface CodingTaskRequest {
   chatSessionId?: string;
 }
 
-// POSTs to the coding_task_pipeline n8n workflow's webhook. That webhook's
-// trigger uses responseMode "onReceived" (see the workflow's own notes) -
-// it responds within roughly a tenth of a second, before Planner/Coder/
-// the sandbox/anything else has run, so this genuinely is fire-and-forget
-// despite awaiting the fetch. Mirrors the fetch-wrapper shape of
-// skills-workflow.ts's submitSkillProposal.
+// Real, live-verified finding (2026-09-26): this used to POST to the old
+// coding_task_pipeline n8n workflow's webhook (CODING_TASK_WEBHOOK_URL) -
+// a shim that was never actually retired even after coding-orchestrator
+// became the real pipeline owner months ago. When n8n's own database had a
+// transient readiness issue, every code_task call failed outright with no
+// coding_tasks row ever created and no reply reaching the user at all
+// (the tool-call exception crashed the whole agent turn before any
+// response was generated - reported live via Discord: "it never told me
+// it started or anything"). coding-orchestrator's own POST /task has
+// existed and worked reliably all session; this now calls it directly,
+// same "retire the n8n hop, don't add a second one onto it" direction
+// coding-orchestrator-client.ts's read-only caller already established.
 export async function submitCodingTask(config: Config, payload: CodingTaskRequest): Promise<void> {
-  if (!config.codingTaskWebhookUrl) {
-    throw new Error("CODING_TASK_WEBHOOK_URL is not configured");
-  }
-
-  const res = await fetch(config.codingTaskWebhookUrl, {
+  const res = await fetch(`${config.codingOrchestratorUrl}/task`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      task: payload.task,
+      repoUrl: payload.repoUrl,
+      ref: payload.ref,
+      testCommand: payload.testCommand,
+      chatSessionId: payload.chatSessionId,
+    }),
   });
 
   if (!res.ok) {
@@ -48,16 +63,13 @@ export interface CodingTaskStatus {
   taskDescription?: string;
 }
 
-// Unlike submitCodingTask, this is a real synchronous round trip - it waits
-// for n8n's response (a Data Table lookup, not an LLM call, so this stays
-// fast) rather than firing-and-forgetting. Used by code_task_status so a
-// user can ask Amy for a progress update mid-task in normal chat.
+// Same n8n-shim retirement as submitCodingTask above - coding-orchestrator's
+// own GET /task/status already returns this exact shape (found/status/
+// latestStatus/attemptCount/prUrl/taskDescription), confirmed directly
+// against its source (src/index.ts), so no shape translation is needed
+// here at all.
 export async function getCodingTaskStatus(config: Config, chatSessionId: string): Promise<CodingTaskStatus> {
-  if (!config.codingTaskStatusWebhookUrl) {
-    throw new Error("CODING_TASK_STATUS_WEBHOOK_URL is not configured");
-  }
-
-  const url = new URL(config.codingTaskStatusWebhookUrl);
+  const url = new URL(`${config.codingOrchestratorUrl}/task/status`);
   url.searchParams.set("sessionId", chatSessionId);
 
   const res = await fetch(url.toString());

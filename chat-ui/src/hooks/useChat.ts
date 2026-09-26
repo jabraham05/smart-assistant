@@ -60,71 +60,101 @@ export function useChat(sessionId: string) {
       // definitive answer synchronously once the reader loop finishes.
       let accumulatedContent = "";
 
-      const applyEvent = (event: N8nStreamEvent) => {
+      // Pure per-event reducer, pulled out of applyEvent so a whole batch of
+      // queued events (see below) can be folded into one message object
+      // before a single setMessages commit, instead of one commit per event.
+      const reduceMessage = (m: ChatMessage, event: N8nStreamEvent): ChatMessage => {
+        const steps = [...(m.steps ?? [])];
+        const rawEvents = [...(m.rawEvents ?? []), event];
+        const { nodeId, nodeName, timestamp } = event.metadata;
+
+        if (event.type === "item") {
+          // AI Agent's streamed tokens are the actual reply text.
+          if (nodeName === "AI Agent" && event.content) {
+            accumulatedContent += event.content;
+            return { ...m, content: m.content + event.content, rawEvents };
+          }
+          return { ...m, rawEvents };
+        }
+
+        if (event.type === "trace" && event.trace) {
+          const trace = [...(m.trace ?? []), event.trace];
+
+          if (event.trace.kind === "tool_call") {
+            const { attempt, iteration, name } = event.trace;
+            const key = `${attempt}:${iteration}:${name}`;
+            const { kind, label } = classifyTool(name);
+            openSteps.set(key, steps.length);
+            steps.push({
+              nodeId: key,
+              nodeName: name,
+              kind,
+              label,
+              status: "running",
+              startedAt: timestamp,
+            });
+          }
+
+          if (event.trace.kind === "tool_result") {
+            const { attempt, iteration, name, isError } = event.trace;
+            const key = `${attempt}:${iteration}:${name}`;
+            const idx = openSteps.get(key);
+            if (idx !== undefined && steps[idx]) {
+              steps[idx] = { ...steps[idx], status: isError ? "error" : "done", finishedAt: timestamp };
+              openSteps.delete(key);
+            }
+          }
+
+          return { ...m, steps, rawEvents, trace };
+        }
+
+        if (event.type === "error") {
+          steps.push({
+            nodeId,
+            nodeName,
+            kind: "other",
+            label: "Something went wrong",
+            status: "error",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          });
+          return { ...m, steps, rawEvents };
+        }
+
+        return { ...m, rawEvents };
+      };
+
+      // Real, live-verified finding: chat-orchestrator (the previous
+      // backend) only ever emitted ONE "item" event per turn, the full
+      // reply already assembled - MarkdownContent's full react-markdown
+      // re-parse on every content change was never exercised more than
+      // once per turn. agent-service streams real token-by-token deltas
+      // (confirmed live: a short reply alone produced 30+ separate "item"
+      // events), and applyEvent previously called setMessages - and so a
+      // full markdown re-parse of the whole growing message - on every
+      // single one. On a longer reply this saturated the render loop badly
+      // enough to freeze/crash the tab (reported live: "page crashes when
+      // I chat to Amy"). Batched here via requestAnimationFrame - each
+      // animation frame folds every event that arrived since the last
+      // frame into one setMessages commit, capping re-renders at the
+      // browser's own paint rate regardless of how fast tokens arrive.
+      let pending: N8nStreamEvent[] = [];
+      let flushScheduled = false;
+      const flush = () => {
+        flushScheduled = false;
+        if (pending.length === 0) return;
+        const batch = pending;
+        pending = [];
         setMessages((prev) =>
-          prev.map((m) => {
-            if (m.id !== assistantMessageId) return m;
-
-            const steps = [...(m.steps ?? [])];
-            const rawEvents = [...(m.rawEvents ?? []), event];
-            const { nodeId, nodeName, timestamp } = event.metadata;
-
-            if (event.type === "item") {
-              // AI Agent's streamed tokens are the actual reply text.
-              if (nodeName === "AI Agent" && event.content) {
-                accumulatedContent += event.content;
-                return { ...m, content: m.content + event.content, rawEvents };
-              }
-              return { ...m, rawEvents };
-            }
-
-            if (event.type === "trace" && event.trace) {
-              const trace = [...(m.trace ?? []), event.trace];
-
-              if (event.trace.kind === "tool_call") {
-                const { attempt, iteration, name } = event.trace;
-                const key = `${attempt}:${iteration}:${name}`;
-                const { kind, label } = classifyTool(name);
-                openSteps.set(key, steps.length);
-                steps.push({
-                  nodeId: key,
-                  nodeName: name,
-                  kind,
-                  label,
-                  status: "running",
-                  startedAt: timestamp,
-                });
-              }
-
-              if (event.trace.kind === "tool_result") {
-                const { attempt, iteration, name, isError } = event.trace;
-                const key = `${attempt}:${iteration}:${name}`;
-                const idx = openSteps.get(key);
-                if (idx !== undefined && steps[idx]) {
-                  steps[idx] = { ...steps[idx], status: isError ? "error" : "done", finishedAt: timestamp };
-                  openSteps.delete(key);
-                }
-              }
-
-              return { ...m, steps, rawEvents, trace };
-            }
-
-            if (event.type === "error") {
-              steps.push({
-                nodeId,
-                nodeName,
-                kind: "other",
-                label: "Something went wrong",
-                status: "error",
-                startedAt: timestamp,
-                finishedAt: timestamp,
-              });
-              return { ...m, steps, rawEvents };
-            }
-
-            return { ...m, rawEvents };
-          })
+          prev.map((m) => (m.id === assistantMessageId ? batch.reduce(reduceMessage, m) : m))
         );
+      };
+      const applyEvent = (event: N8nStreamEvent) => {
+        pending.push(event);
+        if (!flushScheduled) {
+          flushScheduled = true;
+          requestAnimationFrame(flush);
+        }
       };
 
       try {
@@ -168,6 +198,12 @@ export function useChat(sessionId: string) {
             // ignore trailing partial line
           }
         }
+
+        // Explicit final flush, not left to the next requestAnimationFrame -
+        // rAF doesn't fire for a backgrounded tab, which could otherwise
+        // strand the last few tokens out of view until the tab regains
+        // focus.
+        flush();
 
         // The stream can end with zero AI Agent tokens (a known, documented
         // reliability gap - the fallback chain that corrects Honcho/Postgres

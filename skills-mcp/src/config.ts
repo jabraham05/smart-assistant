@@ -9,8 +9,6 @@ export interface Config {
   skillsProposalWebhookUrl: string;
   googleCalendarKeyFile?: string;
   googleCalendarId?: string;
-  codingTaskWebhookUrl?: string;
-  codingTaskStatusWebhookUrl?: string;
   spotifyClientId?: string;
   spotifyClientSecret?: string;
   spotifyRefreshToken?: string;
@@ -20,10 +18,13 @@ export interface Config {
   tavilyApiKey?: string;
   knowledgeEngineUrl: string;
   memoryEngineUrl: string;
-  // lib/coding-orchestrator-client.ts's listCodingTasks - direct to
-  // coding-orchestrator, not the old CODING_TASK_WEBHOOK_URL n8n shim
-  // code_task/code_task_status still use for submission. A new,
-  // read-only caller into the same service.
+  // Used directly by code_task/code_task_status (lib/coding-workflow.ts)
+  // for task submission/status, and by lib/coding-orchestrator-client.ts's
+  // read-only listCodingTasks - the old CODING_TASK_WEBHOOK_URL/
+  // CODING_TASK_STATUS_WEBHOOK_URL n8n shim these used to submit through
+  // is retired as of the same fix that found it: a transient n8n database
+  // outage was silently swallowing every coding task submitted via Discord,
+  // with no coding_tasks row ever created and no reply reaching the user.
   codingOrchestratorUrl: string;
   // Unlike every other *Url field above, this must be reachable from the
   // user's own browser, not just from inside the Docker network - it's
@@ -68,14 +69,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // up yet, matching how HOME_LOCATION/HOME_LATITUDE/HOME_LONGITUDE work.
     googleCalendarKeyFile: env.GOOGLE_CALENDAR_KEY_FILE || undefined,
     googleCalendarId: env.GOOGLE_CALENDAR_ID || undefined,
-    // Optional, not required at startup: code_task returns a clear
-    // config-missing error at call time rather than crashing the whole
-    // server, same pattern as the calendar tools use.
-    codingTaskWebhookUrl: env.CODING_TASK_WEBHOOK_URL || undefined,
-    // Optional, not required at startup, same pattern: code_task_status
-    // returns a clear config-missing error at call time rather than
-    // crashing the whole server.
-    codingTaskStatusWebhookUrl: env.CODING_TASK_STATUS_WEBHOOK_URL || undefined,
     // Optional, not required at startup: spotify_control returns a clear
     // config-missing error at call time (see lib/spotify.ts), same
     // pattern as the calendar tools. SPOTIFY_REFRESH_TOKEN is obtained
