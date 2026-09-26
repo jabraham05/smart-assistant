@@ -172,6 +172,29 @@ export async function getActiveCodingSkills(
   return result.rows;
 }
 
+export interface CodingTaskLogRow {
+  id: number;
+  task_id: number;
+  attempt_number: number | null;
+  phase: string;
+  status: "success" | "error";
+  error_message: string | null;
+  content: string;
+  created_at: string;
+}
+
+// Powers GET /tasks/:id/log - the step/attempt breakdown for a single
+// coding task, for Amy Lab's Coding Projects tab. This table has been
+// written by every pipeline phase since logPhase existed, but nothing ever
+// read it back until now.
+export async function listTaskLog(config: Config, taskId: number): Promise<CodingTaskLogRow[]> {
+  const result = await getPool(config).query<CodingTaskLogRow>(
+    `SELECT * FROM coding_task_log WHERE task_id = $1 ORDER BY attempt_number NULLS FIRST, created_at ASC`,
+    [taskId],
+  );
+  return result.rows;
+}
+
 export async function logPhase(
   config: Config,
   taskId: number,

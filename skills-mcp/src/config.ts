@@ -6,7 +6,13 @@ export interface Config {
   homeLatitude?: number;
   homeLongitude?: number;
   homeTimezone: string;
-  skillsProposalWebhookUrl: string;
+  postgres: {
+    host: string;
+    port: number;
+    database: string;
+    user: string;
+    password: string;
+  };
   googleCalendarKeyFile?: string;
   googleCalendarId?: string;
   spotifyClientId?: string;
@@ -41,9 +47,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     throw new Error("HONCHO_API_KEY is required");
   }
 
-  const skillsProposalWebhookUrl = env.SKILLS_PROPOSAL_WEBHOOK_URL;
-  if (!skillsProposalWebhookUrl) {
-    throw new Error("SKILLS_PROPOSAL_WEBHOOK_URL is required");
+  const postgresPassword = env.POSTGRES_PASSWORD;
+  if (!postgresPassword) {
+    throw new Error("POSTGRES_PASSWORD is required");
   }
 
   const homeLatitude = env.HOME_LATITUDE ? Number(env.HOME_LATITUDE) : undefined;
@@ -62,7 +68,16 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     // needs a concrete offset to put in its tool description regardless of
     // whether the user ever configured one.
     homeTimezone: env.HOME_TIMEZONE || "America/Los_Angeles",
-    skillsProposalWebhookUrl,
+    postgres: {
+      host: env.POSTGRES_HOST || "postgres",
+      port: env.POSTGRES_PORT ? Number(env.POSTGRES_PORT) : 5432,
+      // Dedicated database (see postgres/init/21-create-skills-db.sql) - the
+      // first Postgres connection skills-mcp has ever owned, replacing the
+      // old skill_proposal_intake n8n webhook + Data Table.
+      database: env.SKILLS_DB_NAME || "skills",
+      user: env.POSTGRES_USER || "assistant",
+      password: postgresPassword,
+    },
     // Optional, not required at startup: calendar tools return a clear
     // config-missing error at call time (see lib/google-calendar.ts)
     // rather than crashing the whole server for users who haven't set this
