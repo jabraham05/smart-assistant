@@ -9,6 +9,7 @@ import json
 from dataclasses import dataclass
 
 import redis.asyncio as redis
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
 
 from .config import Config
 
@@ -66,3 +67,27 @@ async def get_recent_history(config: Config, session_id: str) -> list[HistoryMes
         messages.append(HistoryMessage(role="user", content=turn["user"]))
         messages.append(HistoryMessage(role="assistant", content=turn["amy"]))
     return messages
+
+
+def to_model_messages(history: list[HistoryMessage]) -> list[ModelMessage]:
+    """Real, live-verified finding: get_recent_history's result used to feed
+    only a 1-turn "recent_context" string into the tool classifier - the
+    actual reply-generating Agent never received message_history at all, so
+    every turn was stateless from the model's own perspective (continuity
+    depended entirely on system-prompt injection: Honcho cards, memory-engine
+    search, open tasks/goals/projects - none of which is "what did we just
+    say"). Confirmed live: a fact stated two messages earlier in the same
+    Discord session was completely forgotten. PydanticAI's message_history
+    takes ModelRequest (user turn, UserPromptPart) / ModelResponse (assistant
+    turn, TextPart) objects directly - no builder utility exists in the
+    package for this, this is the documented manual-construction pattern.
+    Deliberately excludes SystemPromptPart: the current turn's system prompt
+    is already applied fresh via Agent(instructions=...) at construction
+    time, so duplicating it here would only make it stale."""
+    result: list[ModelMessage] = []
+    for m in history:
+        if m.role == "user":
+            result.append(ModelRequest(parts=[UserPromptPart(m.content)]))
+        else:
+            result.append(ModelResponse(parts=[TextPart(m.content)]))
+    return result

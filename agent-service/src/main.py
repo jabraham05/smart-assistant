@@ -24,6 +24,7 @@ from fastapi.responses import StreamingResponse
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
+    ModelMessage,
     PartDeltaEvent,
     PartStartEvent,
     TextPart,
@@ -98,6 +99,7 @@ async def _run_turn(
     relevant_tools: list[str],
     state: _TurnState,
     emit,
+    message_history: list[ModelMessage],
 ) -> tuple[str, list[str]]:
     """One attempt at a full agent turn - streams NDJSON as it goes,
     returns (final_text, chunks_yielded). Wrapped in try/except so a thrown
@@ -105,7 +107,11 @@ async def _run_turn(
     confirmed-real failure modes found via live testing this session)
     degrades to an empty result the caller's existing empty-output retry
     already handles, instead of propagating past the whole safety net -
-    the exact bug class fixed in chat-orchestrator this session."""
+    the exact bug class fixed in chat-orchestrator this session.
+
+    message_history is the same fixed list across every retry attempt within
+    one webhook call - it's what happened BEFORE this turn, so a retry nudge
+    on the current turn doesn't change it."""
     state.attempt += 1
     chunks: list[str] = []
     text_parts: list[str] = []
@@ -115,7 +121,7 @@ async def _run_turn(
         agent = build_agent(config, session_id, system_prompt)
         async with agent:
             async with agent.run_stream_events(
-                user_prompt, deps=AgentDeps(relevant_tools=relevant_tools)
+                user_prompt, deps=AgentDeps(relevant_tools=relevant_tools), message_history=message_history
             ) as stream:
                 async for event in stream:
                     # Real, live-verified finding: PartDeltaEvent only ever
@@ -195,6 +201,7 @@ async def webhook(request: Request):
 
         try:
             full_history = await session_memory.get_recent_history(config, session_id)
+            message_history = session_memory.to_model_messages(full_history)
             recent_context = None
             if full_history:
                 last_two = full_history[-2:]
@@ -283,7 +290,8 @@ async def webhook(request: Request):
 
             state = _TurnState()
             final_text, chunks = await _run_turn(
-                config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit
+                config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit,
+                message_history,
             )
             for c in chunks:
                 yield c
@@ -292,7 +300,8 @@ async def webhook(request: Request):
             if not final_text.strip():
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "empty_output"})
                 final_text, chunks = await _run_turn(
-                    config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit
+                    config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit,
+                    message_history,
                 )
                 for c in chunks:
                     yield c
@@ -312,7 +321,8 @@ async def webhook(request: Request):
                     "Don't just say you'll check again later.)"
                 )
                 retry_text, chunks = await _run_turn(
-                    config, session_id, system_prompt, retry_prompt, classification.relevant_tools, state, emit
+                    config, session_id, system_prompt, retry_prompt, classification.relevant_tools, state, emit,
+                    message_history,
                 )
                 for c in chunks:
                     yield c
@@ -324,7 +334,8 @@ async def webhook(request: Request):
             if has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools):
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "search_intent"})
                 retry_text, chunks = await _run_turn(
-                    config, session_id, system_prompt, chat_input + SEARCH_RETRY_NUDGE, bound_tools, state, emit
+                    config, session_id, system_prompt, chat_input + SEARCH_RETRY_NUDGE, bound_tools, state, emit,
+                    message_history,
                 )
                 for c in chunks:
                     yield c
@@ -338,7 +349,8 @@ async def webhook(request: Request):
                     "called - either actually call the right tool now, or answer without claiming you did.)"
                 )
                 retry_text, chunks = await _run_turn(
-                    config, session_id, system_prompt, chat_input + nudge, bound_tools, state, emit
+                    config, session_id, system_prompt, chat_input + nudge, bound_tools, state, emit,
+                    message_history,
                 )
                 for c in chunks:
                     yield c
@@ -357,6 +369,7 @@ async def webhook(request: Request):
                     bound_tools,
                     state,
                     emit,
+                    message_history,
                 )
                 for c in chunks:
                     yield c
