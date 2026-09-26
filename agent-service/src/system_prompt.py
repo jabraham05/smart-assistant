@@ -153,6 +153,35 @@ def build_system_prompt(input: SystemPromptInput) -> str:
 
     skills_line = f"Skills you have learned:\n\n{input.skills_catalog_text}" if input.skills_catalog_text else ""
 
+    # Placed last, right before the user's actual message - real, live-verified
+    # finding: qwen3:8b still produced stock-offer closers and emoji ("No
+    # pressure to plan now! 🚗✨", "let me know if there's anything specific
+    # you'd like me to track") despite the persona's own "How you talk"
+    # section already forbidding exactly this. The persona text sits at the
+    # very start of a long assembled prompt (memories/tasks/goals/projects/
+    # skills catalog all come after it) - a small local model's instruction-
+    # following is recency-biased, so the same rule repeated here, closest to
+    # generation, is where it actually sticks. Concrete banned phrases work
+    # better than an abstract restatement for this size of model.
+    tone_line = (
+        "Close naturally: only ask a follow-up when something specific actually depends on the "
+        "answer, and never end with a stock offer like \"let me know if you need anything\" or "
+        "\"no pressure, I'm here when you're ready\" - if there's nothing left to ask, just stop. "
+        "No emoji.\n\n"
+        "Example - user says \"never mind, I'll deal with this later, heading out now\":\n"
+        "Bad (too long, stock closer, emoji): \"No problem at all! Travel safe, and whenever you're "
+        "ready to pick this back up just let me know - I'm here to help whenever you need it! \U0001F697\"\n"
+        "Good (what you should actually write): \"Sounds good, it'll be here when you're back.\"\n\n"
+        "Example - user asks for the weather:\n"
+        "Bad (icon-decorated list, stock closer): \"\U0001F321️ Temperature: 62°F, feels "
+        "like 60°F ☀️ Clear sky \U0001F4A7 Humidity: 80% \n\nLet me know if you want "
+        "the hourly forecast!\"\n"
+        "Good (what you should actually write): \"62°F and clear right now, feels like 60.\"\n\n"
+        "This applies to any structured info you report (weather, calendar, search results) - plain "
+        "sentences, not icon-decorated lists, no emoji, and no offer to keep helping unless asked. "
+        "Match the good examples' length and plainness, not the bad ones'."
+    )
+
     sections = [
         input.persona_system_prompt,
         date_line,
@@ -167,5 +196,6 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         needs_planning_line,
         narrate_line,
         skills_line,
+        tone_line,
     ]
     return "\n\n".join(s for s in sections if s)

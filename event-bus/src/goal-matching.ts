@@ -1,6 +1,7 @@
 import type { Config } from "./config.js";
 import type { EventRow, GoalRow } from "./db.js";
 import * as db from "./db.js";
+import { summarizeEvent } from "./activity.js";
 
 // Intentionally the simplest possible matcher - substring containment, no
 // stemming/fuzzing/embeddings, no LLM call. This will miss synonyms (a real,
@@ -37,7 +38,15 @@ export async function matchEventToGoals(config: Config, event: EventRow): Promis
     const matched = matchKeywords(goal, event);
     if (matched.length === 0) continue;
 
-    await db.insertProgressLog(config, goal.id, event.id, `matched keywords: ${matched.join(", ")}`);
+    // Real, live-verified finding: this used to store the raw matcher's own
+    // debug output (`matched keywords: attempt, service, end`) as the
+    // progress note - internal matching mechanics, not something meant for
+    // a user to ever see. goal_manage's action='progress' returns these
+    // notes verbatim to the model, which then faithfully paraphrased the
+    // raw keyword list straight into a Discord reply. summarizeEvent()
+    // already exists for exactly this purpose (home-activity's digest feed)
+    // - describe what actually happened, not which keywords fired.
+    await db.insertProgressLog(config, goal.id, event.id, summarizeEvent(event));
     await db.touchGoal(config, goal.id);
   }
 }

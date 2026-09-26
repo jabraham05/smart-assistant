@@ -24,6 +24,18 @@ def test_omits_empty_sections():
     assert "Skills you have learned" not in prompt
 
 
+def test_includes_tone_line_always():
+    prompt = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
+    assert "Close naturally" in prompt
+    assert "No emoji." in prompt
+    assert "Bad (too long" in prompt
+    assert "Bad (icon-decorated list" in prompt
+    # Recency matters for a small local model - the tone reminder must be the
+    # very last thing before the (absent, in this test) user turn, not buried
+    # earlier in the prompt.
+    assert prompt.rstrip().endswith("the bad ones'.")
+
+
 def test_includes_every_section_when_populated():
     prompt = build_system_prompt(
         SystemPromptInput(

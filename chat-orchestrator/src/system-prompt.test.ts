@@ -17,6 +17,21 @@ test("buildSystemPrompt omits empty sections", () => {
   assert.ok(!prompt.includes("Skills you have learned"));
 });
 
+test("buildSystemPrompt always includes the tone line, last", () => {
+  const prompt = buildSystemPrompt({
+    personaSystemPrompt: "You are Amy.",
+    now: new Date("2026-09-21T12:00:00Z"),
+    userCard: [],
+    userCardForAmy: [],
+    skillsCatalogText: "",
+  });
+  assert.ok(prompt.includes("Close naturally"));
+  assert.ok(prompt.includes("No emoji."));
+  assert.ok(prompt.includes("Bad (too long"));
+  assert.ok(prompt.includes("Bad (icon-decorated list"));
+  assert.ok(prompt.trimEnd().endsWith("the bad ones'."));
+});
+
 test("buildSystemPrompt includes every section when populated", () => {
   const prompt = buildSystemPrompt({
     personaSystemPrompt: "You are Amy.",

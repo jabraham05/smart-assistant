@@ -24,6 +24,7 @@ from fastapi.responses import StreamingResponse
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
+    ModelMessage,
     PartDeltaEvent,
     PartStartEvent,
     TextPart,
@@ -46,6 +47,7 @@ from .safety_net import (
 from .system_prompt import OpenProject, OpenTask, RelevantGoal, SystemPromptInput, build_system_prompt
 from datetime import datetime, timezone
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 config = load_config()
@@ -98,6 +100,7 @@ async def _run_turn(
     relevant_tools: list[str],
     state: _TurnState,
     emit,
+    message_history: list[ModelMessage],
 ) -> tuple[str, list[str]]:
     """One attempt at a full agent turn - streams NDJSON as it goes,
     returns (final_text, chunks_yielded). Wrapped in try/except so a thrown
@@ -105,17 +108,23 @@ async def _run_turn(
     confirmed-real failure modes found via live testing this session)
     degrades to an empty result the caller's existing empty-output retry
     already handles, instead of propagating past the whole safety net -
-    the exact bug class fixed in chat-orchestrator this session."""
+    the exact bug class fixed in chat-orchestrator this session.
+
+    message_history is the same fixed list across every retry attempt within
+    one webhook call - it's what happened BEFORE this turn, so a retry nudge
+    on the current turn doesn't change it."""
     state.attempt += 1
     chunks: list[str] = []
     text_parts: list[str] = []
-    open_tool_calls: dict[str, str] = {}  # tool_call_id -> tool_name
+    open_tool_calls: dict[str, tuple[str, int]] = {}  # tool_call_id -> (tool_name, iteration)
+    iteration = 0
+    _turn_started = time.monotonic()
 
     try:
         agent = build_agent(config, session_id, system_prompt)
         async with agent:
             async with agent.run_stream_events(
-                user_prompt, deps=AgentDeps(relevant_tools=relevant_tools)
+                user_prompt, deps=AgentDeps(relevant_tools=relevant_tools), message_history=message_history
             ) as stream:
                 async for event in stream:
                     # Real, live-verified finding: PartDeltaEvent only ever
@@ -135,7 +144,8 @@ async def _run_turn(
                         chunks.append(emit("item", event.delta.content_delta))
                     elif isinstance(event, FunctionToolCallEvent):
                         tool_name = event.part.tool_name
-                        open_tool_calls[event.part.tool_call_id] = tool_name
+                        iteration += 1
+                        open_tool_calls[event.part.tool_call_id] = (tool_name, iteration)
                         state.called_tools.append(tool_name)
                         chunks.append(
                             emit(
@@ -143,6 +153,20 @@ async def _run_turn(
                                 trace={
                                     "kind": "tool_call",
                                     "attempt": state.attempt,
+                                    # Real, live-verified finding: chat-ui's
+                                    # ChatTraceEvent type requires this field
+                                    # (a leftover from chat-orchestrator's old
+                                    # hand-rolled agent loop, which tracked
+                                    # iterations explicitly) - PydanticAI has
+                                    # no equivalent counter exposed, so this
+                                    # is a simple per-attempt tool-call
+                                    # sequence number instead. Missing it
+                                    # entirely (as this port originally did)
+                                    # left every tool call/result keyed
+                                    # `${attempt}:undefined:${name}` client-
+                                    # side, silently conflating repeat calls
+                                    # to the same tool within one attempt.
+                                    "iteration": iteration,
                                     "name": tool_name,
                                     "args": event.part.args_as_dict() if hasattr(event.part, "args_as_dict") else {},
                                 },
@@ -154,9 +178,11 @@ async def _run_turn(
                         # event.part (a ToolReturnPart on success, a
                         # RetryPromptPart on a tool-level error/validation
                         # failure).
-                        tool_name = getattr(event.part, "tool_name", None) or open_tool_calls.get(
-                            event.part.tool_call_id, ""
-                        )
+                        tool_name, result_iteration = getattr(event.part, "tool_name", None), None
+                        if not tool_name:
+                            tool_name, result_iteration = open_tool_calls.get(event.part.tool_call_id, ("", 0))
+                        else:
+                            _, result_iteration = open_tool_calls.get(event.part.tool_call_id, (tool_name, 0))
                         is_error = type(event.part).__name__ == "RetryPromptPart"
                         result_text = str(event.part.content)
                         if is_error:
@@ -169,12 +195,20 @@ async def _run_turn(
                                 trace={
                                     "kind": "tool_result",
                                     "attempt": state.attempt,
+                                    "iteration": result_iteration,
                                     "name": tool_name,
                                     "result": result_text[:4000],
                                     "isError": is_error,
                                 },
                             )
                         )
+        logger.info(
+            "TIMING _run_turn session=%s attempt=%d took=%.2fs tool_calls=%d",
+            session_id,
+            state.attempt,
+            time.monotonic() - _turn_started,
+            iteration,
+        )
         return "".join(text_parts), chunks
     except Exception:
         logger.exception("agent turn threw for session %s (attempt %d)", session_id, state.attempt)
@@ -193,13 +227,16 @@ async def webhook(request: Request):
         item_index = [0]
         emit = _emit(item_index)
 
+        _turn_t0 = time.monotonic()
         try:
             full_history = await session_memory.get_recent_history(config, session_id)
+            message_history = session_memory.to_model_messages(full_history)
             recent_context = None
             if full_history:
                 last_two = full_history[-2:]
                 recent_context = "\n".join(f"{m.role}: {m.content}" for m in last_two)
 
+            _t = time.monotonic()
             classification, persona_prompt, active_skills, memory_results, open_tasks, relevant_goals, open_projects = (
                 await asyncio.gather(
                     classify_relevant_tools(config.ollama_host, config.classifier_model, chat_input, recent_context),
@@ -211,6 +248,14 @@ async def webhook(request: Request):
                     knowledge_client.list_open_projects(config),
                 )
             )
+            # Real, live-verified finding: this gather's wall time is almost
+            # entirely classify_relevant_tools's own LLM call (confirmed via
+            # per-task timing during a live profiling session) - every other
+            # item here (Postgres/event-bus/knowledge-engine reads, a single
+            # memory-engine embedding lookup) finishes in well under half a
+            # second. classify and the main reply are the two dominant,
+            # unavoidable-per-turn LLM calls on this hardware.
+            logger.info("TIMING classify+context-gather session=%s took=%.2fs", session_id, time.monotonic() - _t)
 
             if classification.knowledge_gap_topic:
                 asyncio.create_task(
@@ -229,22 +274,27 @@ async def webhook(request: Request):
                     )
                 )
 
-            relevant_memories = [
-                m.content
+            relevant_memory_results = [
+                m
                 for m in memory_results
                 if memory_client.is_relevant_memory(
                     m, config.memory_min_relevance_score, config.memory_min_keyword_overlap
                 )
             ] if classification.memory_policy != "none" else []
+            relevant_memories = [m.content for m in relevant_memory_results]
 
             user_card: list[str] = []
             user_card_for_amy: list[str] = []
             if classification.memory_policy != "none":
-                await honcho_client.ensure_session_exists(config, session_id)
-                await honcho_client.set_user_observe_config(config, session_id)
+                _t = time.monotonic()
+                if not await session_memory.is_honcho_initialized(config, session_id):
+                    await honcho_client.ensure_session_exists(config, session_id)
+                    await honcho_client.set_user_observe_config(config, session_id)
+                    await session_memory.mark_honcho_initialized(config, session_id)
                 user_card, user_card_for_amy = await asyncio.gather(
                     honcho_client.get_user_card(config), honcho_client.get_user_card_for_amy(config)
                 )
+                logger.info("TIMING honcho session=%s took=%.2fs", session_id, time.monotonic() - _t)
 
             system_prompt = build_system_prompt(
                 SystemPromptInput(
@@ -277,13 +327,29 @@ async def webhook(request: Request):
                     "memoryPolicy": classification.memory_policy,
                     "needsPlanning": classification.needs_planning,
                     "background": classification.background,
+                    # Real, live-verified finding: chat-ui's ChatTraceEvent type
+                    # (and TurnDebugPanel's ClassifyRow, which unconditionally
+                    # calls .length on all three) declares these as REQUIRED
+                    # fields, matching chat-orchestrator's original emission -
+                    # this Python port dropped them, so every classify trace
+                    # from agent-service was missing them entirely. TypeScript's
+                    # type only checks at compile time; at runtime this crashed
+                    # the whole debug panel with "Cannot read properties of
+                    # undefined (reading 'length')" the instant a user clicked
+                    # any message to see turn detail.
+                    "openTasks": [{"id": t.id, "objective": t.objective, "status": t.status} for t in open_tasks],
+                    "relevantGoals": [{"id": g.id, "title": g.title, "status": g.status} for g in relevant_goals],
+                    "memories": [
+                        {"content": m.content, "domain": m.domain, "score": m.score} for m in relevant_memory_results
+                    ],
                 },
             )
             yield emit("begin")
 
             state = _TurnState()
             final_text, chunks = await _run_turn(
-                config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit
+                config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit,
+                message_history,
             )
             for c in chunks:
                 yield c
@@ -292,7 +358,8 @@ async def webhook(request: Request):
             if not final_text.strip():
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "empty_output"})
                 final_text, chunks = await _run_turn(
-                    config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit
+                    config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit,
+                    message_history,
                 )
                 for c in chunks:
                     yield c
@@ -312,7 +379,8 @@ async def webhook(request: Request):
                     "Don't just say you'll check again later.)"
                 )
                 retry_text, chunks = await _run_turn(
-                    config, session_id, system_prompt, retry_prompt, classification.relevant_tools, state, emit
+                    config, session_id, system_prompt, retry_prompt, classification.relevant_tools, state, emit,
+                    message_history,
                 )
                 for c in chunks:
                     yield c
@@ -324,7 +392,8 @@ async def webhook(request: Request):
             if has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools):
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "search_intent"})
                 retry_text, chunks = await _run_turn(
-                    config, session_id, system_prompt, chat_input + SEARCH_RETRY_NUDGE, bound_tools, state, emit
+                    config, session_id, system_prompt, chat_input + SEARCH_RETRY_NUDGE, bound_tools, state, emit,
+                    message_history,
                 )
                 for c in chunks:
                     yield c
@@ -338,7 +407,8 @@ async def webhook(request: Request):
                     "called - either actually call the right tool now, or answer without claiming you did.)"
                 )
                 retry_text, chunks = await _run_turn(
-                    config, session_id, system_prompt, chat_input + nudge, bound_tools, state, emit
+                    config, session_id, system_prompt, chat_input + nudge, bound_tools, state, emit,
+                    message_history,
                 )
                 for c in chunks:
                     yield c
@@ -357,6 +427,7 @@ async def webhook(request: Request):
                     bound_tools,
                     state,
                     emit,
+                    message_history,
                 )
                 for c in chunks:
                     yield c
@@ -368,7 +439,9 @@ async def webhook(request: Request):
                     final_text = REQUIRED_TOOL_FAILURE_MESSAGE
 
             yield emit("end")
+            logger.info("TIMING total-until-end session=%s took=%.2fs", session_id, time.monotonic() - _turn_t0)
 
+            _t = time.monotonic()
             memory_domain = ",".join(classification.relevant_groups) or None
             memory_task_context_id = open_tasks[0].id if open_tasks else None
             await asyncio.gather(
@@ -379,6 +452,7 @@ async def webhook(request: Request):
                     config, session_id, "assistant", final_text, memory_domain, memory_task_context_id
                 ),
             )
+            logger.info("TIMING post-turn-writes session=%s took=%.2fs", session_id, time.monotonic() - _t)
         except Exception as e:
             logger.exception("chat turn failed for session %s", session_id)
             yield emit("error", str(e))
