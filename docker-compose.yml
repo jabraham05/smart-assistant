@@ -166,10 +166,6 @@ services:
       # across container recreation.
       GOOGLE_CALENDAR_ID: ${GOOGLE_CALENDAR_ID}
       GOOGLE_CALENDAR_KEY_FILE: /run/secrets/google-calendar-key.json
-      # code_task is optional too — returns a clear error at call time if
-      # unset, same pattern as the calendar tools.
-      CODING_TASK_WEBHOOK_URL: ${CODING_TASK_WEBHOOK_URL}
-      CODING_TASK_STATUS_WEBHOOK_URL: ${CODING_TASK_STATUS_WEBHOOK_URL}
       # code_task_run_command/code_task_get_diff talk to sandbox-runner
       # directly (not through an n8n webhook) — always-on internal infra,
       # not a per-user optional integration, so no config-missing path.
@@ -197,9 +193,18 @@ services:
       # memory_recall's manual retrieval path - same backend
       # chat-orchestrator's automatic per-turn retrieval uses.
       MEMORY_ENGINE_URL: http://memory-engine:3007
-      # status_overview's listCodingTasks - direct to coding-orchestrator,
-      # not the CODING_TASK_WEBHOOK_URL n8n shim above (that's submission
-      # only). Same always-on-infra tier as KNOWLEDGE_ENGINE_URL.
+      # code_task/code_task_status/status_overview - direct to
+      # coding-orchestrator, always-on internal infra, same tier as
+      # KNOWLEDGE_ENGINE_URL. Real, live-verified finding (2026-09-26):
+      # code_task/code_task_status used to submit through the old
+      # coding_task_pipeline n8n workflow's webhook (CODING_TASK_WEBHOOK_URL/
+      # CODING_TASK_STATUS_WEBHOOK_URL, both now retired) - a transient n8n
+      # database outage silently swallowed every coding task submitted via
+      # Discord, with no coding_tasks row ever created and no reply reaching
+      # the user (the tool-call exception crashed the whole agent turn
+      # before any response was generated). coding-orchestrator's own
+      # POST /task and GET /task/status have existed and worked reliably
+      # all session; both tools now call them directly.
       CODING_ORCHESTRATOR_URL: http://coding-orchestrator:3003
     networks: [assistant-net]
 

@@ -1,11 +1,11 @@
 import type { Config } from "../config.js";
 
-// Direct to coding-orchestrator, not through the old CODING_TASK_WEBHOOK_URL
-// n8n shim code_task/code_task_status still use for submission - this is a
-// new, read-only caller into the same service, consistent with this
-// project's ongoing direction of retiring n8n intermediary hops rather
-// than adding a second one onto an old shim (same call knowledge-engine's
-// own coding-orchestrator client already makes).
+// Direct to coding-orchestrator - a read-only caller into the same service
+// lib/coding-workflow.ts's submitCodingTask/getCodingTaskStatus also call
+// directly (the old CODING_TASK_WEBHOOK_URL n8n shim they used to submit
+// through is retired - see coding-workflow.ts's own comment), consistent
+// with this project's direction of retiring n8n intermediary hops (same
+// call knowledge-engine's own coding-orchestrator client already makes).
 
 export interface CodingTaskListItem {
   id: number;
