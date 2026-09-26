@@ -115,7 +115,8 @@ async def _run_turn(
     state.attempt += 1
     chunks: list[str] = []
     text_parts: list[str] = []
-    open_tool_calls: dict[str, str] = {}  # tool_call_id -> tool_name
+    open_tool_calls: dict[str, tuple[str, int]] = {}  # tool_call_id -> (tool_name, iteration)
+    iteration = 0
 
     try:
         agent = build_agent(config, session_id, system_prompt)
@@ -141,7 +142,8 @@ async def _run_turn(
                         chunks.append(emit("item", event.delta.content_delta))
                     elif isinstance(event, FunctionToolCallEvent):
                         tool_name = event.part.tool_name
-                        open_tool_calls[event.part.tool_call_id] = tool_name
+                        iteration += 1
+                        open_tool_calls[event.part.tool_call_id] = (tool_name, iteration)
                         state.called_tools.append(tool_name)
                         chunks.append(
                             emit(
@@ -149,6 +151,20 @@ async def _run_turn(
                                 trace={
                                     "kind": "tool_call",
                                     "attempt": state.attempt,
+                                    # Real, live-verified finding: chat-ui's
+                                    # ChatTraceEvent type requires this field
+                                    # (a leftover from chat-orchestrator's old
+                                    # hand-rolled agent loop, which tracked
+                                    # iterations explicitly) - PydanticAI has
+                                    # no equivalent counter exposed, so this
+                                    # is a simple per-attempt tool-call
+                                    # sequence number instead. Missing it
+                                    # entirely (as this port originally did)
+                                    # left every tool call/result keyed
+                                    # `${attempt}:undefined:${name}` client-
+                                    # side, silently conflating repeat calls
+                                    # to the same tool within one attempt.
+                                    "iteration": iteration,
                                     "name": tool_name,
                                     "args": event.part.args_as_dict() if hasattr(event.part, "args_as_dict") else {},
                                 },
@@ -160,9 +176,11 @@ async def _run_turn(
                         # event.part (a ToolReturnPart on success, a
                         # RetryPromptPart on a tool-level error/validation
                         # failure).
-                        tool_name = getattr(event.part, "tool_name", None) or open_tool_calls.get(
-                            event.part.tool_call_id, ""
-                        )
+                        tool_name, result_iteration = getattr(event.part, "tool_name", None), None
+                        if not tool_name:
+                            tool_name, result_iteration = open_tool_calls.get(event.part.tool_call_id, ("", 0))
+                        else:
+                            _, result_iteration = open_tool_calls.get(event.part.tool_call_id, (tool_name, 0))
                         is_error = type(event.part).__name__ == "RetryPromptPart"
                         result_text = str(event.part.content)
                         if is_error:
@@ -175,6 +193,7 @@ async def _run_turn(
                                 trace={
                                     "kind": "tool_result",
                                     "attempt": state.attempt,
+                                    "iteration": result_iteration,
                                     "name": tool_name,
                                     "result": result_text[:4000],
                                     "isError": is_error,
@@ -236,13 +255,14 @@ async def webhook(request: Request):
                     )
                 )
 
-            relevant_memories = [
-                m.content
+            relevant_memory_results = [
+                m
                 for m in memory_results
                 if memory_client.is_relevant_memory(
                     m, config.memory_min_relevance_score, config.memory_min_keyword_overlap
                 )
             ] if classification.memory_policy != "none" else []
+            relevant_memories = [m.content for m in relevant_memory_results]
 
             user_card: list[str] = []
             user_card_for_amy: list[str] = []
@@ -284,6 +304,21 @@ async def webhook(request: Request):
                     "memoryPolicy": classification.memory_policy,
                     "needsPlanning": classification.needs_planning,
                     "background": classification.background,
+                    # Real, live-verified finding: chat-ui's ChatTraceEvent type
+                    # (and TurnDebugPanel's ClassifyRow, which unconditionally
+                    # calls .length on all three) declares these as REQUIRED
+                    # fields, matching chat-orchestrator's original emission -
+                    # this Python port dropped them, so every classify trace
+                    # from agent-service was missing them entirely. TypeScript's
+                    # type only checks at compile time; at runtime this crashed
+                    # the whole debug panel with "Cannot read properties of
+                    # undefined (reading 'length')" the instant a user clicked
+                    # any message to see turn detail.
+                    "openTasks": [{"id": t.id, "objective": t.objective, "status": t.status} for t in open_tasks],
+                    "relevantGoals": [{"id": g.id, "title": g.title, "status": g.status} for g in relevant_goals],
+                    "memories": [
+                        {"content": m.content, "domain": m.domain, "score": m.score} for m in relevant_memory_results
+                    ],
                 },
             )
             yield emit("begin")

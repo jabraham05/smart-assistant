@@ -1,3 +1,13 @@
+"use client";
+
+// Real, live-verified finding: this renders a real <a onClick=...> (see the
+// link override below) but had no "use client" directive - harmless when
+// only ever reached through an already-client-boundary parent (ChatWindow,
+// AmyLab), but artifacts/docs/[slug]/page.tsx (a Server Component) renders
+// this directly with no client boundary in between, and React Server
+// Components cannot serialize an event handler across that boundary -
+// every doc page with a link in it 500'd outright ("Event handlers cannot
+// be passed to Client Component props").
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
