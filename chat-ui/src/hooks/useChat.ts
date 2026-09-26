@@ -68,8 +68,11 @@ export function useChat(sessionId: string) {
         const rawEvents = [...(m.rawEvents ?? []), event];
         const { nodeId, nodeName, timestamp } = event.metadata;
 
-        if (event.type === "item") {
-          // AI Agent's streamed tokens are the actual reply text.
+        if (event.type === "item" || event.type === "ack") {
+          // AI Agent's streamed tokens are the actual reply text - "ack" is
+          // a deterministic, server-emitted acknowledgment for a slow turn
+          // (see types/chat.ts), rendered the same way: the leading
+          // sentence(s) of the same growing reply, no separate UI needed.
           if (nodeName === "AI Agent" && event.content) {
             accumulatedContent += event.content;
             return { ...m, content: m.content + event.content, rawEvents };

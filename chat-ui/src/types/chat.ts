@@ -28,7 +28,12 @@ export interface ChatRequest {
 // addition chat-orchestrator makes on top of that original contract -
 // discord-bot ignores it safely since it only ever looks for type:"item".
 export interface N8nStreamEvent {
-  type: "begin" | "item" | "end" | "error" | "trace";
+  // "ack": a deterministic, server-emitted acknowledgment for a turn
+  // classified as genuinely slow (planning, background work, research, web
+  // search, or a coding task) - never sent for a fast/simple turn. Emitted
+  // as its own type (not "item") so discord-bot can send it as an
+  // immediate, separate message instead of folding it into the final one.
+  type: "begin" | "item" | "end" | "error" | "trace" | "ack";
   content?: string;
   trace?: ChatTraceEvent;
   metadata: {

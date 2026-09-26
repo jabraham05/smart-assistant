@@ -2,10 +2,21 @@
 // responseMode is "streaming", one JSON event per line. Only "item" events
 // from the AI Agent node carry actual reply text; everything else
 // (begin/end/error, tool-call brackets) is ignored.
+//
+// "ack" is the one exception: a deterministic, server-emitted acknowledgment
+// agent-service sends for a turn it's already decided will be slow (see
+// agent-service/src/main.py's should_acknowledge) - never sent for a fast
+// turn. Real, live-verified finding: this function used to only return the
+// final assembled string once the WHOLE stream ended, so an ack folded into
+// that string would still only reach the user after the full wait - zero
+// perceived-latency benefit. onAck fires as soon as the ack line arrives,
+// well before the rest of the turn (tool calls, the real reply) finishes,
+// so the caller can send it as its own, immediate Discord message.
 export async function sendChatMessage(
   webhookUrl: string,
   chatInput: string,
   sessionId: string,
+  onAck?: (text: string) => void,
 ): Promise<string> {
   const res = await fetch(webhookUrl, {
     method: "POST",
@@ -28,6 +39,10 @@ export async function sendChatMessage(
     try {
       event = JSON.parse(trimmed);
     } catch {
+      return;
+    }
+    if (event.type === "ack" && event.content) {
+      onAck?.(event.content.trim());
       return;
     }
     if (event.type === "item" && event.metadata?.nodeName === "AI Agent" && event.content) {
