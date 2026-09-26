@@ -70,7 +70,12 @@ client.on(Events.MessageCreate, async (message) => {
 
   try {
     const sessionId = currentSessionId(message.author.id);
-    const reply = await sendChatMessage(config.chatWebhookUrl, message.content, sessionId);
+    // The ack (if any) is sent as its own message the moment it arrives,
+    // well before the rest of the turn finishes - the typing indicator
+    // above keeps running throughout, unaffected.
+    const reply = await sendChatMessage(config.chatWebhookUrl, message.content, sessionId, (ackText) => {
+      message.channel.send(ackText).catch(() => {});
+    });
     const text = reply.trim() || "(no response)";
     for (const chunk of chunkForDiscord(text)) {
       await message.channel.send(chunk);

@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 
@@ -60,6 +61,21 @@ _NODE_NAME = "AI Agent"
 
 # Same cap as chat-orchestrator's own tool-error retry loop.
 _MAX_TOOL_ERROR_RETRIES = 3
+
+# Real, live-verified finding: asking the model to narrate before a slow
+# tool-heavy turn (system_prompt.py's narrate_line) does not work - tracing
+# a real web-search turn showed the stream going straight from the classify
+# trace to a tool_call event with zero preceding text, despite the prompt
+# nudge. A deterministic, server-emitted acknowledgment (this pool) is used
+# instead of relying on the model to comply - see should_acknowledge below.
+_ACK_PHRASES = [
+    "Let me look into that.",
+    "One sec, I'll check on that.",
+    "Give me a moment to dig into this.",
+    "I'll get started on that now.",
+    "Let me pull that together for you.",
+    "Working on it — one moment.",
+]
 
 
 @dataclass
@@ -257,6 +273,19 @@ async def webhook(request: Request):
             # unavoidable-per-turn LLM calls on this hardware.
             logger.info("TIMING classify+context-gather session=%s took=%.2fs", session_id, time.monotonic() - _t)
 
+            # Real, live-verified gap: this used to only check needs_planning/
+            # background/research/web - a message that classifies purely as
+            # self-growth (e.g. "start a coding task to...") never triggered
+            # it, even though code_task starts a genuine real async job, the
+            # same class of "this is going to take a while" work.
+            should_acknowledge = (
+                classification.needs_planning
+                or classification.background
+                or "research" in classification.relevant_groups
+                or "web" in classification.relevant_groups
+                or "self-growth" in classification.relevant_groups
+            )
+
             if classification.knowledge_gap_topic:
                 asyncio.create_task(
                     knowledge_client.enqueue_research_topic(
@@ -310,10 +339,7 @@ async def webhook(request: Request):
                     relevant_goals=[RelevantGoal(id=g.id, title=g.title, status=g.status) for g in relevant_goals],
                     open_projects=[OpenProject(id=p.id, title=p.title, status=p.status) for p in open_projects],
                     needs_planning_nudge=classification.needs_planning,
-                    narrate_before_slow_answer=classification.needs_planning
-                    or classification.background
-                    or "research" in classification.relevant_groups
-                    or "web" in classification.relevant_groups,
+                    narrate_before_slow_answer=should_acknowledge,
                 )
             )
 
@@ -345,6 +371,25 @@ async def webhook(request: Request):
                 },
             )
             yield emit("begin")
+
+            # Real, live-verified finding: the prompt-level narrate nudge
+            # above doesn't get followed - qwen3:8b jumps straight to a tool
+            # call with zero preceding text, even when asked to narrate
+            # first. This is a deterministic, server-emitted acknowledgment
+            # instead, gated on the exact same should_acknowledge signal so
+            # a fast/simple turn ("what's 2+2") never gets one - only turns
+            # that actually need planning, background work, research, web
+            # search, or a coding task do. Emitted as its own "ack" event
+            # type (not "item") so discord-bot can send it as an immediate,
+            # separate message instead of folding it into the final one
+            # (discord-bot buffers the whole stream into a single message
+            # otherwise - an ack folded into "item" content would provide
+            # zero perceived-latency benefit there). The trailing blank line
+            # matters for chat-ui, which concatenates every item/ack chunk
+            # into one paragraph - without it the ack would run straight
+            # into the model's first sentence with no break.
+            if should_acknowledge:
+                yield emit("ack", random.choice(_ACK_PHRASES) + "\n\n")
 
             state = _TurnState()
             final_text, chunks = await _run_turn(
