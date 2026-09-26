@@ -11,13 +11,15 @@ export interface CodingTaskListItem {
   id: number;
   task_description: string;
   status: string; // running | proposed | needs_review_failed | resource_limit_reached
+  reviewer_reason: string | null;
   pr_url: string | null;
   updated_at: string;
 }
 
-export async function listCodingTasks(config: Config, limit = 10): Promise<CodingTaskListItem[]> {
+export async function listCodingTasks(config: Config, limit = 10, status?: string): Promise<CodingTaskListItem[]> {
   const url = new URL(`${config.codingOrchestratorUrl}/tasks`);
   url.searchParams.set("limit", String(limit));
+  if (status) url.searchParams.set("status", status);
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`coding-orchestrator /tasks failed: ${res.status}`);

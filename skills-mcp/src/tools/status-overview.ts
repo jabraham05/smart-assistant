@@ -100,7 +100,12 @@ export function registerStatusOverview(server: McpServer, config: Config): void 
         if (codingTasks.length > 0) {
           sections.push(
             `Recent coding tasks (${codingTasks.length}):\n${codingTasks
-              .map((t) => `- coding task #${t.id} "${t.task_description}" - ${t.status}${t.pr_url ? `, PR: ${t.pr_url}` : ""}`)
+              .map(
+                (t) =>
+                  `- coding task #${t.id} "${t.task_description}" - ${t.status}${
+                    t.status === "needs_review_failed" && t.reviewer_reason ? `, reason: ${t.reviewer_reason}` : ""
+                  }${t.pr_url ? `, PR: ${t.pr_url}` : ""}`,
+              )
               .join("\n")}`,
           );
         }

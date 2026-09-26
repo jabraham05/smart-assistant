@@ -23,11 +23,25 @@ function TaskRow({ task, isSelected, onSelect }: { task: CodingTask; isSelected:
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm text-zinc-100">{task.task_description}</p>
-        <StatusBadge label={task.status} />
+        <StatusBadge label={task.status} variant={task.status === "needs_review_failed" ? "error" : "neutral"} />
       </div>
       <p className="mt-1 text-[10px] text-zinc-600">
         {task.attempt_count} attempt{task.attempt_count === 1 ? "" : "s"}
       </p>
+      {task.status === "needs_review_failed" && task.reviewer_reason && (
+        <p className="mt-1 text-[10px] text-rose-400">{task.reviewer_reason}</p>
+      )}
+      {task.pr_url && (
+        <a
+          href={task.pr_url}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="mt-1 block text-[10px] text-indigo-400 hover:underline"
+        >
+          View PR
+        </a>
+      )}
     </li>
   );
 }
