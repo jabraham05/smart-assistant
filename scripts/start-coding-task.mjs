@@ -57,4 +57,16 @@ if (!res.ok) {
   process.exit(1);
 }
 
-console.log("Task started. Check the coding_proposals Data Table for the result once it's done.");
+// n8n's coding_task_orchestrator_proxy webhook acks with responseMode
+// "onReceived" (see n8n/workflows/codingorch0001.json) before its own proxy
+// call to coding-orchestrator's POST /task even runs, so there's no taskId
+// in this response body to read - this really is fire-and-forget from the
+// CLI's perspective. coding_proposals is a dead n8n Data Table from the old
+// (now inactive) n8n-native pipeline - coding-orchestrator's real Postgres
+// coding_tasks table is what actually gets written.
+const responseBody = await res.text().catch(() => "");
+if (responseBody) console.log(responseBody);
+console.log(
+  "Task submitted. Find it in chat-ui's Amy Lab -> Coding Projects tab, or ask Amy " +
+    '"what are my coding tasks" (status_overview) once it starts running.',
+);

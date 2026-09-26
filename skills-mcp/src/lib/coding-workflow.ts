@@ -61,6 +61,8 @@ export interface CodingTaskStatus {
   attemptCount?: number;
   prUrl?: string;
   taskDescription?: string;
+  reviewerVerdict?: string;
+  reviewerReason?: string;
 }
 
 // Same n8n-shim retirement as submitCodingTask above - coding-orchestrator's

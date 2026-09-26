@@ -27,7 +27,7 @@ export function StepIndicator({ steps }: { steps: StepEvent[] }) {
   if (steps.length === 0) return null;
 
   return (
-    <ul className="mb-1.5 space-y-1">
+    <ul className="mt-1.5 space-y-1">
       {steps.map((step, i) => (
         <li key={`${step.nodeId}-${i}`} className="flex items-center gap-2 text-xs text-zinc-400">
           <StatusMark status={step.status} />

@@ -56,6 +56,8 @@ app.get("/task/status", async (req, res) => {
       attemptCount: row.attempt_count,
       prUrl: row.pr_url || undefined,
       taskDescription: row.task_description,
+      reviewerVerdict: row.reviewer_verdict || undefined,
+      reviewerReason: row.reviewer_reason || undefined,
     });
   } catch (e) {
     console.error("failed to look up coding task status:", e);

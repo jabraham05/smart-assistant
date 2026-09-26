@@ -43,8 +43,8 @@ export function MessageBubble({
               : "border border-white/10 bg-zinc-900/60 text-zinc-100"
         } ${isSelected ? "ring-2 ring-indigo-400/60 ring-offset-2 ring-offset-zinc-950" : ""}`}
       >
-        {!isUser && message.steps && <StepIndicator steps={message.steps} />}
         <MarkdownContent content={message.content} isUser={isUser} />
+        {!isUser && message.steps && <StepIndicator steps={message.steps} />}
       </div>
     </div>
   );
