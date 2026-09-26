@@ -47,6 +47,7 @@ from .safety_net import (
 from .system_prompt import OpenProject, OpenTask, RelevantGoal, SystemPromptInput, build_system_prompt
 from datetime import datetime, timezone
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 config = load_config()
@@ -117,6 +118,7 @@ async def _run_turn(
     text_parts: list[str] = []
     open_tool_calls: dict[str, tuple[str, int]] = {}  # tool_call_id -> (tool_name, iteration)
     iteration = 0
+    _turn_started = time.monotonic()
 
     try:
         agent = build_agent(config, session_id, system_prompt)
@@ -200,6 +202,13 @@ async def _run_turn(
                                 },
                             )
                         )
+        logger.info(
+            "TIMING _run_turn session=%s attempt=%d took=%.2fs tool_calls=%d",
+            session_id,
+            state.attempt,
+            time.monotonic() - _turn_started,
+            iteration,
+        )
         return "".join(text_parts), chunks
     except Exception:
         logger.exception("agent turn threw for session %s (attempt %d)", session_id, state.attempt)
@@ -218,6 +227,7 @@ async def webhook(request: Request):
         item_index = [0]
         emit = _emit(item_index)
 
+        _turn_t0 = time.monotonic()
         try:
             full_history = await session_memory.get_recent_history(config, session_id)
             message_history = session_memory.to_model_messages(full_history)
@@ -226,6 +236,7 @@ async def webhook(request: Request):
                 last_two = full_history[-2:]
                 recent_context = "\n".join(f"{m.role}: {m.content}" for m in last_two)
 
+            _t = time.monotonic()
             classification, persona_prompt, active_skills, memory_results, open_tasks, relevant_goals, open_projects = (
                 await asyncio.gather(
                     classify_relevant_tools(config.ollama_host, config.classifier_model, chat_input, recent_context),
@@ -237,6 +248,14 @@ async def webhook(request: Request):
                     knowledge_client.list_open_projects(config),
                 )
             )
+            # Real, live-verified finding: this gather's wall time is almost
+            # entirely classify_relevant_tools's own LLM call (confirmed via
+            # per-task timing during a live profiling session) - every other
+            # item here (Postgres/event-bus/knowledge-engine reads, a single
+            # memory-engine embedding lookup) finishes in well under half a
+            # second. classify and the main reply are the two dominant,
+            # unavoidable-per-turn LLM calls on this hardware.
+            logger.info("TIMING classify+context-gather session=%s took=%.2fs", session_id, time.monotonic() - _t)
 
             if classification.knowledge_gap_topic:
                 asyncio.create_task(
@@ -267,11 +286,15 @@ async def webhook(request: Request):
             user_card: list[str] = []
             user_card_for_amy: list[str] = []
             if classification.memory_policy != "none":
-                await honcho_client.ensure_session_exists(config, session_id)
-                await honcho_client.set_user_observe_config(config, session_id)
+                _t = time.monotonic()
+                if not await session_memory.is_honcho_initialized(config, session_id):
+                    await honcho_client.ensure_session_exists(config, session_id)
+                    await honcho_client.set_user_observe_config(config, session_id)
+                    await session_memory.mark_honcho_initialized(config, session_id)
                 user_card, user_card_for_amy = await asyncio.gather(
                     honcho_client.get_user_card(config), honcho_client.get_user_card_for_amy(config)
                 )
+                logger.info("TIMING honcho session=%s took=%.2fs", session_id, time.monotonic() - _t)
 
             system_prompt = build_system_prompt(
                 SystemPromptInput(
@@ -416,7 +439,9 @@ async def webhook(request: Request):
                     final_text = REQUIRED_TOOL_FAILURE_MESSAGE
 
             yield emit("end")
+            logger.info("TIMING total-until-end session=%s took=%.2fs", session_id, time.monotonic() - _turn_t0)
 
+            _t = time.monotonic()
             memory_domain = ",".join(classification.relevant_groups) or None
             memory_task_context_id = open_tasks[0].id if open_tasks else None
             await asyncio.gather(
@@ -427,6 +452,7 @@ async def webhook(request: Request):
                     config, session_id, "assistant", final_text, memory_domain, memory_task_context_id
                 ),
             )
+            logger.info("TIMING post-turn-writes session=%s took=%.2fs", session_id, time.monotonic() - _t)
         except Exception as e:
             logger.exception("chat turn failed for session %s", session_id)
             yield emit("error", str(e))

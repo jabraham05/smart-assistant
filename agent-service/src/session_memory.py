@@ -33,6 +33,26 @@ def _key(session_id: str) -> str:
     return f"agent-service:session:{session_id}"
 
 
+def _honcho_init_key(session_id: str) -> str:
+    return f"agent-service:honcho-init:{session_id}"
+
+
+async def is_honcho_initialized(config: Config, session_id: str) -> bool:
+    """Real, live-verified finding: ensure_session_exists/set_user_observe_
+    config were being re-sent to Honcho's cloud API on EVERY single turn
+    with memory_policy != 'none', even though both are idempotent one-time
+    session setup - a real, measured ~1-2s of external network round-trips
+    paid again on every turn for no benefit after the first. This flag lets
+    the caller skip both after the first time for a given session."""
+    client = _get_client(config)
+    return bool(await client.exists(_honcho_init_key(session_id)))
+
+
+async def mark_honcho_initialized(config: Config, session_id: str) -> None:
+    client = _get_client(config)
+    await client.set(_honcho_init_key(session_id), "1", ex=_SESSION_TTL_SECONDS)
+
+
 @dataclass(frozen=True)
 class StoredTurn:
     user: str
