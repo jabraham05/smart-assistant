@@ -1,0 +1,78 @@
+{
+  "traces": [],
+  "train": [],
+  "demos": [
+    {
+      "augmented": true,
+      "message": "what's 47 times 23?",
+      "relevant_groups": []
+    },
+    {
+      "augmented": true,
+      "message": "what goals am I tracking right now?",
+      "relevant_groups": [
+        "goals"
+      ]
+    },
+    {
+      "augmented": true,
+      "message": "what have you already learned about Warframe builds?",
+      "relevant_groups": [
+        "knowledge"
+      ]
+    },
+    {
+      "augmented": true,
+      "message": "schedule Resident Evil Wednesday at 7pm",
+      "relevant_groups": [
+        "scheduling"
+      ]
+    },
+    {
+      "message": "do some deep research on home battery backup systems and save it for later",
+      "relevant_groups": [
+        "research"
+      ]
+    },
+    {
+      "message": "I want to track my job search as an ongoing goal",
+      "relevant_groups": [
+        "goals"
+      ]
+    },
+    {
+      "message": "start a coding task to fix the login bug in my repo",
+      "relevant_groups": [
+        "self-growth"
+      ]
+    },
+    {
+      "message": "play some music and also tell me the weather",
+      "relevant_groups": [
+        "media",
+        "info"
+      ]
+    }
+  ],
+  "signature": {
+    "instructions": "Classify which capability categories (zero, one, or a few) might be needed to respond to the user's message. Categories: 'media' (music/Spotify playback control), 'scheduling' (calendar events), 'info' (weather, or recalling facts/preferences ABOUT THE USER THEMSELVES specifically - their traits, likes, past statements - never a document, manual, or reference material), 'self-growth' (proposing a new skill/tool, starting a coding task on a repo, checking on a coding task's progress, or proposing a longer-term coding project for approval before work starts), 'dashboard' (moving, resizing, showing, or hiding widgets on the smart-mirror dashboard), 'web' (searching the live web for current information, news, or facts that could have changed since training, OR looking something up online in general such as finding products, links, or recommendations), 'knowledge' (looking up or searching within a specific document/manual/guide Amy has stored, or anything else already saved in Amy's knowledge base/past research, or saving a specific web page for later recall), 'research' (starting in-depth background research on a topic not already known, that should be saved for later, OR checking on/asking about findings from research that may have already happened), 'goals' (creating, listing, updating, or checking progress on the user's persistent personal objectives). Most messages need none at all - only include a category if it's genuinely likely needed.",
+    "fields": [
+      {
+        "prefix": "Message:",
+        "description": "the user's chat message"
+      },
+      {
+        "prefix": "Relevant Groups:",
+        "description": "subset of ['media', 'scheduling', 'info', 'self-growth', 'dashboard', 'web', 'knowledge', 'research', 'goals'], empty list if none apply"
+      }
+    ]
+  },
+  "lm": null,
+  "metadata": {
+    "dependency_versions": {
+      "python": "3.13",
+      "dspy": "3.4.0",
+      "cloudpickle": "3.1"
+    }
+  }
+}
