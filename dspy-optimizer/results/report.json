@@ -1,0 +1,191 @@
+{
+  "model": "qwen3:8b",
+  "train_size": 17,
+  "val_size": 8,
+  "baseline": {
+    "exact": 0.875,
+    "jaccard": 0.875,
+    "rows": [
+      {
+        "message": "any updates on that research task I asked about?",
+        "expected": [
+          "research"
+        ],
+        "predicted": [
+          "research"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "what do you know about my car?",
+        "expected": [
+          "info"
+        ],
+        "predicted": [],
+        "exact": false,
+        "jaccard": 0.0
+      },
+      {
+        "message": "show the weather widget and tell me if it'll rain today",
+        "expected": [
+          "dashboard",
+          "info"
+        ],
+        "predicted": [
+          "dashboard",
+          "info"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "hide the weather widget on the dashboard",
+        "expected": [
+          "dashboard"
+        ],
+        "predicted": [
+          "dashboard"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "search the web for the latest news on the stock market",
+        "expected": [
+          "web"
+        ],
+        "predicted": [
+          "web"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "hey Amy, how's it going?",
+        "expected": [],
+        "predicted": [],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "what's the weather like today?",
+        "expected": [
+          "info"
+        ],
+        "predicted": [
+          "info"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "pause the music and put a dentist appointment on my calendar for Friday at 2pm",
+        "expected": [
+          "media",
+          "scheduling"
+        ],
+        "predicted": [
+          "media",
+          "scheduling"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      }
+    ]
+  },
+  "optimized": {
+    "exact": 1.0,
+    "jaccard": 1.0,
+    "rows": [
+      {
+        "message": "any updates on that research task I asked about?",
+        "expected": [
+          "research"
+        ],
+        "predicted": [
+          "research"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "what do you know about my car?",
+        "expected": [
+          "info"
+        ],
+        "predicted": [
+          "info"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "show the weather widget and tell me if it'll rain today",
+        "expected": [
+          "dashboard",
+          "info"
+        ],
+        "predicted": [
+          "dashboard",
+          "info"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "hide the weather widget on the dashboard",
+        "expected": [
+          "dashboard"
+        ],
+        "predicted": [
+          "dashboard"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "search the web for the latest news on the stock market",
+        "expected": [
+          "web"
+        ],
+        "predicted": [
+          "web"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "hey Amy, how's it going?",
+        "expected": [],
+        "predicted": [],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "what's the weather like today?",
+        "expected": [
+          "info"
+        ],
+        "predicted": [
+          "info"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "pause the music and put a dentist appointment on my calendar for Friday at 2pm",
+        "expected": [
+          "media",
+          "scheduling"
+        ],
+        "predicted": [
+          "media",
+          "scheduling"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      }
+    ]
+  }
+}
