@@ -313,9 +313,54 @@ interface ReviewerVerdict {
   feedbackForCoder: string;
 }
 
+// Real, evidenced gap (task #53, a Malayalam-English translation app): the
+// Coder's diff literally contained "// Simulate starting the recording
+// process (this would be replaced with actual audio recording logic)" and
+// three hardcoded fake subtitle strings standing in for the whole feature -
+// the Reviewer approved it anyway, judging only "clean, well-commented,
+// tests pass" against an unrelated placeholder unit test. Same lesson
+// chat-orchestrator/src/safety-net.ts already learned the hard way
+// (isConfabulatedAction, hasUnsatisfiedRequiredTool, etc.): prose
+// instructions alone aren't a reliable enough judge of genuine completion,
+// so a deterministic backstop scans for the actual tell-tale language and
+// overrides a false "approve" regardless of what the LLM Reviewer said.
+// Scoped to non-test files only - legitimate test mocking (jest.mock, etc.)
+// is expected Tester output, not evidence of a faked implementation.
+const MOCK_LANGUAGE_MARKERS: RegExp[] = [
+  /\bsimulat(e|ed|ing|ion)\b/i,
+  /would be replaced with (an? )?(actual|real)/i,
+  /in a real (app|implementation|system|scenario|world)/i,
+  /\bplaceholder\b/i,
+  /\b(dummy|fake) data\b/i,
+  /\bnot (yet )?implemented\b/i,
+  /\bTODO:?\s*implement\b/i,
+  /for (demo|demonstration) purposes/i,
+];
+
+const DIFF_TEST_FILE_PATTERN = /\.(test|spec)\.[jt]sx?$|(^|\/)__tests__\//i;
+
+function findMockLanguageMarkers(diff: string): string[] {
+  const hits: string[] = [];
+  let currentFile = "";
+  for (const line of diff.split("\n")) {
+    const fileHeader = line.match(/^\+\+\+ b\/(.+)$/);
+    if (fileHeader) {
+      currentFile = fileHeader[1];
+      continue;
+    }
+    if (!line.startsWith("+") || line.startsWith("+++")) continue;
+    if (DIFF_TEST_FILE_PATTERN.test(currentFile)) continue;
+    if (MOCK_LANGUAGE_MARKERS.some((marker) => marker.test(line))) {
+      hits.push(line.replace(/^\+/, "").trim().slice(0, 200));
+    }
+  }
+  return hits;
+}
+
 async function callReviewer(
   config: Config,
   task: string,
+  plan: string,
   diff: string,
   testResult: sandbox.ExecResult,
 ): Promise<ReviewerVerdict> {
@@ -326,20 +371,25 @@ async function callReviewer(
       {
         role: "system",
         content:
-          "You are the Reviewer for a coding task. Given the original task, the diff the Coder " +
-          "produced, and the result of running the project's test command, judge whether the task is " +
-          "genuinely, correctly done. Approve only if the diff actually implements what was asked and " +
-          "the tests genuinely pass (exit code 0, no timeout). If the tests fail for a reason that " +
-          "looks fixable (a real bug in the diff), verdict 'retry' with specific, actionable feedback " +
-          "for the Coder about what's wrong. If the test failure is clearly unrelated to the actual " +
-          "code (e.g. a missing test runner for the project's language, not the diff itself), say so " +
-          "plainly in your reason rather than blaming the implementation. Give up only when further " +
-          "attempts are unlikely to help.",
+          "You are the Reviewer for a coding task. Given the original task, the plan the Coder was " +
+          "given, the diff the Coder actually produced, and the result of running the project's test " +
+          "command, judge whether the task is genuinely, correctly done. Approve only if the diff " +
+          "actually implements what was asked and the tests genuinely pass (exit code 0, no timeout). " +
+          "Explicitly cross-check the diff against the plan: if the plan describes real functionality " +
+          "(specific integrations, files, backend logic) that is simply absent from the diff - or " +
+          "replaced with a placeholder, a simulated/faked result, or a hardcoded stand-in for what " +
+          "should be a real computation or API call - that is not approvable, no matter how clean or " +
+          "well-commented what WAS written looks, and no matter whether an unrelated test passes. If " +
+          "the tests fail for a reason that looks fixable (a real bug in the diff), verdict 'retry' " +
+          "with specific, actionable feedback for the Coder about what's wrong. If the test failure is " +
+          "clearly unrelated to the actual code (e.g. a missing test runner for the project's " +
+          "language, not the diff itself), say so plainly in your reason rather than blaming the " +
+          "implementation. Give up only when further attempts are unlikely to help.",
       },
       {
         role: "user",
         content:
-          `Task: ${task}\n\nDiff:\n${diff}\n\n` +
+          `Task: ${task}\n\nPlan the Coder was given:\n${plan}\n\nDiff:\n${diff}\n\n` +
           `Test result: exit code ${testResult.exitCode}${testResult.timedOut ? " (timed out)" : ""}\n` +
           `stdout:\n${testResult.stdout}\n\nstderr:\n${testResult.stderr}`,
       },
@@ -359,11 +409,33 @@ async function callReviewer(
     message.content,
     { verdict: "give_up", reason: "Reviewer response was not valid JSON", feedback_for_coder: "" },
   );
-  return {
+  const verdict: ReviewerVerdict = {
     verdict: parsed.verdict === "approve" || parsed.verdict === "retry" ? parsed.verdict : "give_up",
     reason: parsed.reason ?? "",
     feedbackForCoder: parsed.feedback_for_coder ?? "",
   };
+
+  if (verdict.verdict === "approve") {
+    const mockMarkers = findMockLanguageMarkers(diff);
+    if (mockMarkers.length > 0) {
+      console.log(`coding task reviewer override: approve -> retry, mock-language markers found: ${JSON.stringify(mockMarkers)}`);
+      return {
+        verdict: "retry",
+        reason:
+          `Automated check overrode an LLM 'approve' verdict: the diff contains placeholder/simulated-` +
+          `implementation language, which contradicts genuine completion. Flagged line(s): ${mockMarkers.join(" | ")}`,
+        feedbackForCoder:
+          `Your diff contains placeholder or simulated logic standing in for real functionality (e.g. ` +
+          `"${mockMarkers[0]}"). Replace every simulated/mocked/hardcoded piece of core functionality ` +
+          `with a real, working implementation - no setTimeout-based fake delays, no hardcoded fake ` +
+          `results standing in for a real computation or API call. If a genuinely required external ` +
+          `integration (an API key, credentials, a paid service) isn't actually available to you, say ` +
+          `so explicitly in your STATUS line instead of faking the result.`,
+      };
+    }
+  }
+
+  return verdict;
 }
 
 interface AttemptResult {
@@ -442,7 +514,7 @@ async function runAttempt(
     `exit code: ${testResult.exitCode}\n\nstdout:\n${testResult.stdout}\n\nstderr:\n${testResult.stderr}`,
   );
 
-  const reviewerVerdict = await callReviewer(config, ctx.task, diff, testResult);
+  const reviewerVerdict = await callReviewer(config, ctx.task, plan, diff, testResult);
   await db.logPhase(config, ctx.taskId, attemptNumber, "reviewer", "success", JSON.stringify(reviewerVerdict));
 
   return { diff, testResult, reviewerVerdict };
@@ -527,7 +599,7 @@ async function runAttemptViaOpenHands(
     `exit code: ${testResult.exitCode}\n\n${testResult.stdout}`,
   );
 
-  const reviewerVerdict = await callReviewer(config, ctx.task, result.diff, testResult);
+  const reviewerVerdict = await callReviewer(config, ctx.task, plan, result.diff, testResult);
   await db.logPhase(config, ctx.taskId, attemptNumber, "reviewer", "success", JSON.stringify(reviewerVerdict));
 
   return { diff: result.diff, testResult, reviewerVerdict };
