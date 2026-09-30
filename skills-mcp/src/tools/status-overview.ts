@@ -100,12 +100,21 @@ export function registerStatusOverview(server: McpServer, config: Config): void 
         if (codingTasks.length > 0) {
           sections.push(
             `Recent coding tasks (${codingTasks.length}):\n${codingTasks
-              .map(
-                (t) =>
-                  `- coding task #${t.id} "${t.task_description}" - ${t.status}${
-                    t.status === "needs_review_failed" && t.reviewer_reason ? `, reason: ${t.reviewer_reason}` : ""
-                  }${t.pr_url ? `, PR: ${t.pr_url}` : ""}`,
-              )
+              .map((t) => {
+                // "approve_partial" means real, working code for a
+                // smaller scope than what was asked, honestly disclosed -
+                // reviewer_reason is the Reviewer's own account of what's
+                // missing/reduced, and needs to reach the user here just
+                // as much as a failure reason does, not just on the
+                // failure path.
+                const showsReason =
+                  (t.status === "needs_review_failed" || t.reviewer_verdict === "approve_partial") &&
+                  t.reviewer_reason;
+                const statusLabel = t.reviewer_verdict === "approve_partial" ? `${t.status} (partial)` : t.status;
+                return `- coding task #${t.id} "${t.task_description}" - ${statusLabel}${
+                  showsReason ? `, reason: ${t.reviewer_reason}` : ""
+                }${t.pr_url ? `, PR: ${t.pr_url}` : ""}`;
+              })
               .join("\n")}`,
           );
         }
