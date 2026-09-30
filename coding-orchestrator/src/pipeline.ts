@@ -351,9 +351,15 @@ const MOCK_LANGUAGE_MARKERS: RegExp[] = [
   /for (demo|demonstration) purposes/i,
 ];
 
-const DIFF_TEST_FILE_PATTERN = /\.(test|spec)\.[jt]sx?$|(^|\/)__tests__\//i;
+// Real gap found while verifying findOrphanedTestFiles against a Python
+// case: this only ever matched JS/TS conventions, so a Python task's
+// test_foo.py/foo_test.py was never even recognized as a test file at
+// all - silently making both this check AND findMockLanguageMarkers's
+// test-file exclusion no-ops for python-pytest-templated tasks, even
+// though the Planner explicitly supports and picks that template.
+const DIFF_TEST_FILE_PATTERN = /\.(test|spec)\.[jt]sx?$|(^|\/)__tests__\/|(^|\/)test_[^/]+\.py$|_test\.py$/i;
 
-function findMockLanguageMarkers(diff: string): string[] {
+export function findMockLanguageMarkers(diff: string): string[] {
   const hits: string[] = [];
   let currentFile = "";
   for (const line of diff.split("\n")) {
@@ -371,11 +377,89 @@ function findMockLanguageMarkers(diff: string): string[] {
   return hits;
 }
 
+function extractChangedFiles(diff: string): string[] {
+  const files: string[] = [];
+  for (const line of diff.split("\n")) {
+    const match = line.match(/^\+\+\+ b\/(.+)$/);
+    if (match) files.push(match[1]);
+  }
+  return files;
+}
+
+// Real gap found while verifying this: "tests/integration.test.js"
+// syntactically matches the foo.test.js -> foo.js convention just as
+// cleanly as "lib/utils.test.js" -> "lib/utils.js" does, but
+// "integration"/"e2e"/"smoke"/"app" are common names for a broad test
+// that deliberately covers multiple files or the whole app, not a single
+// same-named implementation file - inferring one there and flagging it
+// as "orphaned" when it doesn't exist would be a real false positive on
+// a completely legitimate test. Skipped, same as a name the convention
+// doesn't match at all - conservative on purpose, false negatives over
+// false positives.
+const BROAD_TEST_BASENAMES = new Set(["index", "app", "main", "server", "integration", "e2e", "smoke"]);
+
+// Maps a test file to the implementation file its own name claims to
+// cover, by naming convention only - deliberately conservative (false
+// negatives over false positives): a test file whose name doesn't match
+// one of these conventions (or matches but names a known broad-test
+// basename - see BROAD_TEST_BASENAMES) is just skipped, not guessed at.
+function impliedImplementationFile(testFile: string): string | null {
+  const jsMatch = testFile.match(/^(.*\/)?([^/]+)\.(test|spec)\.(jsx?|tsx?)$/i);
+  if (jsMatch) {
+    if (BROAD_TEST_BASENAMES.has(jsMatch[2].toLowerCase())) return null;
+    return `${jsMatch[1] ?? ""}${jsMatch[2]}.${jsMatch[4]}`;
+  }
+  const pyPrefixMatch = testFile.match(/^(.*\/)?test_([^/]+)\.py$/i);
+  if (pyPrefixMatch) {
+    if (BROAD_TEST_BASENAMES.has(pyPrefixMatch[2].toLowerCase())) return null;
+    return `${pyPrefixMatch[1] ?? ""}${pyPrefixMatch[2]}.py`;
+  }
+  const pySuffixMatch = testFile.match(/^(.*\/)?([^/]+)_test\.py$/i);
+  if (pySuffixMatch) {
+    if (BROAD_TEST_BASENAMES.has(pySuffixMatch[2].toLowerCase())) return null;
+    return `${pySuffixMatch[1] ?? ""}${pySuffixMatch[2]}.py`;
+  }
+  return null;
+}
+
+// Real, evidenced gap (the same fake translation app): the Tester's own
+// coverage was lib/utils.test.js, testing lib/utils.js - the starter
+// scaffold's untouched placeholder example, never modified by the Coder
+// at all. That unrelated test passing is exactly what the Reviewer used
+// as its "tests genuinely pass" signal.
+//
+// Test files are identified from the full diff (the Tester might add one
+// the Coder never touched at all, which is fine and normal), but checked
+// against coderDiff specifically, not the full diff - for a from-scratch
+// task the full diff includes the entire template scaffold as "added",
+// which would make every template file look "changed" even though the
+// Coder never wrote to it, defeating this check entirely for exactly the
+// case it exists for. This only catches the common naming-convention case
+// (foo.test.js <-> foo.js, test_foo.py <-> foo.py); it can't and doesn't
+// try to detect relevance for languages/conventions where a test's
+// target isn't inferable from its filename alone.
+export function findOrphanedTestFiles(diff: string, coderDiff: string): string[] {
+  const testFiles = extractChangedFiles(diff).filter((f) => DIFF_TEST_FILE_PATTERN.test(f));
+  const coderChangedSet = new Set(extractChangedFiles(coderDiff));
+  return testFiles.filter((testFile) => {
+    const implied = impliedImplementationFile(testFile);
+    return implied !== null && !coderChangedSet.has(implied);
+  });
+}
+
 async function callReviewer(
   config: Config,
   task: string,
   plan: string,
   diff: string,
+  // The diff as it existed right after the Coder's own round, before the
+  // Tester touched anything - see runAttempt's comment on why this (not
+  // the full post-Tester diff) is what findOrphanedTestFiles needs to
+  // check test relevance against. runAttemptViaOpenHands has no
+  // equivalent boundary exposed (openhands-runner owns Coder+Tester+test
+  // loop as one call) and passes the same value as `diff` here - the
+  // orphaned-test check is honestly weaker on that path, not stronger.
+  coderDiff: string,
   testResult: sandbox.ExecResult,
 ): Promise<ReviewerVerdict> {
   const { message } = await ollamaChat(config.ollamaHost, {
@@ -447,6 +531,22 @@ async function callReviewer(
           `so explicitly in your STATUS line instead of faking the result.`,
       };
     }
+
+    const orphanedTests = findOrphanedTestFiles(diff, coderDiff);
+    if (orphanedTests.length > 0) {
+      console.log(`coding task reviewer override: approve -> retry, orphaned test file(s): ${JSON.stringify(orphanedTests)}`);
+      return {
+        verdict: "retry",
+        reason:
+          `Automated check overrode an LLM 'approve' verdict: test file(s) ${orphanedTests.join(", ")} ` +
+          `test a different file than anything else in this diff - a passing test suite doesn't prove ` +
+          `the actual feature works if the tests never touch the code that implements it.`,
+        feedbackForCoder:
+          `Your test coverage (${orphanedTests.join(", ")}) doesn't exercise any file this diff actually ` +
+          `changed - it's testing something unrelated (e.g. an untouched starter-scaffold placeholder). ` +
+          `Write real test coverage for the actual feature that was implemented.`,
+      };
+    }
   }
 
   return verdict;
@@ -491,6 +591,16 @@ async function runAttempt(
     };
   }
 
+  // Captured now, before the Tester runs, specifically so
+  // findOrphanedTestFiles has something meaningful to check test files
+  // against: for a from-scratch task, the FULL diff (fetched again below,
+  // after the Tester too) includes the entire template scaffold as
+  // "added" - including files the Coder itself never touched at all - so
+  // checking test relevance against that diff would never actually catch
+  // a test that only exercises an untouched template placeholder, exactly
+  // the real bug this check exists for.
+  const { diff: coderDiff } = await sandbox.getDiff(config.sandboxRunnerUrl, ctx.containerId, ctx.workingDir);
+
   const testerResult = await runTesterRound(config, ctx, plan, feedback);
   await db.logPhase(
     config,
@@ -528,7 +638,7 @@ async function runAttempt(
     `exit code: ${testResult.exitCode}\n\nstdout:\n${testResult.stdout}\n\nstderr:\n${testResult.stderr}`,
   );
 
-  const reviewerVerdict = await callReviewer(config, ctx.task, plan, diff, testResult);
+  const reviewerVerdict = await callReviewer(config, ctx.task, plan, diff, coderDiff, testResult);
   await db.logPhase(config, ctx.taskId, attemptNumber, "reviewer", "success", JSON.stringify(reviewerVerdict));
 
   return { diff, testResult, reviewerVerdict };
@@ -613,7 +723,11 @@ async function runAttemptViaOpenHands(
     `exit code: ${testResult.exitCode}\n\n${testResult.stdout}`,
   );
 
-  const reviewerVerdict = await callReviewer(config, ctx.task, plan, result.diff, testResult);
+  // No coder-only/tester-only boundary exposed by openhands-runner's API
+  // (it owns Coder+Tester+test loop as one call) - same value passed
+  // twice, so the orphaned-test check runs against the full diff here,
+  // honestly weaker than the sandbox-runner path, not stronger.
+  const reviewerVerdict = await callReviewer(config, ctx.task, plan, result.diff, result.diff, testResult);
   await db.logPhase(config, ctx.taskId, attemptNumber, "reviewer", "success", JSON.stringify(reviewerVerdict));
 
   return { diff: result.diff, testResult, reviewerVerdict };
