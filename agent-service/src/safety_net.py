@@ -35,13 +35,14 @@ ACTION_TOOLS = [
 _CLAIMS_COMPLETED_ACTION = re.compile(
     r"\b(?:I['’]?ve|I have)\s+(added|noted|created|set\s?up|scheduled|deleted|removed|updated|"
     r"started|paused|resumed|played|queued|turned|proposed|approved|rejected|submitted|kicked off|"
-    r"built|fixed|completed|finished|consolidated|wrapped up)\b",
+    r"built|fixed|completed|finished|consolidated|wrapped up|reactivated|recreated|restarted|"
+    r"resubmitted|relaunched)\b",
     re.IGNORECASE,
 )
 _CLAIMS_COMPLETED_ACTION_PASSIVE = re.compile(
     r"\b(?:has|have)\s+been\s+(added|noted|created|set\s?up|scheduled|deleted|removed|updated|started|"
     r"paused|resumed|played|queued|proposed|approved|rejected|submitted|built|fixed|completed|"
-    r"finished|consolidated)\b",
+    r"finished|consolidated|reactivated|recreated|restarted|resubmitted|relaunched)\b",
     re.IGNORECASE,
 )
 
@@ -123,3 +124,48 @@ REQUIRED_TOOL_RETRY_NUDGE = (
 )
 
 REQUIRED_TOOL_FAILURE_MESSAGE = "I wasn't able to complete that using my tools just now — want me to try again?"
+
+# Real gap found via live testing (2026-09-29, a coding-task status-check
+# conversation): asked "did you start it?", the model called a real status
+# tool, got a real (vague) result back, then invented a specific four-phase
+# progress breakdown with fabricated detail the tool never returned. Asked
+# again to "start coding it", it invented an entirely new task id ("task
+# #19") with zero matching tool call at all. is_confabulated_action only
+# catches "I did X" with NO tool called - it has nothing to say about a
+# tool being called for real and the reply still inventing specifics beyond
+# what that tool actually returned. This is the narrower, cheaply-checkable
+# slice of that broader problem: a fabricated #N id is easy to verify
+# against real tool output; fabricated prose detail in general is not.
+STATUS_LOOKUP_TOOLS = [
+    "code_task_status",
+    "status_overview",
+    "task_context_manage",
+    "goal_manage",
+    "research_task_status",
+]
+
+_ID_REFERENCE = re.compile(r"\b(?:task|project|goal)\s*#\s*(\d+)\b", re.IGNORECASE)
+
+
+def has_fabricated_id_reference(reply_text: str, called_tools: list[str], tool_results: list[str]) -> bool:
+    """True when the reply cites a specific task/project/goal #N that
+    doesn't appear anywhere in this turn's real tool results, but a
+    status/lookup tool was actually called this same turn - the model
+    asked a real question, got a real answer, and cited an id that answer
+    never contained. Deliberately does not fire when no lookup tool was
+    called at all: citing an id from earlier conversation history without
+    a fresh lookup this turn is normal, not confabulation."""
+    if not any(t in STATUS_LOOKUP_TOOLS for t in called_tools):
+        return False
+    ids_mentioned = _ID_REFERENCE.findall(reply_text)
+    if not ids_mentioned:
+        return False
+    combined_results = "\n".join(tool_results)
+    return any(not re.search(rf"\b{re.escape(id_)}\b", combined_results) for id_ in ids_mentioned)
+
+
+FABRICATED_ID_NUDGE = (
+    " (Your last reply cited a specific task/project/goal number that doesn't match what the tool "
+    "actually returned - re-check the real tool result and answer only with ids/details it actually "
+    "contains, or say clearly that you don't have that specific information.)"
+)

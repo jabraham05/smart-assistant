@@ -38,9 +38,11 @@ from .classify import classify_relevant_tools
 from .config import Config, load_config
 from .db import get_active_instruction_skills, get_persona_system_prompt
 from .safety_net import (
+    FABRICATED_ID_NUDGE,
     REQUIRED_TOOL_FAILURE_MESSAGE,
     REQUIRED_TOOL_RETRY_NUDGE,
     SEARCH_RETRY_NUDGE,
+    has_fabricated_id_reference,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
     is_confabulated_action,
@@ -86,6 +88,10 @@ class _TurnState:
     attempt: int = 0
     called_tools: list[str] = field(default_factory=list)
     last_tool_error: tuple[str, str] | None = None  # (tool_name, error_text)
+    # Real (non-error) tool result text, accumulated across every attempt of
+    # this turn - lets has_fabricated_id_reference check what a status/
+    # lookup tool actually returned against what the reply claims it did.
+    tool_results: list[str] = field(default_factory=list)
 
 
 def _emit(item_index: list[int]):
@@ -205,6 +211,7 @@ async def _run_turn(
                             state.last_tool_error = (tool_name, result_text)
                         else:
                             state.last_tool_error = None
+                            state.tool_results.append(result_text)
                         chunks.append(
                             emit(
                                 "trace",
@@ -453,6 +460,19 @@ async def webhook(request: Request):
                 )
                 retry_text, chunks = await _run_turn(
                     config, session_id, system_prompt, chat_input + nudge, bound_tools, state, emit,
+                    message_history,
+                )
+                for c in chunks:
+                    yield c
+                if retry_text.strip():
+                    final_text = retry_text
+
+            if has_fabricated_id_reference(final_text, state.called_tools, state.tool_results):
+                yield emit(
+                    "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "fabricated_id"}
+                )
+                retry_text, chunks = await _run_turn(
+                    config, session_id, system_prompt, chat_input + FABRICATED_ID_NUDGE, bound_tools, state, emit,
                     message_history,
                 )
                 for c in chunks:
