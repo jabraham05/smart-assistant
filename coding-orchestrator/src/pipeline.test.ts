@@ -5,7 +5,7 @@
 // not less. Same node:test convention skills-mcp already uses.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { findMockLanguageMarkers, findOrphanedTestFiles } from "./pipeline.js";
+import { findMockLanguageMarkers, findOrphanedTestFiles, isApproved } from "./pipeline.js";
 
 function diffFor(files: string[]): string {
   return files.map((f) => `+++ b/${f}\n@@ -0,0 +1,3 @@\n+// content`).join("\n");
@@ -59,4 +59,21 @@ test("findMockLanguageMarkers still flags placeholder language in a non-test fil
     "+++ b/pages/index.js\n@@ -0,0 +1,2 @@\n+// Simulate starting the recording process (this would be replaced with actual audio recording logic)\n+const x = 1;";
   const hits = findMockLanguageMarkers(diff);
   assert.ok(hits.length > 0, "expected at least one mock-language marker to be found");
+});
+
+test("isApproved is true for a full approval with passing tests", () => {
+  assert.equal(isApproved("approve", 0), true);
+});
+
+test("isApproved is true for a partial approval with passing tests - both open a PR", () => {
+  assert.equal(isApproved("approve_partial", 0), true);
+});
+
+test("isApproved is false for a partial approval whose tests didn't actually pass", () => {
+  assert.equal(isApproved("approve_partial", 1), false);
+});
+
+test("isApproved is false for retry/give_up regardless of test exit code", () => {
+  assert.equal(isApproved("retry", 0), false);
+  assert.equal(isApproved("give_up", 0), false);
 });

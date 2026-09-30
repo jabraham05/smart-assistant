@@ -11,6 +11,10 @@ export interface CodingTaskListItem {
   id: number;
   task_description: string;
   status: string; // running | proposed | needs_review_failed | resource_limit_reached
+  // approve | approve_partial | retry | give_up | null - "approve_partial"
+  // means real, working code for a smaller scope than asked, honestly
+  // disclosed (see coding-orchestrator/src/pipeline.ts's Reviewer prompt).
+  reviewer_verdict: string | null;
   reviewer_reason: string | null;
   pr_url: string | null;
   updated_at: string;

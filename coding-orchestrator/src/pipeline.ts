@@ -322,7 +322,7 @@ async function runTesterRound(
 }
 
 interface ReviewerVerdict {
-  verdict: "approve" | "retry" | "give_up";
+  verdict: "approve" | "approve_partial" | "retry" | "give_up";
   reason: string;
   feedbackForCoder: string;
 }
@@ -471,18 +471,31 @@ async function callReviewer(
         content:
           "You are the Reviewer for a coding task. Given the original task, the plan the Coder was " +
           "given, the diff the Coder actually produced, and the result of running the project's test " +
-          "command, judge whether the task is genuinely, correctly done. Approve only if the diff " +
-          "actually implements what was asked and the tests genuinely pass (exit code 0, no timeout). " +
-          "Explicitly cross-check the diff against the plan: if the plan describes real functionality " +
-          "(specific integrations, files, backend logic) that is simply absent from the diff - or " +
-          "replaced with a placeholder, a simulated/faked result, or a hardcoded stand-in for what " +
-          "should be a real computation or API call - that is not approvable, no matter how clean or " +
-          "well-commented what WAS written looks, and no matter whether an unrelated test passes. If " +
-          "the tests fail for a reason that looks fixable (a real bug in the diff), verdict 'retry' " +
-          "with specific, actionable feedback for the Coder about what's wrong. If the test failure is " +
-          "clearly unrelated to the actual code (e.g. a missing test runner for the project's " +
-          "language, not the diff itself), say so plainly in your reason rather than blaming the " +
-          "implementation. Give up only when further attempts are unlikely to help.",
+          "command, judge whether the task is genuinely, correctly done. 'approve' requires the diff " +
+          "to actually implement everything that was asked and the tests to genuinely pass (exit code " +
+          "0, no timeout).\n\n" +
+          "Use 'approve_partial' instead when the diff delivers something real and genuinely working, " +
+          "but only for a reduced scope than the full task asked for (e.g. the hardest requirement - a " +
+          "strict latency bound, a large number of concurrent users, an advanced feature - was dropped " +
+          "or simplified) AND that gap is explicitly, honestly disclosed in the diff itself (a README's " +
+          "limitations section, explicit comments, or similar) - not silently glossed over. The single " +
+          "thing that separates 'approve_partial' from a fake is disclosure: real working code for a " +
+          "smaller scope, with the gap stated plainly, is approve_partial; anything that quietly does " +
+          "less than claimed and doesn't say so is not - that's still retry or give_up, same as before. " +
+          "When you use approve_partial, your reason must state exactly what's missing/reduced, in " +
+          "plain terms - that text gets relayed directly to the user, so it needs to be genuinely " +
+          "informative on its own, not just 'partially done'.\n\n" +
+          "Explicitly cross-check the diff against the plan either way: if the plan describes real " +
+          "functionality (specific integrations, files, backend logic) that is simply absent from the " +
+          "diff - or replaced with a placeholder, a simulated/faked result, or a hardcoded stand-in for " +
+          "what should be a real computation or API call, with no honest disclosure of that gap - that " +
+          "is not approvable at all (not even partially), no matter how clean or well-commented what " +
+          "WAS written looks, and no matter whether an unrelated test passes. If the tests fail for a " +
+          "reason that looks fixable (a real bug in the diff), verdict 'retry' with specific, " +
+          "actionable feedback for the Coder about what's wrong. If the test failure is clearly " +
+          "unrelated to the actual code (e.g. a missing test runner for the project's language, not " +
+          "the diff itself), say so plainly in your reason rather than blaming the implementation. Give " +
+          "up only when further attempts are unlikely to help.",
       },
       {
         role: "user",
@@ -495,7 +508,7 @@ async function callReviewer(
     format: {
       type: "object",
       properties: {
-        verdict: { type: "string", enum: ["approve", "retry", "give_up"] },
+        verdict: { type: "string", enum: ["approve", "approve_partial", "retry", "give_up"] },
         reason: { type: "string" },
         feedback_for_coder: { type: "string" },
       },
@@ -508,12 +521,19 @@ async function callReviewer(
     { verdict: "give_up", reason: "Reviewer response was not valid JSON", feedback_for_coder: "" },
   );
   const verdict: ReviewerVerdict = {
-    verdict: parsed.verdict === "approve" || parsed.verdict === "retry" ? parsed.verdict : "give_up",
+    verdict:
+      parsed.verdict === "approve" || parsed.verdict === "approve_partial" || parsed.verdict === "retry"
+        ? parsed.verdict
+        : "give_up",
     reason: parsed.reason ?? "",
     feedbackForCoder: parsed.feedback_for_coder ?? "",
   };
 
-  if (verdict.verdict === "approve") {
+  // Both approval flavors go through the same deterministic checks -
+  // "partial" is only ever about honestly reduced scope, never a license
+  // to skip the same placeholder-language/test-relevance bar full
+  // approval has to clear.
+  if (verdict.verdict === "approve" || verdict.verdict === "approve_partial") {
     const mockMarkers = findMockLanguageMarkers(diff);
     if (mockMarkers.length > 0) {
       console.log(`coding task reviewer override: approve -> retry, mock-language markers found: ${JSON.stringify(mockMarkers)}`);
@@ -550,6 +570,14 @@ async function callReviewer(
   }
 
   return verdict;
+}
+
+// Both "approve" and "approve_partial" open a PR - the difference between
+// them is disclosure/scope, tracked separately (see finalizeTask's
+// isPartial), not whether real, working, test-passing code exists to
+// review at all.
+export function isApproved(verdict: ReviewerVerdict["verdict"], testExitCode: number | null): boolean {
+  return (verdict === "approve" || verdict === "approve_partial") && testExitCode === 0;
 }
 
 interface AttemptResult {
@@ -750,11 +778,17 @@ async function finalizeTask(
     return;
   }
 
-  const approved = result.reviewerVerdict.verdict === "approve" && result.testResult.exitCode === 0;
+  const approved = isApproved(result.reviewerVerdict.verdict, result.testResult.exitCode);
+  const isPartial = result.reviewerVerdict.verdict === "approve_partial";
 
   await db.updateTask(config, ctx.taskId, {
     status: approved ? "proposed" : "needs_review_failed",
-    latest_status: approved ? "Done" : "Needs human review",
+    // Deliberately not just "Done" for a partial approval - the whole
+    // point of this verdict is that it's real but incomplete, and that
+    // has to stay visible anywhere latest_status is shown, not just in
+    // reviewer_reason (which some callers, e.g. the old status_overview
+    // formatting, only surfaced for needs_review_failed before this).
+    latest_status: !approved ? "Needs human review" : isPartial ? "Done (partial - see reviewer notes)" : "Done",
     attempt_count: attemptNumber,
     diff: result.diff,
     test_output: `exit code: ${result.testResult.exitCode}\n\nstdout:\n${result.testResult.stdout}\n\nstderr:\n${result.testResult.stderr}`,

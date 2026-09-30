@@ -17,7 +17,20 @@ function getN8nPool(config: Config): Pool {
   return n8nPool;
 }
 
-function buildSummary(row: CodingTaskRow): string {
+export function buildSummary(row: CodingTaskRow): string {
+  // "approve_partial" means real, working code for a smaller scope than
+  // what was asked, honestly disclosed by the Reviewer - "Finished" would
+  // be a lie here, exactly the kind of silent gap this verdict exists to
+  // avoid. row.reviewer_reason is the Reviewer's own account of what's
+  // missing/reduced (see pipeline.ts's Reviewer prompt) - put front and
+  // center, not buried after the PR link.
+  if (row.status === "proposed" && row.reviewer_verdict === "approve_partial") {
+    const limitations = row.reviewer_reason ? ` ${row.reviewer_reason}` : "";
+    return (
+      `Delivered a working but reduced-scope version of: ${row.task_description}.${limitations}` +
+      (row.pr_url ? ` A pull request is ready for review: ${row.pr_url}` : " A diff is ready for review.")
+    );
+  }
   if (row.status === "proposed" && row.pr_url) {
     return `Finished: ${row.task_description}. A pull request is ready for review: ${row.pr_url}`;
   }
