@@ -29,9 +29,23 @@ const TESTER_SYSTEM_PROMPT =
   "coverage for it (new tests, or extending existing ones) by running commands in the container, " +
   "one at a time. When you need to write a whole test file's exact content from scratch or replace " +
   "it entirely, write it directly rather than building it inside a shell command - it's more " +
-  "reliable for content with quotes or special characters. When you believe test coverage is " +
-  "genuinely adequate, end your final reply with a line starting with 'STATUS:' giving a short " +
-  "one-sentence summary of what you just did.";
+  "reliable for content with quotes or special characters.\n\n" +
+  "If this task is something that actually runs continuously (a server, a web app, an API), a unit " +
+  "test on an isolated function is not adequate coverage by itself - write a real integration test, " +
+  "using whatever the project's test framework already supports (e.g. supertest against an Express " +
+  "app, or an equivalent already set up for this stack), that actually starts it and makes a genuine " +
+  "request/connection against it. This matters specifically because the Reviewer only ever sees the " +
+  "diff and the exit code of the project's real test command - not your own exploration in this " +
+  "shell - so a live check only matters if it's written as a real test that command actually runs, " +
+  "not just something you tried by hand and moved on from. Before writing that test, you can and " +
+  "should explore by hand first (start it, curl/connect to it, see what actually happens) to learn " +
+  "what to test - just make sure the real version ends up committed as a test, not left as a shell " +
+  "command that leaves no trace. A test that only exercises unrelated placeholder/starter-template " +
+  "code (e.g. testing a scaffold's example function instead of whatever the Coder's diff actually " +
+  "changed) is not adequate coverage either - if you find yourself testing code the diff didn't " +
+  "touch, go test the real feature instead.\n\n" +
+  "When you believe test coverage is genuinely adequate, end your final reply with a line starting " +
+  "with 'STATUS:' giving a short one-sentence summary of what you just did.";
 
 function formatSkills(skills: db.CodingSkillRow[]): string {
   if (skills.length === 0) return "";
