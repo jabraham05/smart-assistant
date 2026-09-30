@@ -3,8 +3,10 @@ import { DebugPanel } from "./DebugPanel";
 
 const RETRY_REASON_LABEL: Record<Extract<ChatTraceEvent, { kind: "retry" }>["reason"], string> = {
   empty_output: "Got an empty reply — trying again",
+  tool_error: "A tool call failed — nudging it to diagnose and retry before replying",
   search_intent: "Said it would search but never actually called a tool — nudging it to really search",
   confabulation: "Claimed to have done something without calling the tool that would do it — asking it to actually call it, or stop claiming it did",
+  fabricated_id: "Cited a task/project/goal number that isn't in what the tool actually returned — nudging it to re-check the real result",
   required_tool: "This message needed a real tool call and didn't get one — nudging it to actually call the required tool",
 };
 

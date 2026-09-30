@@ -64,7 +64,11 @@ export type ChatTraceEvent =
     }
   | { kind: "tool_call"; attempt: number; iteration: number; name: string; args: Record<string, unknown> }
   | { kind: "tool_result"; attempt: number; iteration: number; name: string; result: string; isError: boolean }
-  | { kind: "retry"; attempt: number; reason: "empty_output" | "search_intent" | "confabulation" | "required_tool" };
+  | {
+      kind: "retry";
+      attempt: number;
+      reason: "empty_output" | "tool_error" | "search_intent" | "confabulation" | "fabricated_id" | "required_tool";
+    };
 
 export type StepKind = "thinking" | "tool_call" | "message_sent" | "data_saved" | "other";
 
