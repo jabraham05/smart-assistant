@@ -1,0 +1,5 @@
+# Shell scripts always need LF, regardless of a Windows checkout's
+# core.autocrlf setting - a CRLF shebang line fails hard inside a Linux
+# container (docker-entrypoint.sh gets COPYed into knowledge-engine's
+# Alpine image and run there, not just invoked from a host shell).
+*.sh text eol=lf
