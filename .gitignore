@@ -6,6 +6,11 @@ skills-mcp/secrets/google-calendar-key.json
 .DS_Store
 Thumbs.db
 
+# Phase 1 of the "Amy's world" rework - knowledge-engine's durable entity
+# files, bind-mounted into the container. Generated operational output,
+# same treatment as postgres-data/ollama-data (named volumes), not source.
+knowledge-store/
+
 # Home Assistant runtime state - configuration.yaml/automations.yaml/
 # scripts.yaml/scenes.yaml/secrets.yaml/blueprints stay tracked, everything
 # else here is live instance state (auth tokens, device registry, logs, db).
