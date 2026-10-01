@@ -24,6 +24,12 @@ def test_omits_empty_sections():
     assert "Skills you have learned" not in prompt
 
 
+def test_includes_action_clarify_line_always():
+    prompt = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
+    assert "never invent a specific technology, API, SDK, or product name" in prompt
+    assert "ask the user which one they want before calling the tool" in prompt
+
+
 def test_includes_tone_line_always():
     prompt = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
     assert "Close naturally" in prompt

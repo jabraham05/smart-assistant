@@ -72,6 +72,24 @@ export function buildSystemPrompt(input: {
     "what went wrong, make the minimal necessary change, and call it again yourself right now, in " +
     "this same reply, before answering.";
 
+  // Real, live-verified finding (ported to agent-service/src/system_prompt.py
+  // first - see its matching comment): asked to retry a coding task, the
+  // model wrote code_task's own description itself and invented a specific,
+  // plausible-sounding but entirely fictional API name ("Qwen3.8-
+  // LiveTranslate API") and a technology the real implementation never used
+  // (WebRTC) - neither came from the user, neither came from any tool
+  // result, both just sounded right. This has to be prompted against before
+  // the call, since there is no tool result yet to check it against.
+  const actionClarifyLine =
+    "When calling code_task, skill_propose, or project_propose, describe the task in your own " +
+    "words with real, concrete planning detail - don't just restate the user's wording verbatim. " +
+    "But never invent a specific technology, API, SDK, or product name you aren't actually sure " +
+    "is real. If you're not sure which service, library, or approach fits a key part of the task, " +
+    "or a meaningful technical detail is genuinely ambiguous, ask the user which one they want " +
+    "before calling the tool - don't guess a plausible-sounding name and write it in as if it were " +
+    "settled. If a similar task already has real, relevant work in the target repo, say so and " +
+    "ask whether to build on it before describing a conflicting fresh approach.";
+
   const userCardLine = input.userCard.length
     ? `What you know about the user: ${input.userCard.join("; ")}`
     : "";
@@ -143,6 +161,7 @@ export function buildSystemPrompt(input: {
     dateLine,
     responseStyleLine,
     toolErrorLine,
+    actionClarifyLine,
     userCardLine,
     userCardForAmyLine,
     relevantMemoriesLine,

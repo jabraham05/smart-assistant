@@ -17,6 +17,18 @@ test("buildSystemPrompt omits empty sections", () => {
   assert.ok(!prompt.includes("Skills you have learned"));
 });
 
+test("buildSystemPrompt always includes the action-clarify line", () => {
+  const prompt = buildSystemPrompt({
+    personaSystemPrompt: "You are Amy.",
+    now: new Date("2026-09-21T12:00:00Z"),
+    userCard: [],
+    userCardForAmy: [],
+    skillsCatalogText: "",
+  });
+  assert.ok(prompt.includes("never invent a specific technology, API, SDK, or product name"));
+  assert.ok(prompt.includes("ask the user which one they want before calling the tool"));
+});
+
 test("buildSystemPrompt always includes the tone line, last", () => {
   const prompt = buildSystemPrompt({
     personaSystemPrompt: "You are Amy.",
