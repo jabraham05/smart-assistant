@@ -6,7 +6,7 @@ import type { Finding } from "./research-agent.js";
 export interface VerifiedFinding {
   claim: string;
   sourceUrls: string[];
-  confidence: "confirmed" | "contested" | "single_source";
+  confidence: "confirmed" | "contested" | "single_source" | "unverified";
   // Present only for a contested finding - the other claims in its cluster
   // that disagreed with it, so a caller can show both sides rather than
   // silently picking one.
@@ -24,17 +24,34 @@ comparison. Respond with exactly one JSON object: {"agree": boolean, "reasoning"
 // needs this at all: there's nothing to compare it against, so it's
 // single_source by construction, not run through the model for a verdict
 // it can't meaningfully give.
+//
+// Ungrounded findings (research-agent.ts's isGrounded check failed - a
+// cited source was never actually fetched, or the claim doesn't match what
+// was fetched) are resolved to "unverified" before any of the above runs,
+// with no LLM call at all: agreement between two fabrications proves
+// nothing, so there's no judgment call here for the model to make. Verified
+// confidence (single_source/confirmed/contested) is only ever assigned
+// among a cluster's grounded members.
 export async function verifyClusters(config: Config, clusters: FindingCluster[]): Promise<VerifiedFinding[]> {
   const verified: VerifiedFinding[] = [];
 
   for (const cluster of clusters) {
-    if (cluster.findings.length === 1) {
-      const finding = cluster.findings[0];
+    const grounded = cluster.findings.filter((f) => f.grounded);
+    const ungrounded = cluster.findings.filter((f) => !f.grounded);
+
+    for (const finding of ungrounded) {
+      verified.push({ claim: finding.claim, sourceUrls: finding.sourceUrls, confidence: "unverified" });
+    }
+
+    if (grounded.length === 0) continue;
+
+    if (grounded.length === 1) {
+      const finding = grounded[0];
       verified.push({ claim: finding.claim, sourceUrls: finding.sourceUrls, confidence: "single_source" });
       continue;
     }
 
-    const claimsText = cluster.findings.map((f, i) => `${i + 1}. ${f.claim}`).join("\n");
+    const claimsText = grounded.map((f, i) => `${i + 1}. ${f.claim}`).join("\n");
     const { message } = await ollamaChat(config.ollamaHost, {
       model: config.researchModel,
       messages: [
@@ -53,9 +70,9 @@ export async function verifyClusters(config: Config, clusters: FindingCluster[])
       reasoning: "could not parse verification response, defaulting to agree",
     });
 
-    for (let i = 0; i < cluster.findings.length; i++) {
-      const finding = cluster.findings[i];
-      const others = cluster.findings.filter((_, j) => j !== i);
+    for (let i = 0; i < grounded.length; i++) {
+      const finding = grounded[i];
+      const others = grounded.filter((_, j) => j !== i);
       verified.push({
         claim: finding.claim,
         sourceUrls: finding.sourceUrls,

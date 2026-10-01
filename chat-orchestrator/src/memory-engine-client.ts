@@ -14,6 +14,11 @@ export interface MemorySearchResult {
   // real lexeme overlap with the query.
   keywordOverlapCount: number;
   queryLexemeCount: number;
+  // 'tool_verified' | 'user_stated' | 'ungrounded' - see safety-net.ts's
+  // classifyMemoryGrounding. Defaults to the conservative 'ungrounded' if
+  // memory-engine ever omits it (shouldn't happen post-migration, but
+  // never trust-by-default on a missing field).
+  grounding: string;
 }
 
 // Self-hosted replacement for a Honcho-dialectic-based "what do I know
@@ -34,7 +39,7 @@ export async function searchMemory(config: Config, query: string, topK = 5): Pro
     });
     if (!res.ok) return [];
     const data = (await res.json()) as { results?: MemorySearchResult[] };
-    return data.results ?? [];
+    return (data.results ?? []).map((r) => ({ ...r, grounding: r.grounding ?? "ungrounded" }));
   } catch (e) {
     console.error("memory-engine search failed:", e);
     return [];
@@ -62,12 +67,13 @@ export async function ingestMemory(
   content: string,
   domain?: string,
   taskContextId?: number,
+  grounding: string = "ungrounded",
 ): Promise<void> {
   try {
     await fetch(`${config.memoryEngineUrl}/ingest`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, role, content, domain, taskContextId }),
+      body: JSON.stringify({ sessionId, role, content, domain, taskContextId, grounding }),
     });
   } catch (e) {
     console.error("memory-engine ingest failed:", e);

@@ -3,10 +3,18 @@ import { runAgentLoop, truncateToolResult, type AgentTool } from "../agent-loop.
 import { tavilySearch } from "../lib/tavily.js";
 import { extractUrl } from "../lib/html-extract.js";
 import { search } from "./search.js";
+import { isGrounded } from "./grounding.js";
 
 export interface Finding {
   claim: string;
   sourceUrls: string[];
+  // Deterministic, computed at record_finding time (see grounding.ts) -
+  // false means the cited source(s) were never actually fetched this
+  // session, or the claim's keywords don't match what was fetched.
+  // verify.ts resolves these straight to confidence:"unverified" with no
+  // LLM call; persist-research.ts never writes a citation/chunk row for
+  // them.
+  grounded: boolean;
 }
 
 export interface ResearchAgentResult {
@@ -33,6 +41,11 @@ a short plain-text summary and stop calling tools.`;
 // alongside the specific claim it backs, not just a flat list at the end.
 export async function runResearchAgent(config: Config, topic: string, domain?: string): Promise<ResearchAgentResult> {
   const findings: Finding[] = [];
+  // Real content fetched this session, keyed by the exact URL fetch_page
+  // was called with - isGrounded checks a record_finding's sourceUrls
+  // against this, not against whatever web_search merely listed as a
+  // snippet.
+  const fetchedPages = new Map<string, string>();
 
   const tools: AgentTool[] = [
     {
@@ -74,7 +87,9 @@ export async function runResearchAgent(config: Config, topic: string, domain?: s
         required: ["url"],
       },
       execute: async (args) => {
-        const page = await extractUrl(config.scraplingServiceUrl, String(args.url));
+        const url = String(args.url);
+        const page = await extractUrl(config.scraplingServiceUrl, url);
+        fetchedPages.set(url, page.text);
         return truncateToolResult(page.text);
       },
     },
@@ -92,8 +107,14 @@ export async function runResearchAgent(config: Config, topic: string, domain?: s
       execute: async (args) => {
         const claim = String(args.claim);
         const sourceUrls = Array.isArray(args.sourceUrls) ? args.sourceUrls.map(String) : [];
-        findings.push({ claim, sourceUrls });
-        return "Recorded.";
+        const grounded = isGrounded(claim, sourceUrls, fetchedPages);
+        findings.push({ claim, sourceUrls, grounded });
+        return grounded
+          ? "Recorded."
+          : "Recorded, but flagged unverified - the cited source(s) weren't actually fetched via " +
+            "fetch_page this session, or the claim doesn't match the fetched content. This will be " +
+            "stored tagged as unverified, not as a confirmed finding. If you can, fetch_page the real " +
+            "source and record_finding again with a claim that matches what it actually says.";
       },
     },
   ];

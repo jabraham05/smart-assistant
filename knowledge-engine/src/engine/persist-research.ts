@@ -68,6 +68,18 @@ export async function persistResearch(config: Config, input: PersistResearchInpu
         confidence: finding.confidence,
       });
 
+      // Hard block, not a tag-and-surface: unlike memory_entries/findings
+      // (which have a visible trust field a consumer can render a caveat
+      // around), a citations row *asserts* "this source backs this claim"
+      // and a chunks row feeds knowledge_search with no way to mark itself
+      // unverified - neither table has a trust vocabulary of its own, so an
+      // unverified finding gets no citation/chunk at all. The findings row
+      // above is still written and visibly tagged "unverified" - every
+      // consumer that already renders [confidence] claim
+      // (research_task_status, notify.ts, consolidate.ts) surfaces it
+      // automatically.
+      if (finding.confidence === "unverified") continue;
+
       for (const url of finding.sourceUrls) {
         const sourceId = await resolveSource(url);
         await db.insertCitation(config, { findingId: findingRow.id, sourceId, excerpt: finding.claim, supports: true });

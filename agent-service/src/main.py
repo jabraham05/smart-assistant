@@ -42,12 +42,20 @@ from .safety_net import (
     REQUIRED_TOOL_FAILURE_MESSAGE,
     REQUIRED_TOOL_RETRY_NUDGE,
     SEARCH_RETRY_NUDGE,
+    classify_memory_grounding,
     has_fabricated_id_reference,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
     is_confabulated_action,
 )
-from .system_prompt import OpenProject, OpenTask, RelevantGoal, SystemPromptInput, build_system_prompt
+from .system_prompt import (
+    OpenProject,
+    OpenTask,
+    RelevantGoal,
+    RelevantMemory,
+    SystemPromptInput,
+    build_system_prompt,
+)
 from datetime import datetime, timezone
 
 logging.basicConfig(level=logging.INFO)
@@ -317,7 +325,9 @@ async def webhook(request: Request):
                     m, config.memory_min_relevance_score, config.memory_min_keyword_overlap
                 )
             ] if classification.memory_policy != "none" else []
-            relevant_memories = [m.content for m in relevant_memory_results]
+            relevant_memories = [
+                RelevantMemory(content=m.content, grounding=m.grounding) for m in relevant_memory_results
+            ]
 
             user_card: list[str] = []
             user_card_for_amy: list[str] = []
@@ -512,9 +522,23 @@ async def webhook(request: Request):
             await asyncio.gather(
                 honcho_client.store_turn(config, session_id, chat_input, final_text),
                 session_memory.append_turn(config, session_id, chat_input, final_text),
-                memory_client.ingest_memory(config, session_id, "user", chat_input, memory_domain, memory_task_context_id),
                 memory_client.ingest_memory(
-                    config, session_id, "assistant", final_text, memory_domain, memory_task_context_id
+                    config,
+                    session_id,
+                    "user",
+                    chat_input,
+                    memory_domain,
+                    memory_task_context_id,
+                    grounding=classify_memory_grounding("user", state.called_tools),
+                ),
+                memory_client.ingest_memory(
+                    config,
+                    session_id,
+                    "assistant",
+                    final_text,
+                    memory_domain,
+                    memory_task_context_id,
+                    grounding=classify_memory_grounding("assistant", state.called_tools),
                 ),
             )
             logger.info("TIMING post-turn-writes session=%s took=%.2fs", session_id, time.monotonic() - _t)

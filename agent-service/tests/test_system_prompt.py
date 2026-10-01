@@ -8,6 +8,7 @@ from src.system_prompt import (
     OpenProject,
     OpenTask,
     RelevantGoal,
+    RelevantMemory,
     SystemPromptInput,
     build_system_prompt,
 )
@@ -69,11 +70,46 @@ def test_includes_relevant_memories_when_populated():
         SystemPromptInput(
             persona_system_prompt="You are Amy.",
             now=NOW,
-            relevant_memories=["mentioned a fuel sender issue on the 987"],
+            relevant_memories=[
+                RelevantMemory(content="mentioned a fuel sender issue on the 987", grounding="user_stated")
+            ],
         )
     )
     assert "Possibly relevant things from earlier conversations:" in prompt
     assert "- mentioned a fuel sender issue on the 987" in prompt
+
+
+# Real incident that motivated this: an invented, plausible-sounding API
+# name written with zero tool calls got stored into memory, then retrieved
+# and cited as "confirmed research" in a later, unrelated conversation. An
+# ungrounded memory must render with an explicit unverified caveat so the
+# model doesn't repeat it as settled fact.
+def test_ungrounded_memory_renders_with_unverified_caveat():
+    prompt = build_system_prompt(
+        SystemPromptInput(
+            persona_system_prompt="You are Amy.",
+            now=NOW,
+            relevant_memories=[RelevantMemory(content="Qwen3.8-LiveTranslate API supports WebRTC", grounding="ungrounded")],
+        )
+    )
+    assert "[unverified" in prompt
+    assert "Qwen3.8-LiveTranslate API supports WebRTC" in prompt
+
+
+def test_tool_verified_and_user_stated_memories_render_without_caveat():
+    prompt = build_system_prompt(
+        SystemPromptInput(
+            persona_system_prompt="You are Amy.",
+            now=NOW,
+            relevant_memories=[
+                RelevantMemory(content="checked the calendar and found a conflict", grounding="tool_verified"),
+                RelevantMemory(content="said they prefer mornings", grounding="user_stated"),
+            ],
+        )
+    )
+    assert "[unverified" not in prompt
+    assert "- checked the calendar and found a conflict" in prompt
+    assert "- said they prefer mornings" in prompt
 
 
 def test_includes_open_tasks_and_relevant_goals_when_present():

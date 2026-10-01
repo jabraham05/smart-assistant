@@ -39,6 +39,18 @@ class OpenProject:
 
 
 @dataclass(frozen=True)
+class RelevantMemory:
+    content: str
+    # 'tool_verified' | 'user_stated' | 'ungrounded' - see
+    # safety_net.classify_memory_grounding. An 'ungrounded' memory is
+    # rendered with an explicit caveat below rather than dropped: the real
+    # incident this exists to prevent (a fabricated API name silently
+    # retrieved and cited as "confirmed research" in a later, unrelated
+    # conversation) needs the model told not to trust it, not just hidden.
+    grounding: str = "ungrounded"
+
+
+@dataclass(frozen=True)
 class SystemPromptInput:
     persona_system_prompt: str
     now: datetime
@@ -48,7 +60,7 @@ class SystemPromptInput:
     # Pre-filtered by the caller based on memoryPolicy - this function stays
     # policy-agnostic: given something, render it; given nothing, omit the
     # section entirely.
-    relevant_memories: list[str] | None = None
+    relevant_memories: list[RelevantMemory] | None = None
     # Injected regardless of memoryPolicy (directly actionable state, not
     # ambient personalization) but lexeme-matched to the current message by
     # the caller, not every open task every turn.
@@ -127,9 +139,14 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         else ""
     )
 
+    def _format_memory_line(m: RelevantMemory) -> str:
+        if m.grounding == "ungrounded":
+            return f"- [unverified - not confirmed by a tool this turn, don't repeat as settled fact] {m.content}"
+        return f"- {m.content}"
+
     relevant_memories_line = (
         "Possibly relevant things from earlier conversations:\n"
-        + "\n".join(f"- {m}" for m in input.relevant_memories)
+        + "\n".join(_format_memory_line(m) for m in input.relevant_memories)
         if input.relevant_memories
         else ""
     )

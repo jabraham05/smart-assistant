@@ -24,6 +24,9 @@ export interface MemoryEntryRow {
   domain: string | null;
   task_context_id: number | null;
   created_at: string;
+  // 'tool_verified' | 'user_stated' | 'ungrounded' - see index.ts's
+  // ALLOWED_GROUNDING.
+  grounding: string;
 }
 
 export interface InsertMemoryEntryInput {
@@ -33,13 +36,14 @@ export interface InsertMemoryEntryInput {
   embedding: number[];
   domain?: string;
   taskContextId?: number;
+  grounding: string;
 }
 
 export async function insertMemoryEntry(config: Config, input: InsertMemoryEntryInput): Promise<MemoryEntryRow> {
   const result = await getPool(config).query<MemoryEntryRow>(
-    `INSERT INTO memory_entries (session_id, role, content, embedding, domain, task_context_id)
-     VALUES ($1, $2, $3, $4::vector, $5, $6)
-     RETURNING id, session_id, role, content, domain, task_context_id, created_at`,
+    `INSERT INTO memory_entries (session_id, role, content, embedding, domain, task_context_id, grounding)
+     VALUES ($1, $2, $3, $4::vector, $5, $6, $7)
+     RETURNING id, session_id, role, content, domain, task_context_id, created_at, grounding`,
     [
       input.sessionId,
       input.role,
@@ -47,6 +51,7 @@ export async function insertMemoryEntry(config: Config, input: InsertMemoryEntry
       `[${input.embedding.join(",")}]`,
       input.domain ?? null,
       input.taskContextId ?? null,
+      input.grounding,
     ],
   );
   return result.rows[0];
@@ -141,7 +146,7 @@ export async function hybridSearchMemory(
        GROUP BY id
      )
      SELECT
-       m.id, m.session_id, m.role, m.content, m.domain, m.task_context_id, m.created_at, combined.rrf_score,
+       m.id, m.session_id, m.role, m.content, m.domain, m.task_context_id, m.created_at, m.grounding, combined.rrf_score,
        COALESCE(array_length(
          ARRAY(
            SELECT unnest(query_lexemes.lexemes)

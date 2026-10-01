@@ -31,6 +31,11 @@ class MemorySearchResult:
     # query_lexeme_count let is_relevant_memory check real lexeme overlap.
     keyword_overlap_count: int
     query_lexeme_count: int
+    # 'tool_verified' | 'user_stated' | 'ungrounded' - see
+    # safety_net.classify_memory_grounding. Defaults to the conservative
+    # 'ungrounded' if memory-engine ever omits it (shouldn't happen post-
+    # migration, but never trust-by-default on a missing field).
+    grounding: str = "ungrounded"
 
 
 async def search_memory(config: Config, query: str, top_k: int = 5) -> list[MemorySearchResult]:
@@ -53,6 +58,7 @@ async def search_memory(config: Config, query: str, top_k: int = 5) -> list[Memo
                     score=r["score"],
                     keyword_overlap_count=r["keywordOverlapCount"],
                     query_lexeme_count=r["queryLexemeCount"],
+                    grounding=r.get("grounding", "ungrounded"),
                 )
                 for r in results
             ]
@@ -79,6 +85,7 @@ async def ingest_memory(
     content: str,
     domain: str | None = None,
     task_context_id: int | None = None,
+    grounding: str = "ungrounded",
 ) -> None:
     try:
         async with httpx.AsyncClient() as client:
@@ -90,6 +97,7 @@ async def ingest_memory(
                     "content": content,
                     "domain": domain,
                     "taskContextId": task_context_id,
+                    "grounding": grounding,
                 },
                 timeout=10,
             )
