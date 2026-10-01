@@ -24,7 +24,7 @@ export async function checkSchema(config: Config): Promise<{ connected: boolean;
   const result = await getPool(config).query<{ table_name: string }>(
     `SELECT table_name FROM information_schema.tables
      WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
-    [["documents", "sources", "chunks", "research_sessions", "findings", "citations", "knowledge_log"]],
+    [["documents", "sources", "chunks", "research_sessions", "findings", "citations", "knowledge_log", "entities"]],
   );
   return { connected: true, tables: result.rows.map((r) => r.table_name).sort() };
 }
@@ -856,6 +856,98 @@ export async function findResearchSessionByTopic(
      FROM scored WHERE overlap_count >= $2
      ORDER BY overlap_count DESC, updated_at DESC LIMIT 1`,
     [topic, minOverlap],
+  );
+  return result.rows[0];
+}
+
+// Phase 1 of the "Amy's world" rework (23-create-entities-table.sql) - a
+// registry of durable things, independent of which table/service produced
+// them. See engine/entities.ts for the file-write half of entity creation.
+export interface EntityRow {
+  id: string;
+  type: string;
+  name: string;
+  description: string | null;
+  status: string | null;
+  source_table: string | null;
+  source_id: string | null;
+  source_path: string | null;
+  graphiti_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function insertEntity(
+  config: Config,
+  input: {
+    type: string;
+    name: string;
+    description?: string;
+    status?: string;
+    sourceTable?: string;
+    sourceId?: string;
+    sourcePath?: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<EntityRow> {
+  const result = await getPool(config).query<EntityRow>(
+    `INSERT INTO entities (type, name, description, status, source_table, source_id, source_path, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+     RETURNING *`,
+    [
+      input.type,
+      input.name,
+      input.description || null,
+      input.status || null,
+      input.sourceTable || null,
+      input.sourceId || null,
+      input.sourcePath || null,
+      JSON.stringify(input.metadata || {}),
+    ],
+  );
+  return result.rows[0];
+}
+
+export async function getEntity(config: Config, id: string): Promise<EntityRow | undefined> {
+  const result = await getPool(config).query<EntityRow>(`SELECT * FROM entities WHERE id = $1`, [id]);
+  return result.rows[0];
+}
+
+export async function listEntities(config: Config, type?: string): Promise<EntityRow[]> {
+  const where = type ? `WHERE type = $1` : "";
+  const params = type ? [type] : [];
+  const result = await getPool(config).query<EntityRow>(
+    `SELECT * FROM entities ${where} ORDER BY created_at DESC`,
+    params,
+  );
+  return result.rows;
+}
+
+export async function updateEntity(
+  config: Config,
+  id: string,
+  fields: Partial<{
+    status: string;
+    description: string;
+    sourcePath: string;
+    graphitiId: string;
+    metadata: Record<string, unknown>;
+  }>,
+): Promise<EntityRow | undefined> {
+  const entries: [string, unknown][] = [];
+  if (fields.status !== undefined) entries.push(["status", fields.status]);
+  if (fields.description !== undefined) entries.push(["description", fields.description]);
+  if (fields.sourcePath !== undefined) entries.push(["source_path", fields.sourcePath]);
+  if (fields.graphitiId !== undefined) entries.push(["graphiti_id", fields.graphitiId]);
+  if (fields.metadata !== undefined) entries.push(["metadata", JSON.stringify(fields.metadata)]);
+  if (entries.length === 0) return getEntity(config, id);
+
+  const setClauses = entries.map(([key], i) => (key === "metadata" ? `${key} = $${i + 2}::jsonb` : `${key} = $${i + 2}`));
+  const values = entries.map(([, value]) => value);
+  const result = await getPool(config).query<EntityRow>(
+    `UPDATE entities SET ${setClauses.join(", ")}, updated_at = now() WHERE id = $1 RETURNING *`,
+    [id, ...values],
   );
   return result.rows[0];
 }

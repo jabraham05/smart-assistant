@@ -3,6 +3,7 @@ import * as db from "../db.js";
 import { ollamaChat } from "../ollama.js";
 import { getCodingTask } from "../lib/coding-orchestrator-client.js";
 import type { SearchResult } from "./search.js";
+import { createEntity, backfillGraphitiId } from "./entities.js";
 
 export interface ConsolidateResult {
   documentId: number;
@@ -16,8 +17,11 @@ export interface ConsolidateResult {
 // Fire-and-forget, same reasoning as every other graphiti-service call in
 // this codebase: a slow/unreachable graphiti-service must never delay or
 // break project consolidation itself.
-function writeConsolidatedEpisode(config: Config, project: db.ProjectRow, markdown: string): void {
-  fetch(`${config.graphitiServiceUrl}/episodes`, {
+// Resolves to the new episode's uuid, or undefined if the write failed -
+// never rejects, so a caller chaining .then() off this never needs its own
+// try/catch to preserve the fire-and-forget guarantee below.
+function writeConsolidatedEpisode(config: Config, project: db.ProjectRow, markdown: string): Promise<string | undefined> {
+  return fetch(`${config.graphitiServiceUrl}/episodes`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -25,7 +29,36 @@ function writeConsolidatedEpisode(config: Config, project: db.ProjectRow, markdo
       episodeBody: markdown,
       sourceDescription: "project_consolidated event",
     }),
-  }).catch((e) => console.error(`failed to write project_consolidated episode for project ${project.id}:`, e));
+  })
+    .then((res) => res.json() as Promise<{ episodeUuid: string }>)
+    .then((body) => body.episodeUuid)
+    .catch((e) => {
+      console.error(`failed to write project_consolidated episode for project ${project.id}:`, e);
+      return undefined;
+    });
+}
+
+// Phase 1 of the "Amy's world" rework: the single integration point that
+// turns a completed project into the durable `entities` row + file
+// (engine/entities.ts), using the real trigger that already exists here
+// rather than adding a new one. Entity creation is awaited - unlike the
+// Graphiti episode write, this IS the durable artifact and must not fail
+// silently. graphiti_id is only ever backfilled best-effort once/if the
+// already-fire-and-forget episode write resolves, never blocking or
+// failing the entity itself.
+async function recordConsolidatedEntity(config: Config, project: db.ProjectRow, markdown: string): Promise<void> {
+  const episodePromise = writeConsolidatedEpisode(config, project, markdown);
+  const entity = await createEntity(config, {
+    type: "project",
+    name: project.title,
+    description: markdown,
+    status: "done",
+    sourceTable: "projects",
+    sourceId: String(project.id),
+  });
+  void episodePromise.then((graphitiId) => {
+    if (graphitiId) void backfillGraphitiId(config, entity.id, graphitiId);
+  });
 }
 
 // The step the whole "projects" feature exists for: turning finished work
@@ -76,7 +109,7 @@ export async function consolidateFromExistingKnowledge(
   });
   await db.setDocumentMarkdown(config, document.id, markdown);
   await db.updateProject(config, project.id, { status: "done", documentId: document.id });
-  writeConsolidatedEpisode(config, project, markdown);
+  await recordConsolidatedEntity(config, project, markdown);
   return { documentId: document.id };
 }
 
@@ -131,7 +164,7 @@ async function consolidateResearchProject(config: Config, project: db.ProjectRow
 
   await db.setDocumentMarkdown(config, detail.session.document_id, markdown);
   await db.updateProject(config, project.id, { status: "done", documentId: detail.session.document_id });
-  writeConsolidatedEpisode(config, project, markdown);
+  await recordConsolidatedEntity(config, project, markdown);
   return { documentId: detail.session.document_id };
 }
 
@@ -181,6 +214,6 @@ async function consolidateCodingProject(config: Config, project: db.ProjectRow):
   });
   await db.setDocumentMarkdown(config, document.id, markdown);
   await db.updateProject(config, project.id, { status: "done", documentId: document.id });
-  writeConsolidatedEpisode(config, project, markdown);
+  await recordConsolidatedEntity(config, project, markdown);
   return { documentId: document.id };
 }

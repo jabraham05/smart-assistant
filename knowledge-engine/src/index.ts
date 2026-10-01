@@ -14,6 +14,9 @@ import {
   updateProject,
   getResearchQueueEntry,
   findOverlappingProject,
+  getEntity,
+  listEntities,
+  updateEntity,
 } from "./db.js";
 import { ingestDocument } from "./engine/ingest.js";
 import { search } from "./engine/search.js";
@@ -21,6 +24,7 @@ import { checkKnowledge, runWebResearchAndPersist } from "./engine/research.js";
 import { enqueueTopic, drainQueue } from "./engine/research-queue.js";
 import { consolidateProject, consolidateFromExistingKnowledge } from "./engine/consolidate.js";
 import { startCodingTask, getCodingTask } from "./lib/coding-orchestrator-client.js";
+import { createEntity } from "./engine/entities.js";
 
 const config = loadConfig(process.env);
 
@@ -560,6 +564,86 @@ app.post("/projects/:id/complete", async (req, res) => {
     res.json({ ...updated, documentId: result.documentId });
   } catch (e) {
     console.error(`failed to complete project ${projectId}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /entities - Phase 1 of the "Amy's world" rework (23-create-entities-
+// table.sql / engine/entities.ts): register a durable thing and write its
+// backing file. Currently only called from consolidate.ts on project
+// completion - no chat-invoked tool wraps this yet, same "infra first,
+// tool wiring later" shape research-queue's own GET endpoint followed.
+app.post("/entities", async (req, res) => {
+  const body = req.body as {
+    type?: string;
+    name?: string;
+    description?: string;
+    status?: string;
+    sourceTable?: string;
+    sourceId?: string;
+    metadata?: Record<string, unknown>;
+  };
+  if (!body.type || typeof body.type !== "string") {
+    return res.status(400).json({ error: "type is required" });
+  }
+  if (!body.name || typeof body.name !== "string") {
+    return res.status(400).json({ error: "name is required" });
+  }
+  try {
+    const entity = await createEntity(config, {
+      type: body.type,
+      name: body.name,
+      description: body.description,
+      status: body.status,
+      sourceTable: body.sourceTable,
+      sourceId: body.sourceId,
+      metadata: body.metadata,
+    });
+    res.status(201).json(entity);
+  } catch (e) {
+    console.error("failed to create entity:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// GET /entities?type= - list, for debugging/ops, same pattern as GET
+// /research-queue.
+app.get("/entities", async (req, res) => {
+  const type = typeof req.query.type === "string" ? req.query.type : undefined;
+  try {
+    const entities = await listEntities(config, type);
+    res.json({ entities });
+  } catch (e) {
+    console.error("failed to list entities:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+app.get("/entities/:id", async (req, res) => {
+  try {
+    const entity = await getEntity(config, req.params.id);
+    if (!entity) return res.status(404).json({ error: `entity ${req.params.id} not found` });
+    res.json(entity);
+  } catch (e) {
+    console.error(`failed to get entity ${req.params.id}:`, e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+app.patch("/entities/:id", async (req, res) => {
+  const body = req.body as Partial<{
+    status: string;
+    description: string;
+    sourcePath: string;
+    graphitiId: string;
+    metadata: Record<string, unknown>;
+  }>;
+  try {
+    const entity = await updateEntity(config, req.params.id, body);
+    if (!entity) return res.status(404).json({ error: `entity ${req.params.id} not found` });
+    res.json(entity);
+  } catch (e) {
+    console.error(`failed to update entity ${req.params.id}:`, e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

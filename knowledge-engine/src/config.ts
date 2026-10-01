@@ -83,6 +83,12 @@ export interface Config {
   // extractUrl falls back to its own plain fetch()+JSDOM+Readability path
   // if this is genuinely unreachable, so this is not a hard dependency.
   scraplingServiceUrl: string;
+  // Phase 1 of the "Amy's world" rework (docs/knowledge-engine.md) - the
+  // durable, human-readable file each `entities` row can point at via
+  // source_path (see engine/entities.ts). Bind-mounted host directory, not
+  // a named Postgres-style data volume - see docker-compose.yml's
+  // knowledge-engine service.
+  knowledgeStorePath: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -125,5 +131,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     researchQueueDrainLimit: env.RESEARCH_QUEUE_DRAIN_LIMIT ? Number(env.RESEARCH_QUEUE_DRAIN_LIMIT) : 3,
     graphitiServiceUrl: env.GRAPHITI_SERVICE_URL || "http://graphiti-service:3012",
     scraplingServiceUrl: env.SCRAPLING_SERVICE_URL || "http://scrapling-service:3013",
+    knowledgeStorePath: env.KNOWLEDGE_STORE_PATH || "/data/knowledge-store",
   };
 }
