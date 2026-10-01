@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ChatMessage, HonchoMessage, N8nStreamEvent } from "@/types/chat";
-import { classifyTool } from "@/lib/step-classifier";
+import { isRetryEvent, reduceMessage as reduceMessageEvent } from "@/lib/message-reducer";
 
 function honchoMessagesToChat(messages: HonchoMessage[]): ChatMessage[] {
   return messages.map((m) => ({
@@ -60,71 +60,19 @@ export function useChat(sessionId: string) {
       // definitive answer synchronously once the reader loop finishes.
       let accumulatedContent = "";
 
-      // Pure per-event reducer, pulled out of applyEvent so a whole batch of
-      // queued events (see below) can be folded into one message object
-      // before a single setMessages commit, instead of one commit per event.
+      // The actual reducer logic lives in lib/message-reducer.ts (pure, no
+      // React/DOM - testable on its own, see its test file). This wrapper
+      // just keeps accumulatedContent in sync, since that's tracked outside
+      // the pure reducer for the end-of-stream blank-message check below.
       const reduceMessage = (m: ChatMessage, event: N8nStreamEvent): ChatMessage => {
-        const steps = [...(m.steps ?? [])];
-        const rawEvents = [...(m.rawEvents ?? []), event];
-        const { nodeId, nodeName, timestamp } = event.metadata;
-
-        if (event.type === "item" || event.type === "ack") {
-          // AI Agent's streamed tokens are the actual reply text - "ack" is
-          // a deterministic, server-emitted acknowledgment for a slow turn
-          // (see types/chat.ts), rendered the same way: the leading
-          // sentence(s) of the same growing reply, no separate UI needed.
-          if (nodeName === "AI Agent" && event.content) {
-            accumulatedContent += event.content;
-            return { ...m, content: m.content + event.content, rawEvents };
-          }
-          return { ...m, rawEvents };
+        if (
+          (event.type === "item" || event.type === "ack") &&
+          event.metadata.nodeName === "AI Agent" &&
+          event.content
+        ) {
+          accumulatedContent += event.content;
         }
-
-        if (event.type === "trace" && event.trace) {
-          const trace = [...(m.trace ?? []), event.trace];
-
-          if (event.trace.kind === "tool_call") {
-            const { attempt, iteration, name } = event.trace;
-            const key = `${attempt}:${iteration}:${name}`;
-            const { kind, label } = classifyTool(name);
-            openSteps.set(key, steps.length);
-            steps.push({
-              nodeId: key,
-              nodeName: name,
-              kind,
-              label,
-              status: "running",
-              startedAt: timestamp,
-            });
-          }
-
-          if (event.trace.kind === "tool_result") {
-            const { attempt, iteration, name, isError } = event.trace;
-            const key = `${attempt}:${iteration}:${name}`;
-            const idx = openSteps.get(key);
-            if (idx !== undefined && steps[idx]) {
-              steps[idx] = { ...steps[idx], status: isError ? "error" : "done", finishedAt: timestamp };
-              openSteps.delete(key);
-            }
-          }
-
-          return { ...m, steps, rawEvents, trace };
-        }
-
-        if (event.type === "error") {
-          steps.push({
-            nodeId,
-            nodeName,
-            kind: "other",
-            label: "Something went wrong",
-            status: "error",
-            startedAt: timestamp,
-            finishedAt: timestamp,
-          });
-          return { ...m, steps, rawEvents };
-        }
-
-        return { ...m, rawEvents };
+        return reduceMessageEvent(m, event, openSteps);
       };
 
       // Real, live-verified finding: chat-orchestrator (the previous
@@ -153,6 +101,14 @@ export function useChat(sessionId: string) {
         );
       };
       const applyEvent = (event: N8nStreamEvent) => {
+        // Mirrors reduceMessage's own content reset on a retry trace event -
+        // accumulatedContent is tracked outside the pure reducer, so it
+        // needs its own reset here to match, or the end-of-stream
+        // blank-message check below could still think the turn produced
+        // real content from an attempt that was actually discarded.
+        if (isRetryEvent(event)) {
+          accumulatedContent = "";
+        }
         pending.push(event);
         if (!flushScheduled) {
           flushScheduled = true;
