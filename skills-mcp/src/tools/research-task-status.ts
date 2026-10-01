@@ -72,7 +72,9 @@ export function registerResearchTaskStatus(server: McpServer, config: Config, ch
         "were given, note there's more if `moreFindingsCount` is set, and include `documentUrl` " +
         "so the user can read the rest there. If `progressNote` is present, relay it honestly — " +
         "it means the status is still in-progress with nothing for the user to do; don't invent " +
-        "your own 'waiting on you' framing when this field is absent from a finished result.",
+        "your own 'waiting on you' framing when this field is absent from a finished result. A " +
+        "finding with confidence 'unverified' could not be confirmed against anything actually " +
+        "fetched — never present it as settled; say plainly it's unconfirmed, or leave it out.",
       inputSchema: {
         topic: z
           .string()

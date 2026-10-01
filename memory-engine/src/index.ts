@@ -15,8 +15,24 @@ app.use(express.json({ limit: "1mb" }));
 // deliberate v1 scope decision (see the architecture plan's Phase 7) -
 // curation/confidence/supersession is a refinement on top of this store,
 // not a prerequisite for it being useful.
+// Deterministic provenance tag computed by the caller (agent-service's
+// safety_net.classify_memory_grounding / chat-orchestrator's
+// classifyMemoryGrounding) - memory-engine stays a thin, policy-agnostic
+// store and just validates against the known set, same spirit as role
+// above. A missing/invalid value defaults to the conservative 'ungrounded'
+// rather than trusting an unrecognized value (e.g. mid-rollout version
+// skew on a caller that hasn't been redeployed yet).
+const ALLOWED_GROUNDING = new Set(["tool_verified", "user_stated", "ungrounded"]);
+
 app.post("/ingest", async (req, res) => {
-  const body = req.body as { sessionId?: string; role?: string; content?: string; domain?: string; taskContextId?: number };
+  const body = req.body as {
+    sessionId?: string;
+    role?: string;
+    content?: string;
+    domain?: string;
+    taskContextId?: number;
+    grounding?: string;
+  };
   if (!body.sessionId || typeof body.sessionId !== "string") {
     return res.status(400).json({ error: "sessionId is required" });
   }
@@ -26,6 +42,7 @@ app.post("/ingest", async (req, res) => {
   if (!body.content || typeof body.content !== "string" || !body.content.trim()) {
     return res.status(400).json({ error: "content is required" });
   }
+  const grounding = body.grounding && ALLOWED_GROUNDING.has(body.grounding) ? body.grounding : "ungrounded";
 
   try {
     const embedding = await embedText(config, body.content);
@@ -36,6 +53,7 @@ app.post("/ingest", async (req, res) => {
       embedding,
       domain: body.domain,
       taskContextId: body.taskContextId,
+      grounding,
     });
     res.status(201).json({ id: entry.id });
   } catch (e) {
@@ -81,6 +99,7 @@ app.post("/search", async (req, res) => {
       score: r.rrf_score,
       keywordOverlapCount: r.keyword_overlap_count,
       queryLexemeCount: r.query_lexeme_count,
+      grounding: r.grounding,
     }));
     res.json({ results });
   } catch (e) {

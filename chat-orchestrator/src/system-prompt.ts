@@ -13,8 +13,14 @@ export function buildSystemPrompt(input: {
   // here: given something, render it; given nothing, omit the section
   // entirely. Distinct from userCard (a general evolving profile) - these
   // are specific past turns relevant to *this* message, from
-  // memory-engine's automatic cross-conversation retrieval.
-  relevantMemories?: string[];
+  // memory-engine's automatic cross-conversation retrieval. Each carries a
+  // grounding tag ('tool_verified' | 'user_stated' | 'ungrounded', see
+  // safety-net.ts's classifyMemoryGrounding) computed deterministically at
+  // write time - rendered below with an explicit caveat when ungrounded,
+  // since the real incident this exists to prevent was a fabricated claim
+  // silently retrieved and cited as "confirmed research" in a later,
+  // unrelated conversation.
+  relevantMemories?: { content: string; grounding: string }[];
   // Injected regardless of memoryPolicy (directly actionable state, not
   // ambient personalization - see the architecture plan's context-
   // assembly pipeline), but lexeme-matched to the current message
@@ -98,8 +104,13 @@ export function buildSystemPrompt(input: {
     ? `Standing instructions from the user about how you should behave: ${input.userCardForAmy.join("; ")}`
     : "";
 
+  const formatMemoryLine = (m: { content: string; grounding: string }) =>
+    m.grounding === "ungrounded"
+      ? `- [unverified - not confirmed by a tool this turn, don't repeat as settled fact] ${m.content}`
+      : `- ${m.content}`;
+
   const relevantMemoriesLine = input.relevantMemories?.length
-    ? `Possibly relevant things from earlier conversations:\n${input.relevantMemories.map((m) => `- ${m}`).join("\n")}`
+    ? `Possibly relevant things from earlier conversations:\n${input.relevantMemories.map(formatMemoryLine).join("\n")}`
     : "";
 
   // "task #N" / "goal #N", not a bare "#N" - real bug found via live

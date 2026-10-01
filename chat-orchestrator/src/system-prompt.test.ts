@@ -76,10 +76,45 @@ test("buildSystemPrompt includes relevantMemories when populated", () => {
     userCard: [],
     userCardForAmy: [],
     skillsCatalogText: "",
-    relevantMemories: ["mentioned a fuel sender issue on the 987"],
+    relevantMemories: [{ content: "mentioned a fuel sender issue on the 987", grounding: "user_stated" }],
   });
   assert.ok(prompt.includes("Possibly relevant things from earlier conversations:"));
   assert.ok(prompt.includes("- mentioned a fuel sender issue on the 987"));
+});
+
+// Real incident that motivated this: an invented, plausible-sounding API
+// name written with zero tool calls got stored into memory, then retrieved
+// and cited as "confirmed research" in a later, unrelated conversation. An
+// ungrounded memory must render with an explicit unverified caveat so the
+// model doesn't repeat it as settled fact.
+test("buildSystemPrompt renders an ungrounded memory with an unverified caveat", () => {
+  const prompt = buildSystemPrompt({
+    personaSystemPrompt: "You are Amy.",
+    now: new Date("2026-09-21T12:00:00Z"),
+    userCard: [],
+    userCardForAmy: [],
+    skillsCatalogText: "",
+    relevantMemories: [{ content: "Qwen3.8-LiveTranslate API supports WebRTC", grounding: "ungrounded" }],
+  });
+  assert.ok(prompt.includes("[unverified"));
+  assert.ok(prompt.includes("Qwen3.8-LiveTranslate API supports WebRTC"));
+});
+
+test("buildSystemPrompt renders tool_verified and user_stated memories without a caveat", () => {
+  const prompt = buildSystemPrompt({
+    personaSystemPrompt: "You are Amy.",
+    now: new Date("2026-09-21T12:00:00Z"),
+    userCard: [],
+    userCardForAmy: [],
+    skillsCatalogText: "",
+    relevantMemories: [
+      { content: "checked the calendar and found a conflict", grounding: "tool_verified" },
+      { content: "said they prefer mornings", grounding: "user_stated" },
+    ],
+  });
+  assert.ok(!prompt.includes("[unverified"));
+  assert.ok(prompt.includes("- checked the calendar and found a conflict"));
+  assert.ok(prompt.includes("- said they prefer mornings"));
 });
 
 test("buildSystemPrompt includes open tasks and relevant goals when present", () => {

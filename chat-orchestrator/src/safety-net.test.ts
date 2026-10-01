@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isConfabulatedAction, hasUnfulfilledSearchIntent, hasUnsatisfiedRequiredTool } from "./safety-net.js";
+import {
+  isConfabulatedAction,
+  hasUnfulfilledSearchIntent,
+  hasUnsatisfiedRequiredTool,
+  classifyMemoryGrounding,
+} from "./safety-net.js";
 
 test("isConfabulatedAction flags a claimed action with no matching tool call", () => {
   assert.equal(
@@ -111,4 +116,20 @@ test("hasUnsatisfiedRequiredTool still flags an unrelated group even if task_con
     ),
     true,
   );
+});
+
+// Real incident that motivated this: an invented, plausible-sounding API
+// name written with zero tool calls got stored into memory, then retrieved
+// and cited as "confirmed research" in later unrelated conversations.
+test("classifyMemoryGrounding always tags a user role as user_stated", () => {
+  assert.equal(classifyMemoryGrounding("user", []), "user_stated");
+  assert.equal(classifyMemoryGrounding("user", ["web_search"]), "user_stated");
+});
+
+test("classifyMemoryGrounding tags an assistant reply with a tool call as tool_verified", () => {
+  assert.equal(classifyMemoryGrounding("assistant", ["web_search"]), "tool_verified");
+});
+
+test("classifyMemoryGrounding tags an assistant reply with no tool calls as ungrounded", () => {
+  assert.equal(classifyMemoryGrounding("assistant", []), "ungrounded");
 });

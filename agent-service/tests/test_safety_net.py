@@ -6,6 +6,7 @@ separately fabricated a specific progress breakdown after a real status
 tool call that never returned it."""
 
 from src.safety_net import (
+    classify_memory_grounding,
     has_fabricated_id_reference,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
@@ -154,3 +155,19 @@ def test_has_fabricated_id_reference_does_not_flag_reply_with_no_id_reference():
         has_fabricated_id_reference("It's still running.", ["code_task_status"], tool_results)
         is False
     )
+
+
+# Real incident that motivated this: an invented, plausible-sounding API
+# name written with zero tool calls got stored into memory, then retrieved
+# and cited as "confirmed research" in later unrelated conversations.
+def test_classify_memory_grounding_user_role_is_always_user_stated():
+    assert classify_memory_grounding("user", []) == "user_stated"
+    assert classify_memory_grounding("user", ["web_search"]) == "user_stated"
+
+
+def test_classify_memory_grounding_assistant_with_tools_is_tool_verified():
+    assert classify_memory_grounding("assistant", ["web_search"]) == "tool_verified"
+
+
+def test_classify_memory_grounding_assistant_with_no_tools_is_ungrounded():
+    assert classify_memory_grounding("assistant", []) == "ungrounded"

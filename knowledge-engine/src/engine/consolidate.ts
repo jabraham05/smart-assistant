@@ -112,9 +112,16 @@ async function consolidateResearchProject(config: Config, project: db.ProjectRow
     throw new Error(`research session ${project.research_session_id} has no document to write onto`);
   }
 
-  const findingsText = detail.findings.length
-    ? detail.findings.map((f, i) => `${i + 1}. [${f.confidence}] ${f.claim}`).join("\n")
-    : "(no findings were recorded)";
+  // Excludes unverified findings rather than relying on the synthesis
+  // prompt's existing "do not invent facts" instruction alone - an
+  // unverified claim fed in alongside verified ones could get smoothed
+  // into the final markdown's prose and lose its tag entirely, the same
+  // "prompt alone isn't reliable enough" lesson this codebase keeps
+  // re-learning.
+  const groundedFindings = detail.findings.filter((f) => f.confidence !== "unverified");
+  const findingsText = groundedFindings.length
+    ? groundedFindings.map((f, i) => `${i + 1}. [${f.confidence}] ${f.claim}`).join("\n")
+    : "(no verified findings were recorded)";
 
   const markdown = await synthesizeMarkdown(
     config,

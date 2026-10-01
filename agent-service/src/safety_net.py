@@ -169,3 +169,21 @@ FABRICATED_ID_NUDGE = (
     "actually returned - re-check the real tool result and answer only with ids/details it actually "
     "contains, or say clearly that you don't have that specific information.)"
 )
+
+# Deterministic provenance tag for a memory_entries write - real incident
+# that motivated this: an invented, plausible-sounding API name ("Qwen3.8-
+# LiveTranslate API") written with zero tool calls got stored into memory,
+# then retrieved and cited as "confirmed research" in later unrelated
+# conversations, compounding across 17 memory rows over 9 days before being
+# found and purged. NOT a truth check (a tool call doesn't guarantee the
+# reply is correct) - just a provenance signal distinguishing open-book
+# turns from the model's own generated prose, at the same turn-level
+# granularity as is_confabulated_action/has_fabricated_id_reference above.
+def classify_memory_grounding(role: str, called_tools: list[str]) -> str:
+    """role='user' is the user's own statement, never penalized for zero
+    tool activity (most user turns have none - that's normal, not a
+    grounding failure). role='assistant' is tool_verified only if at least
+    one tool was actually called this turn, else ungrounded."""
+    if role == "user":
+        return "user_stated"
+    return "tool_verified" if called_tools else "ungrounded"

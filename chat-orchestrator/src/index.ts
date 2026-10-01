@@ -16,6 +16,7 @@ import {
   hasUnfulfilledSearchIntent,
   isConfabulatedAction,
   hasUnsatisfiedRequiredTool,
+  classifyMemoryGrounding,
   SEARCH_RETRY_NUDGE,
   REQUIRED_TOOL_RETRY_NUDGE,
   REQUIRED_TOOL_FAILURE_MESSAGE,
@@ -166,7 +167,7 @@ app.post("/webhook", async (req, res) => {
         ? []
         : memoryResults
             .filter((m) => isRelevantMemory(m, config.memoryMinRelevanceScore, config.memoryMinKeywordOverlap))
-            .map((m) => m.content);
+            .map((m) => ({ content: m.content, grounding: m.grounding }));
 
     console.log(
       `chat classify [${sessionId}]: groups=${relevantGroups.join(",") || "(none)"} ` +
@@ -390,8 +391,24 @@ app.post("/webhook", async (req, res) => {
     await Promise.all([
       honcho.storeTurn(config, sessionId, chatInput, finalText),
       sessionMemory.appendTurn(config, sessionId, chatInput, finalText),
-      ingestMemory(config, sessionId, "user", chatInput, memoryDomain, memoryTaskContextId),
-      ingestMemory(config, sessionId, "assistant", finalText, memoryDomain, memoryTaskContextId),
+      ingestMemory(
+        config,
+        sessionId,
+        "user",
+        chatInput,
+        memoryDomain,
+        memoryTaskContextId,
+        classifyMemoryGrounding("user", calledTools),
+      ),
+      ingestMemory(
+        config,
+        sessionId,
+        "assistant",
+        finalText,
+        memoryDomain,
+        memoryTaskContextId,
+        classifyMemoryGrounding("assistant", calledTools),
+      ),
     ]);
   } catch (e) {
     console.error(`chat turn failed for session ${sessionId}:`, e);
