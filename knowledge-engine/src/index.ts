@@ -24,7 +24,7 @@ import { checkKnowledge, runWebResearchAndPersist } from "./engine/research.js";
 import { enqueueTopic, drainQueue } from "./engine/research-queue.js";
 import { consolidateProject, consolidateFromExistingKnowledge } from "./engine/consolidate.js";
 import { startCodingTask, getCodingTask } from "./lib/coding-orchestrator-client.js";
-import { createEntity } from "./engine/entities.js";
+import { createEntity, readEntityFile } from "./engine/entities.js";
 
 const config = loadConfig(process.env);
 
@@ -619,11 +619,16 @@ app.get("/entities", async (req, res) => {
   }
 });
 
+// Includes the backing file's raw content (undefined if the entity has no
+// source_path or the file is missing) - the one piece GET /entities (list)
+// deliberately omits, since the dashboard's list view only needs it once a
+// specific entity is selected (see chat-ui's EntitiesView).
 app.get("/entities/:id", async (req, res) => {
   try {
     const entity = await getEntity(config, req.params.id);
     if (!entity) return res.status(404).json({ error: `entity ${req.params.id} not found` });
-    res.json(entity);
+    const content = await readEntityFile(config, entity);
+    res.json({ ...entity, content: content ?? null });
   } catch (e) {
     console.error(`failed to get entity ${req.params.id}:`, e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });

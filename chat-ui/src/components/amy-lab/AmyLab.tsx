@@ -6,16 +6,18 @@ import { useEvents } from "@/hooks/useEvents";
 import { SessionList } from "@/components/chat/SessionList";
 import { EventLogPanel } from "@/components/chat/EventLogPanel";
 import { KnowledgeGraphView } from "@/components/amy-lab/KnowledgeGraphView";
+import { EntitiesView } from "@/components/amy-lab/EntitiesView";
 import { CodingProjectBreakdown } from "@/components/amy-lab/CodingProjectBreakdown";
 import { SuggestedUpgrades } from "@/components/amy-lab/SuggestedUpgrades";
 import type { EventBusEvent } from "@/types/chat";
 
-type Tab = "trace" | "system-prompt" | "knowledge-graph" | "coding-projects" | "suggested-upgrades";
+type Tab = "trace" | "system-prompt" | "knowledge-graph" | "growth" | "coding-projects" | "suggested-upgrades";
 
 const TAB_LABELS: Record<Tab, string> = {
   trace: "Trace",
   "system-prompt": "System Prompt",
   "knowledge-graph": "Knowledge Graph",
+  growth: "Growth",
   "coding-projects": "Coding Projects",
   "suggested-upgrades": "Suggested Upgrades",
 };
@@ -179,7 +181,7 @@ export function AmyLab() {
       />
       <div className="flex flex-1 flex-col">
         <div className="flex items-center gap-1 border-b border-white/10 px-4 py-2">
-          {(["trace", "system-prompt", "knowledge-graph", "coding-projects", "suggested-upgrades"] as Tab[]).map((t) => (
+          {(["trace", "system-prompt", "knowledge-graph", "growth", "coding-projects", "suggested-upgrades"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -236,6 +238,8 @@ export function AmyLab() {
           )}
 
           {tab === "knowledge-graph" && <KnowledgeGraphView />}
+
+          {tab === "growth" && <EntitiesView />}
 
           {tab === "coding-projects" && <CodingProjectBreakdown />}
 
