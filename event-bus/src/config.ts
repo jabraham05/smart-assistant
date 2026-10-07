@@ -15,6 +15,8 @@ export interface Config {
   // How many days of no goal_progress_log activity before the nudge
   // workflow considers a goal stale.
   goalStaleDays: number;
+  // Same idea, for task_contexts - see getStaleTasks/POST /tasks/nudge-check.
+  taskStaleDays: number;
   // How many chat.message_received events must accumulate since
   // scanner_state's last_run before /skill-gap-check tells
   // skill_gap_scanner it's actually worth running its Honcho+Ollama
@@ -102,6 +104,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     honchoApiKey: env.HONCHO_API_KEY || undefined,
     honchoWorkspaceId: env.HONCHO_WORKSPACE_ID || "smart-assistant",
     goalStaleDays: env.GOAL_STALE_DAYS ? Number(env.GOAL_STALE_DAYS) : 7,
+    taskStaleDays: env.TASK_STALE_DAYS ? Number(env.TASK_STALE_DAYS) : 7,
     skillGapCheckMessages: env.SKILL_GAP_CHECK_MESSAGES ? Number(env.SKILL_GAP_CHECK_MESSAGES) : 10,
     discordBotToken: env.DISCORD_BOT_TOKEN || undefined,
     discordAllowedUserId: env.DISCORD_ALLOWED_USER_ID || undefined,

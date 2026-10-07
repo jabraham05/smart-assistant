@@ -1,4 +1,4 @@
-import type { EventBusEvent, HomeActivityItem, HomeSummary, TaskContext, TaskContextActivity } from "@/types/chat";
+import type { EventBusEvent, Goal, HomeActivityItem, HomeSummary, TaskContext, TaskContextActivity } from "@/types/chat";
 
 // Server-side only, same "no client-side secrets/URLs" shape as
 // honcho-client.ts - event-bus is internal-only (no published port), so
@@ -99,6 +99,21 @@ export async function updateTodo(
   });
   if (!res.ok) {
     throw new Error(`event-bus PATCH /task-contexts/${id} failed with ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function updateGoal(
+  id: number,
+  fields: Partial<Pick<Goal, "title" | "description" | "status">>,
+): Promise<Goal> {
+  const res = await fetch(`${EVENT_BUS_URL}/goals/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) {
+    throw new Error(`event-bus PATCH /goals/${id} failed with ${res.status}`);
   }
   return res.json();
 }

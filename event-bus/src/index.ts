@@ -362,14 +362,27 @@ app.patch("/task-contexts/:id", async (req, res) => {
   if (!Number.isInteger(taskContextId)) {
     return res.status(400).json({ error: "invalid task context id" });
   }
-  const body = req.body as { objective?: string; capability?: string; domain?: string; status?: string };
+  const body = req.body as {
+    objective?: string;
+    capability?: string;
+    domain?: string;
+    status?: string;
+    facts?: unknown[];
+    assumptions?: unknown[];
+    unknowns?: unknown[];
+    nextAction?: string;
+  };
 
   try {
     const existing = await db.getTaskContext(config, taskContextId);
     if (!existing) {
       return res.status(404).json({ error: `task context ${taskContextId} not found` });
     }
-    const updated = await db.updateTaskContext(config, taskContextId, body);
+    const { nextAction, ...rest } = body;
+    const updated = await db.updateTaskContext(config, taskContextId, {
+      ...rest,
+      ...(nextAction !== undefined ? { next_action: nextAction } : {}),
+    });
     res.json(updated);
 
     // Only a real status transition counts as feed-worthy "task updated" -
@@ -615,6 +628,41 @@ app.post("/goals/nudge-check", async (_req, res) => {
     res.json({ staleCount: stale.length, notified, skipped });
   } catch (e) {
     console.error("failed to run goals nudge-check:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /tasks/nudge-check - same shape and same cron-only-triggers-it
+// contract as /goals/nudge-check, extended to task_contexts now that Amy
+// can keep a task's facts/nextAction genuinely current via
+// task_context_manage's action='update' (see skills-mcp's tool). Including
+// nextAction in the message (when she's actually recorded one) is the
+// whole point of this nudge over a generic "still working on it?" ping -
+// it reflects what Amy actually knows about the task, not just its title.
+app.post("/tasks/nudge-check", async (_req, res) => {
+  try {
+    const stale = await db.getStaleTasks(config, config.taskStaleDays);
+    let notified = 0;
+    let skipped = 0;
+
+    for (const task of stale) {
+      if (!task.origin_session_id) {
+        console.log(`nudge-check: skipping task ${task.id} ("${task.objective}") - no origin_session_id`);
+        skipped++;
+        continue;
+      }
+      const message = task.next_action
+        ? `Just checking in — task #${task.id} ("${task.objective}") hasn't moved in a while. ` +
+          `Next step was: ${task.next_action}. Still working on it, or should I mark it done/abandoned?`
+        : `Just checking in — task #${task.id} ("${task.objective}") hasn't moved in a while. ` +
+          `Still working on it, or should I mark it done/abandoned?`;
+      await notifySession(config, task.origin_session_id, message);
+      notified++;
+    }
+
+    res.json({ staleCount: stale.length, notified, skipped });
+  } catch (e) {
+    console.error("failed to run tasks nudge-check:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

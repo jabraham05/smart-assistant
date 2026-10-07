@@ -30,6 +30,14 @@ export default async function TaskDetailPage({ params }: { params: Promise<{ id:
         <p className="mt-3 text-sm text-zinc-300">Next: {taskContext.next_action}</p>
       )}
 
+      {/* What Amy actually knows about this task, kept current via
+          task_context_manage's action='update' - read-only here since Amy,
+          not the user, is meant to maintain it (see skills-mcp's tool
+          description); this is purely a window into that, not an editor. */}
+      <DetailList label="Facts" items={taskContext.facts} />
+      <DetailList label="Assumptions" items={taskContext.assumptions} />
+      <DetailList label="Open questions" items={taskContext.unknowns} />
+
       <p className="mt-8 mb-3 font-mono text-[10px] font-medium uppercase tracking-wide text-zinc-500">Activity</p>
       {items.length === 0 ? (
         <p className="text-sm text-zinc-500">Nothing recorded for this task yet.</p>
@@ -41,6 +49,20 @@ export default async function TaskDetailPage({ params }: { params: Promise<{ id:
         </ul>
       )}
     </main>
+  );
+}
+
+function DetailList({ label, items }: { label: string; items: string[] | null | undefined }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="mt-4">
+      <p className="mb-1.5 font-mono text-[10px] font-medium uppercase tracking-wide text-zinc-500">{label}</p>
+      <ul className="list-inside list-disc space-y-0.5 text-sm text-zinc-300">
+        {items.map((item, i) => (
+          <li key={i}>{item}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
