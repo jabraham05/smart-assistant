@@ -4,34 +4,37 @@
   "demos": [
     {
       "augmented": true,
-      "message": "what's 47 times 23?",
-      "relevant_groups": []
-    },
-    {
-      "augmented": true,
-      "message": "what goals am I tracking right now?",
+      "message": "search the web for today's news and add a calendar reminder for the debate at 8pm",
       "relevant_groups": [
-        "goals"
-      ]
-    },
-    {
-      "augmented": true,
-      "message": "what have you already learned about Warframe builds?",
-      "relevant_groups": [
-        "knowledge"
-      ]
-    },
-    {
-      "augmented": true,
-      "message": "schedule Resident Evil Wednesday at 7pm",
-      "relevant_groups": [
+        "web",
         "scheduling"
       ]
     },
     {
+      "augmented": true,
       "message": "do some deep research on home battery backup systems and save it for later",
       "relevant_groups": [
         "research"
+      ]
+    },
+    {
+      "augmented": true,
+      "message": "what's going on with the housing market lately?",
+      "relevant_groups": [
+        "web"
+      ]
+    },
+    {
+      "augmented": true,
+      "message": "start a coding task to fix the login bug in my repo",
+      "relevant_groups": [
+        "self-growth"
+      ]
+    },
+    {
+      "message": "what's the latest with the NBA playoffs?",
+      "relevant_groups": [
+        "web"
       ]
     },
     {
@@ -41,17 +44,14 @@
       ]
     },
     {
-      "message": "start a coding task to fix the login bug in my repo",
+      "message": "can you learn a new skill for tracking my workouts?",
       "relevant_groups": [
         "self-growth"
       ]
     },
     {
-      "message": "play some music and also tell me the weather",
-      "relevant_groups": [
-        "media",
-        "info"
-      ]
+      "message": "what's 47 times 23?",
+      "relevant_groups": []
     }
   ],
   "signature": {
