@@ -8,6 +8,7 @@ tool call that never returned it."""
 from src.safety_net import (
     classify_memory_grounding,
     has_fabricated_id_reference,
+    has_status_narration_mismatch,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
     is_confabulated_action,
@@ -153,6 +154,53 @@ def test_has_fabricated_id_reference_does_not_flag_reply_with_no_id_reference():
     tool_results = ['{"found": true, "status": "running"}']
     assert (
         has_fabricated_id_reference("It's still running.", ["code_task_status"], tool_results)
+        is False
+    )
+
+
+# has_status_narration_mismatch - real, evidenced gap: asked about coding
+# task #53's status four days after it was actually Reviewer-approved and
+# merged, the model called the real status tool and still replied "failed
+# after 3 iterations... waiting for your input", contradicting the tool's
+# own real result.
+def test_has_status_narration_mismatch_flags_failure_language_contradicting_a_positive_result():
+    tool_results = ['{"found": true, "status": "proposed", "reviewerVerdict": "approve"}']
+    assert (
+        has_status_narration_mismatch(
+            "That task failed after 3 iterations and is waiting for your input.",
+            ["code_task_status"],
+            tool_results,
+        )
+        is True
+    )
+
+
+def test_has_status_narration_mismatch_does_not_flag_when_reply_matches_a_genuine_failure():
+    tool_results = ['{"found": true, "status": "needs_review_failed"}']
+    assert (
+        has_status_narration_mismatch(
+            "That task failed after 3 iterations and is waiting for your input.",
+            ["code_task_status"],
+            tool_results,
+        )
+        is False
+    )
+
+
+def test_has_status_narration_mismatch_does_not_flag_accurate_positive_narration():
+    tool_results = ['{"found": true, "status": "done", "reviewerVerdict": "approve"}']
+    assert (
+        has_status_narration_mismatch("That task is done and merged.", ["code_task_status"], tool_results)
+        is False
+    )
+
+
+def test_has_status_narration_mismatch_does_not_flag_when_no_lookup_tool_called():
+    # Same reasoning as has_fabricated_id_reference: narrating stale status
+    # from earlier conversation history without a fresh lookup this turn is
+    # a different problem, not this check's.
+    assert (
+        has_status_narration_mismatch("That task failed and is waiting for your input.", [], [])
         is False
     )
 

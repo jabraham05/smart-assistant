@@ -5,7 +5,10 @@
 // not less. Same node:test convention skills-mcp already uses.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { findMockLanguageMarkers, findOrphanedTestFiles, isApproved } from "./pipeline.js";
+import { advanceAttemptLoop, findMockLanguageMarkers, findOrphanedTestFiles, isApproved } from "./pipeline.js";
+import type { AttemptLoopState } from "./pipeline.js";
+
+const LOOP_CONFIG = { maxAttempts: 3, maxInfraRetries: 2 };
 
 function diffFor(files: string[]): string {
   return files.map((f) => `+++ b/${f}\n@@ -0,0 +1,3 @@\n+// content`).join("\n");
@@ -76,4 +79,83 @@ test("isApproved is false for a partial approval whose tests didn't actually pas
 test("isApproved is false for retry/give_up regardless of test exit code", () => {
   assert.equal(isApproved("retry", 0), false);
   assert.equal(isApproved("give_up", 0), false);
+});
+
+// advanceAttemptLoop: the real fix for task #53's attempts 1-2, both pure
+// infra failures (Coder exhausted iterations, Tester produced no output)
+// that burned real attempt budget identically to a genuine Reviewer
+// rejection, leaving only attempt 3 to ever do real work.
+
+test("advanceAttemptLoop retries the SAME attempt on an infra failure, within the infra-retry budget", () => {
+  const state: AttemptLoopState = { attempt: 1, infraRetries: 0 };
+  const { next, shouldBreak } = advanceAttemptLoop(state, { kind: "infra_failure" }, LOOP_CONFIG);
+  assert.deepEqual(next, { attempt: 1, infraRetries: 1 });
+  assert.equal(shouldBreak, false);
+});
+
+test("advanceAttemptLoop reproduces task #53 exactly: 2 consecutive infra failures (within budget) then a real attempt, using only attempt 1's slot", () => {
+  let state: AttemptLoopState = { attempt: 1, infraRetries: 0 };
+
+  // Attempt 1's Coder round: exhausted iterations, no output.
+  ({ next: state } = advanceAttemptLoop(state, { kind: "infra_failure" }, LOOP_CONFIG));
+  assert.deepEqual(state, { attempt: 1, infraRetries: 1 });
+
+  // Still attempt 1: Tester round produced no output.
+  ({ next: state } = advanceAttemptLoop(state, { kind: "infra_failure" }, LOOP_CONFIG));
+  assert.deepEqual(state, { attempt: 1, infraRetries: 2 });
+
+  // Still attempt 1: this time it runs end-to-end and gets approved.
+  const { next, shouldBreak } = advanceAttemptLoop(state, { kind: "approved" }, LOOP_CONFIG);
+  assert.deepEqual(next, { attempt: 1, infraRetries: 0 });
+  assert.equal(shouldBreak, true);
+});
+
+test("advanceAttemptLoop falls back to charging a real attempt once the infra-retry budget is exhausted", () => {
+  // maxInfraRetries: 2 - a third consecutive infra failure must finally cost a real attempt.
+  const state: AttemptLoopState = { attempt: 1, infraRetries: 2 };
+  const { next, shouldBreak } = advanceAttemptLoop(state, { kind: "infra_failure" }, LOOP_CONFIG);
+  assert.deepEqual(next, { attempt: 2, infraRetries: 0 });
+  assert.equal(shouldBreak, false);
+});
+
+test("advanceAttemptLoop stops (doesn't advance past maxAttempts) when infra budget is exhausted on the last attempt", () => {
+  const state: AttemptLoopState = { attempt: 3, infraRetries: 2 };
+  const { next, shouldBreak } = advanceAttemptLoop(state, { kind: "infra_failure" }, LOOP_CONFIG);
+  assert.deepEqual(next, { attempt: 3, infraRetries: 0 });
+  assert.equal(shouldBreak, true);
+});
+
+test("advanceAttemptLoop resets the infra-retry budget once a later attempt gets its own fresh start", () => {
+  // Attempt 2 shouldn't inherit attempt 1's spent infra budget.
+  const state: AttemptLoopState = { attempt: 2, infraRetries: 0 };
+  const { next } = advanceAttemptLoop(state, { kind: "infra_failure" }, LOOP_CONFIG);
+  assert.deepEqual(next, { attempt: 2, infraRetries: 1 });
+});
+
+test("advanceAttemptLoop stops immediately on approve, regardless of infra-retry count", () => {
+  const state: AttemptLoopState = { attempt: 2, infraRetries: 1 };
+  const { next, shouldBreak } = advanceAttemptLoop(state, { kind: "approved" }, LOOP_CONFIG);
+  assert.deepEqual(next, { attempt: 2, infraRetries: 0 });
+  assert.equal(shouldBreak, true);
+});
+
+test("advanceAttemptLoop advances to the next attempt on a genuine Reviewer retry verdict", () => {
+  const state: AttemptLoopState = { attempt: 1, infraRetries: 0 };
+  const { next, shouldBreak } = advanceAttemptLoop(state, { kind: "reviewer_retry" }, LOOP_CONFIG);
+  assert.deepEqual(next, { attempt: 2, infraRetries: 0 });
+  assert.equal(shouldBreak, false);
+});
+
+test("advanceAttemptLoop stops on a Reviewer retry verdict at the last attempt instead of advancing past maxAttempts", () => {
+  const state: AttemptLoopState = { attempt: 3, infraRetries: 0 };
+  const { next, shouldBreak } = advanceAttemptLoop(state, { kind: "reviewer_retry" }, LOOP_CONFIG);
+  assert.deepEqual(next, { attempt: 3, infraRetries: 0 });
+  assert.equal(shouldBreak, true);
+});
+
+test("advanceAttemptLoop stops immediately on a give_up/approve_partial-rejected verdict ('other_terminal')", () => {
+  const state: AttemptLoopState = { attempt: 1, infraRetries: 0 };
+  const { next, shouldBreak } = advanceAttemptLoop(state, { kind: "other_terminal" }, LOOP_CONFIG);
+  assert.deepEqual(next, { attempt: 1, infraRetries: 0 });
+  assert.equal(shouldBreak, true);
 });

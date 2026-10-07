@@ -19,6 +19,16 @@ export interface Config {
   coderMaxIterations: number;
   testerMaxIterations: number;
   maxAttempts: number;
+  // Real, evidenced gap (task #53): an infra-class failure (Coder/Tester
+  // producing no output even after their own inline retry - see
+  // runCoderRound/runTesterRound) used to consume a real attempt slot
+  // identically to a genuine Reviewer rejection, even though it carries
+  // zero signal about the actual code. Lets runTaskPipeline's outer loop
+  // retry the SAME attempt number up to this many times on an infra-class
+  // failure before falling back to charging a real attempt - bounded, same
+  // "can't loop forever" spirit as the CommandLimitExceededError hard-stop
+  // a few lines below it in pipeline.ts.
+  maxInfraRetries: number;
   postgres: {
     host: string;
     port: number;
@@ -62,6 +72,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     coderMaxIterations: env.CODING_CODER_MAX_ITERATIONS ? Number(env.CODING_CODER_MAX_ITERATIONS) : 25,
     testerMaxIterations: env.CODING_TESTER_MAX_ITERATIONS ? Number(env.CODING_TESTER_MAX_ITERATIONS) : 15,
     maxAttempts: env.CODING_MAX_ATTEMPTS ? Number(env.CODING_MAX_ATTEMPTS) : 3,
+    maxInfraRetries: env.CODING_MAX_INFRA_RETRIES ? Number(env.CODING_MAX_INFRA_RETRIES) : 2,
     postgres: {
       host: env.POSTGRES_HOST || "postgres",
       port: env.POSTGRES_PORT ? Number(env.POSTGRES_PORT) : 5432,
