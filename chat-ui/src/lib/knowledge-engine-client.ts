@@ -110,6 +110,54 @@ export interface KnowledgeSearchResult {
   score: number;
 }
 
+// Phase 1 of the "Amy's world" rework (see knowledge-engine's 23-create-
+// entities-table.sql) - a registry of durable things, independent of which
+// table/service produced them. Currently only `type: "project"` rows
+// exist (written by consolidate.ts on project completion); the dashboard's
+// Growth tab is written to show whatever types show up here, not just this
+// one.
+export interface Entity {
+  id: string;
+  type: string;
+  name: string;
+  description: string | null;
+  status: string | null;
+  source_table: string | null;
+  source_id: string | null;
+  source_path: string | null;
+  graphiti_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EntityDetail extends Entity {
+  // The backing file's raw markdown, read fresh on every request (see
+  // engine/entities.ts's readEntityFile) - null if the entity has no
+  // source_path or the file is missing on disk.
+  content: string | null;
+}
+
+export async function getEntities(type?: string): Promise<Entity[]> {
+  const url = new URL(`${KNOWLEDGE_ENGINE_URL}/entities`);
+  if (type) url.searchParams.set("type", type);
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`knowledge-engine /entities failed with ${res.status}`);
+  }
+  const data = (await res.json()) as { entities: Entity[] };
+  return data.entities;
+}
+
+export async function getEntityDetail(id: string): Promise<EntityDetail | null> {
+  const res = await fetch(`${KNOWLEDGE_ENGINE_URL}/entities/${encodeURIComponent(id)}`, { cache: "no-store" });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`knowledge-engine /entities/${id} failed with ${res.status}`);
+  }
+  return (await res.json()) as EntityDetail;
+}
+
 export async function knowledgeSearch(
   req: KnowledgeSearchRequest
 ): Promise<{ results: KnowledgeSearchResult[] } | { error: string }> {
