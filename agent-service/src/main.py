@@ -42,8 +42,10 @@ from .safety_net import (
     REQUIRED_TOOL_FAILURE_MESSAGE,
     REQUIRED_TOOL_RETRY_NUDGE,
     SEARCH_RETRY_NUDGE,
+    STATUS_NARRATION_MISMATCH_NUDGE,
     classify_memory_grounding,
     has_fabricated_id_reference,
+    has_status_narration_mismatch,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
     is_confabulated_action,
@@ -484,6 +486,19 @@ async def webhook(request: Request):
                 retry_text, chunks = await _run_turn(
                     config, session_id, system_prompt, chat_input + FABRICATED_ID_NUDGE, bound_tools, state, emit,
                     message_history,
+                )
+                for c in chunks:
+                    yield c
+                if retry_text.strip():
+                    final_text = retry_text
+
+            if has_status_narration_mismatch(final_text, state.called_tools, state.tool_results):
+                yield emit(
+                    "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "status_narration_mismatch"}
+                )
+                retry_text, chunks = await _run_turn(
+                    config, session_id, system_prompt, chat_input + STATUS_NARRATION_MISMATCH_NUDGE, bound_tools,
+                    state, emit, message_history,
                 )
                 for c in chunks:
                     yield c

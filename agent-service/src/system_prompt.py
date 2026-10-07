@@ -131,6 +131,29 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         "ask whether to build on it before describing a conflicting fresh approach."
     )
 
+    # Real, evidenced gap found later, same recurring fabrication as
+    # action_clarify_line above but at the opposite moment: asked about
+    # coding task #53's status four days after it was actually
+    # Reviewer-approved and merged, the model called the real status tool
+    # and still replied "failed after 3 iterations... waiting for your
+    # input" - then, unprompted, named "Qwen3.8-LiveTranslate API" as a
+    # manual-setup suggestion, a technology that appears nowhere in the
+    # real task description, plan, or tool result. action_clarify_line only
+    # covers what gets WRITTEN into a tool call's own arguments before the
+    # call; this covers the opposite moment - narrating a tool's result
+    # after it comes back. See safety_net.py's has_status_narration_mismatch
+    # for the deterministic backstop this prompt-level line can't
+    # guarantee alone.
+    status_narration_clarify_line = (
+        "When reporting a status/lookup tool's result (code_task_status, status_overview, "
+        "research_task_status, or similar), describe only what that result actually says - the real "
+        "status, the real reason, the real next step. Never name a specific technology, API, SDK, or "
+        "product as part of that description unless that exact name appears in the tool's own result "
+        "or the user's own words. If the tool's result doesn't mention a specific technology, describe "
+        "it generically (\"the translation service\", not a guessed product name) rather than filling "
+        "the gap with something that merely sounds plausible."
+    )
+
     user_card_line = f"What you know about the user: {'; '.join(input.user_card)}" if input.user_card else ""
 
     user_card_for_amy_line = (
@@ -228,6 +251,7 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         response_style_line,
         tool_error_line,
         action_clarify_line,
+        status_narration_clarify_line,
         user_card_line,
         user_card_for_amy_line,
         relevant_memories_line,

@@ -31,6 +31,12 @@ def test_includes_action_clarify_line_always():
     assert "ask the user which one they want before calling the tool" in prompt
 
 
+def test_includes_status_narration_clarify_line_always():
+    prompt = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
+    assert "describe only what that result actually says" in prompt
+    assert "Never name a specific technology, API, SDK, or product" in prompt
+
+
 def test_includes_tone_line_always():
     prompt = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
     assert "Close naturally" in prompt

@@ -56,6 +56,13 @@ const RETRY_SUFFIX =
   " This is a retry: your previous attempt ended without making any real changes. Try again now, " +
   "actually looking at files and making the edits described.";
 
+// Tester-specific equivalent of RETRY_SUFFIX - "making the edits described"
+// above is Coder-specific language that wouldn't make sense for the Tester
+// (it writes test coverage, not the implementation itself).
+const TESTER_RETRY_SUFFIX =
+  " This is a retry: your previous attempt ended without writing any real test coverage. Try again " +
+  "now, actually looking at what changed and writing real tests for it.";
+
 interface RetryFeedback {
   source: "coder" | "tester" | "reviewer";
   message: string;
@@ -296,10 +303,15 @@ async function runCoderRound(
   };
 }
 
-// Tester round - now checks the SAME "genuinely non-empty output" condition
-// the Coder round does (fixes weak point #4: the old Tester Succeeded? only
-// checked for the absence of an error, not for empty output), and now
-// receives the same retry feedback the Coder gets (fixes weak point #5).
+// Tester round - checks the SAME "genuinely non-empty output" condition the
+// Coder round does (fixes weak point #4: the old Tester Succeeded? only
+// checked for the absence of an error, not for empty output), receives the
+// same retry feedback the Coder gets (fixes weak point #5), and now also
+// gets the same one-shot inline retry runCoderRound already had: a real,
+// evidenced gap (task #53's attempt 2) where the Tester simply producing no
+// output on one call burned a whole attempt-level retry for zero signal
+// about the actual code, the same waste runCoderRound's own inline retry
+// already exists to avoid for the Coder side.
 async function runTesterRound(
   config: Config,
   ctx: TaskContext,
@@ -309,16 +321,40 @@ async function runTesterRound(
   const tools = agentTools(config.sandboxRunnerUrl, ctx.containerId, ctx.workingDir, ctx.taskId, {
     denyConfigWrites: true,
   });
-  const result = await runAgentLoop({
+  const userPrompt = buildAgentUserPrompt(ctx, plan, feedback);
+  const systemPrompt = TESTER_SYSTEM_PROMPT + ctx.testerSkillsText;
+
+  const first = await runAgentLoop({
     ollamaHost: config.ollamaHost,
     model: config.testerModel,
-    systemPrompt: TESTER_SYSTEM_PROMPT + ctx.testerSkillsText,
-    userPrompt: buildAgentUserPrompt(ctx, plan, feedback),
+    systemPrompt,
+    userPrompt,
     tools,
     maxIterations: config.testerMaxIterations,
-    label: `tester task=${ctx.taskId}`,
+    label: `tester task=${ctx.taskId} attempt=first`,
   });
-  return { output: result.output, succeeded: Boolean(result.output.trim()) };
+  if (first.output.trim()) {
+    return { output: first.output, succeeded: true };
+  }
+
+  // Empty output, first attempt - one immediate inline retry, same shape as
+  // runCoderRound's own inline retry.
+  const retry = await runAgentLoop({
+    ollamaHost: config.ollamaHost,
+    model: config.testerModel,
+    systemPrompt: systemPrompt + TESTER_RETRY_SUFFIX,
+    userPrompt,
+    tools,
+    maxIterations: config.testerMaxIterations,
+    label: `tester task=${ctx.taskId} attempt=inline-retry`,
+  });
+  if (!retry.output.trim()) {
+    console.error(
+      `coding task ${ctx.taskId}: Tester produced no output on both the first call ` +
+        `(${first.iterations} iteration(s)) and the inline retry (${retry.iterations} iteration(s))`,
+    );
+  }
+  return { output: retry.output, succeeded: Boolean(retry.output.trim()) };
 }
 
 interface ReviewerVerdict {
@@ -584,6 +620,55 @@ interface AttemptResult {
   diff: string;
   testResult: sandbox.ExecResult;
   reviewerVerdict: ReviewerVerdict;
+}
+
+export interface AttemptLoopState {
+  attempt: number;
+  infraRetries: number;
+}
+
+export type AttemptOutcome =
+  | { kind: "infra_failure" }
+  | { kind: "approved" }
+  | { kind: "reviewer_retry" }
+  | { kind: "other_terminal" };
+
+// Pure decision logic for runTaskPipeline's attempt loop, extracted
+// specifically so the real, evidenced gap this fixes (task #53: attempts 1
+// and 2 were both pure infra failures - Coder exhausted iterations, Tester
+// produced no output - that still consumed a real attempt slot identically
+// to a genuine Reviewer rejection, leaving only attempt 3 to ever do real
+// work) has deterministic, testable coverage - same "pull decision logic
+// out into a pure function" pattern isApproved/findMockLanguageMarkers/
+// findOrphanedTestFiles already established in this file. An infra failure
+// retries the SAME attempt number up to maxInfraRetries times before it
+// falls back to charging a real attempt, same bounded "can't loop forever"
+// spirit as the CommandLimitExceededError hard-stop in runTaskPipeline's
+// catch block. infraRetries resets to 0 whenever an attempt genuinely runs
+// end-to-end (or once its own infra budget is spent), so a later, unrelated
+// infra hiccup gets its own full allowance rather than inheriting whatever
+// a previous attempt didn't use.
+export function advanceAttemptLoop(
+  state: AttemptLoopState,
+  outcome: AttemptOutcome,
+  config: { maxAttempts: number; maxInfraRetries: number },
+): { next: AttemptLoopState; shouldBreak: boolean } {
+  if (outcome.kind === "infra_failure") {
+    if (state.infraRetries < config.maxInfraRetries) {
+      return { next: { attempt: state.attempt, infraRetries: state.infraRetries + 1 }, shouldBreak: false };
+    }
+    if (state.attempt === config.maxAttempts) {
+      return { next: { attempt: state.attempt, infraRetries: 0 }, shouldBreak: true };
+    }
+    return { next: { attempt: state.attempt + 1, infraRetries: 0 }, shouldBreak: false };
+  }
+  if (outcome.kind === "approved") {
+    return { next: { attempt: state.attempt, infraRetries: 0 }, shouldBreak: true };
+  }
+  if (outcome.kind === "reviewer_retry" && state.attempt < config.maxAttempts) {
+    return { next: { attempt: state.attempt + 1, infraRetries: 0 }, shouldBreak: false };
+  }
+  return { next: { attempt: state.attempt, infraRetries: 0 }, shouldBreak: true };
 }
 
 async function runAttempt(
@@ -955,28 +1040,40 @@ export async function runTaskPipeline(config: Config, taskId: number): Promise<v
     try {
       let feedback: RetryFeedback | null = null;
       let result: AttemptResult | { failed: true; feedback: RetryFeedback } | undefined;
-      let attempt = 1;
+      let loopState: AttemptLoopState = { attempt: 1, infraRetries: 0 };
 
-      for (; attempt <= config.maxAttempts; attempt++) {
-        await db.updateTask(config, taskId, { latest_status: `Attempt ${attempt}: coding in progress`, attempt_count: attempt });
+      while (loopState.attempt <= config.maxAttempts) {
+        await db.updateTask(config, taskId, {
+          latest_status: `Attempt ${loopState.attempt}: coding in progress`,
+          attempt_count: loopState.attempt,
+        });
         result = useOpenHands
-          ? await runAttemptViaOpenHands(config, ctx, plan, attempt, feedback)
-          : await runAttempt(config, ctx, plan, attempt, feedback);
+          ? await runAttemptViaOpenHands(config, ctx, plan, loopState.attempt, feedback)
+          : await runAttempt(config, ctx, plan, loopState.attempt, feedback);
 
+        let outcome: AttemptOutcome;
         if ("failed" in result) {
-          if (attempt === config.maxAttempts) break;
           feedback = result.feedback;
-          continue;
+          outcome = { kind: "infra_failure" };
+        } else if (result.reviewerVerdict.verdict === "approve") {
+          outcome = { kind: "approved" };
+        } else if (result.reviewerVerdict.verdict === "retry") {
+          outcome = { kind: "reviewer_retry" };
+          feedback = {
+            source: "reviewer",
+            message:
+              `The Reviewer rejected the last attempt because: ${result.reviewerVerdict.reason}\n\n` +
+              `Specific feedback: ${result.reviewerVerdict.feedbackForCoder}\n\nFix this issue. Do not redo work that was already correct.`,
+          };
+        } else {
+          outcome = { kind: "other_terminal" };
         }
-        if (result.reviewerVerdict.verdict === "approve") break;
-        if (result.reviewerVerdict.verdict !== "retry" || attempt === config.maxAttempts) break;
-        feedback = {
-          source: "reviewer",
-          message:
-            `The Reviewer rejected the last attempt because: ${result.reviewerVerdict.reason}\n\n` +
-            `Specific feedback: ${result.reviewerVerdict.feedbackForCoder}\n\nFix this issue. Do not redo work that was already correct.`,
-        };
+
+        const { next, shouldBreak } = advanceAttemptLoop(loopState, outcome, config);
+        loopState = next;
+        if (shouldBreak) break;
       }
+      const attempt = loopState.attempt;
 
       if (result) {
         await finalizeTask(config, ctx, attempt, result);

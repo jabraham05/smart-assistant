@@ -170,6 +170,57 @@ FABRICATED_ID_NUDGE = (
     "contains, or say clearly that you don't have that specific information.)"
 )
 
+# Real, evidenced gap (coding task #53, asked about four days after it was
+# actually Reviewer-approved and merged): the model called the real status
+# tool, got back a result showing a positive outcome, and still replied
+# "failed after 3 iterations... waiting for your input" - contradicting the
+# tool's own real result. is_confabulated_action only fires when NO tool was
+# called at all; this is the opposite shape - a lookup tool genuinely was
+# called, but the narration still doesn't match what it returned. Same
+# STATUS_LOOKUP_TOOLS gate has_fabricated_id_reference already uses.
+_NEGATIVE_STATUS_NARRATION = re.compile(
+    r"\b(failed|stalled|stuck|hit (?:an?|the) iteration limit|ran out of iterations|"
+    r"waiting for your input|needs your input|didn['’]?t pass|unable to (?:complete|finish))\b",
+    re.IGNORECASE,
+)
+
+# code_task_status's real field names (status/latestStatus/reviewerVerdict -
+# see skills-mcp/src/lib/coding-workflow.ts) rendered as JSON in tool_results.
+# Other STATUS_LOOKUP_TOOLS have analogous fields; this intentionally only
+# matches the specific positive values worth cross-checking narration
+# against, not every possible status string, same conservative "false
+# negatives over false positives" stance findOrphanedTestFiles documents on
+# the coding-orchestrator side.
+_POSITIVE_STATUS_RESULT = re.compile(
+    r'"(?:status|latestStatus|reviewerVerdict)"\s*:\s*"(?:proposed|active|done|approve|approve_partial)"',
+    re.IGNORECASE,
+)
+
+
+def has_status_narration_mismatch(reply_text: str, called_tools: list[str], tool_results: list[str]) -> bool:
+    """True when a status/lookup tool was actually called this turn, its
+    real result shows a positive outcome, but the reply still asserts
+    failure/stalled language contradicting it. Deliberately does not fire
+    when no lookup tool was called at all - same reasoning as
+    has_fabricated_id_reference: citing stale status from earlier
+    conversation history without a fresh lookup this turn is a different
+    (and not this check's) problem."""
+    if not any(t in STATUS_LOOKUP_TOOLS for t in called_tools):
+        return False
+    if not _NEGATIVE_STATUS_NARRATION.search(reply_text):
+        return False
+    combined_results = "\n".join(tool_results)
+    return bool(_POSITIVE_STATUS_RESULT.search(combined_results))
+
+
+STATUS_NARRATION_MISMATCH_NUDGE = (
+    " (Your last reply described this as failed/stalled, but the tool's real result shows a positive "
+    "status - re-check what the tool actually returned and describe the real current status, not a "
+    "guess or a stale assumption from earlier in the conversation. Only name a specific technology, "
+    "API, or product if that exact name appears in the tool's own result - otherwise describe it "
+    "generically rather than guessing a specific one.)"
+)
+
 # Deterministic provenance tag for a memory_entries write - real incident
 # that motivated this: an invented, plausible-sounding API name ("Qwen3.8-
 # LiveTranslate API") written with zero tool calls got stored into memory,
