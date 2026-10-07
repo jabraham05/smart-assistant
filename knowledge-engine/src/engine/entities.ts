@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Config } from "../config.js";
 import * as db from "../db.js";
@@ -63,6 +63,63 @@ export async function createEntity(config: Config, input: CreateEntityInput): Pr
 export async function readEntityFile(config: Config, entity: db.EntityRow): Promise<string | undefined> {
   if (!entity.source_path) return undefined;
   const absPath = path.join(config.knowledgeStorePath, entity.source_path);
+  try {
+    return await readFile(absPath, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw e;
+  }
+}
+
+export interface KnowledgeStoreFile {
+  relativePath: string;
+  size: number;
+  mtime: string;
+}
+
+// Raw directory browser over KNOWLEDGE_STORE_PATH, independent of the
+// `entities` registry - catches every file on disk, including ones from
+// future producers that write straight to the store without an entities
+// row. Paths use forward slashes regardless of OS, since this is exposed
+// over HTTP for a browser-side file tree, not used for local fs calls.
+async function walkKnowledgeStoreDir(root: string, dir: string): Promise<KnowledgeStoreFile[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files: KnowledgeStoreFile[] = [];
+  for (const entry of entries) {
+    const absPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await walkKnowledgeStoreDir(root, absPath)));
+    } else if (entry.isFile()) {
+      const stats = await stat(absPath);
+      files.push({
+        relativePath: path.relative(root, absPath).split(path.sep).join("/"),
+        size: stats.size,
+        mtime: stats.mtime.toISOString(),
+      });
+    }
+  }
+  return files;
+}
+
+export async function listKnowledgeStoreFiles(config: Config): Promise<KnowledgeStoreFile[]> {
+  try {
+    return await walkKnowledgeStoreDir(config.knowledgeStorePath, config.knowledgeStorePath);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw e;
+  }
+}
+
+// Client-supplied path, unlike readEntityFile's server-generated
+// entity.source_path - must validate the resolved path never escapes
+// knowledgeStorePath before reading (path traversal via "../../etc/passwd"
+// or an absolute path override).
+export async function readKnowledgeStoreFile(config: Config, relativePath: string): Promise<string | undefined> {
+  const root = path.resolve(config.knowledgeStorePath);
+  const absPath = path.resolve(root, relativePath);
+  if (absPath !== root && !absPath.startsWith(root + path.sep)) {
+    throw new Error("path escapes the knowledge store root");
+  }
   try {
     return await readFile(absPath, "utf8");
   } catch (e) {

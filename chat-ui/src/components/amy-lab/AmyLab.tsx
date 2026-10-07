@@ -9,9 +9,20 @@ import { KnowledgeGraphView } from "@/components/amy-lab/KnowledgeGraphView";
 import { EntitiesView } from "@/components/amy-lab/EntitiesView";
 import { CodingProjectBreakdown } from "@/components/amy-lab/CodingProjectBreakdown";
 import { SuggestedUpgrades } from "@/components/amy-lab/SuggestedUpgrades";
+import { PersonaView } from "@/components/amy-lab/PersonaView";
+import { UserProfileView } from "@/components/amy-lab/UserProfileView";
+import { FilesView } from "@/components/amy-lab/FilesView";
 import type { EventBusEvent } from "@/types/chat";
 
-type Tab = "trace" | "system-prompt" | "knowledge-graph" | "growth" | "coding-projects" | "suggested-upgrades";
+type Tab =
+  | "trace"
+  | "system-prompt"
+  | "knowledge-graph"
+  | "growth"
+  | "coding-projects"
+  | "suggested-upgrades"
+  | "profiles"
+  | "files";
 
 const TAB_LABELS: Record<Tab, string> = {
   trace: "Trace",
@@ -20,6 +31,8 @@ const TAB_LABELS: Record<Tab, string> = {
   growth: "Growth",
   "coding-projects": "Coding Projects",
   "suggested-upgrades": "Suggested Upgrades",
+  profiles: "Profiles",
+  files: "Files",
 };
 
 // Mirrors chat-orchestrator/src/system-prompt.ts's buildSystemPrompt clause
@@ -181,7 +194,18 @@ export function AmyLab() {
       />
       <div className="flex flex-1 flex-col">
         <div className="flex items-center gap-1 border-b border-white/10 px-4 py-2">
-          {(["trace", "system-prompt", "knowledge-graph", "growth", "coding-projects", "suggested-upgrades"] as Tab[]).map((t) => (
+          {(
+            [
+              "trace",
+              "system-prompt",
+              "knowledge-graph",
+              "growth",
+              "coding-projects",
+              "suggested-upgrades",
+              "profiles",
+              "files",
+            ] as Tab[]
+          ).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -244,6 +268,15 @@ export function AmyLab() {
           {tab === "coding-projects" && <CodingProjectBreakdown />}
 
           {tab === "suggested-upgrades" && <SuggestedUpgrades />}
+
+          {tab === "profiles" && (
+            <div className="space-y-6">
+              <PersonaView />
+              <UserProfileView />
+            </div>
+          )}
+
+          {tab === "files" && <FilesView />}
         </div>
       </div>
       <div className="flex h-full w-96 flex-col border-l border-white/10">

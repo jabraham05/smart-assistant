@@ -27,3 +27,31 @@ export async function enqueueResearchTopic(
     console.error("knowledge-engine research-queue enqueue failed:", e);
   }
 }
+
+// Promotes a classifier-extracted memorable item (fact/preference/decision/
+// learning) or a behavior-feedback capture into a durable `entities` row -
+// fire-and-forget, same pattern as enqueueResearchTopic above. Dedup/
+// validation all happen inside knowledge-engine's own POST /entities; this
+// is a thin, fail-silent client.
+export async function createEntityFromChat(
+  config: Config,
+  itemType: string,
+  content: string,
+  options?: { sessionId?: string },
+): Promise<void> {
+  try {
+    await fetch(`${config.knowledgeEngineUrl}/entities`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: itemType,
+        name: content.slice(0, 80),
+        description: content,
+        sourceTable: "chat",
+        sourceId: options?.sessionId,
+      }),
+    });
+  } catch (e) {
+    console.error("knowledge-engine entity create failed:", e);
+  }
+}

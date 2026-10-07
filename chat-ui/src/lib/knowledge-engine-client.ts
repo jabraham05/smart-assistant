@@ -158,6 +158,34 @@ export async function getEntityDetail(id: string): Promise<EntityDetail | null> 
   return (await res.json()) as EntityDetail;
 }
 
+// Raw directory browser over KNOWLEDGE_STORE_PATH, independent of the
+// `entities` registry - powers Amy Lab's "Files" tab.
+export interface KnowledgeStoreFile {
+  relativePath: string;
+  size: number;
+  mtime: string;
+}
+
+export async function getKnowledgeStoreFiles(): Promise<KnowledgeStoreFile[]> {
+  const res = await fetch(`${KNOWLEDGE_ENGINE_URL}/knowledge-store/files`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`knowledge-engine /knowledge-store/files failed with ${res.status}`);
+  }
+  const data = (await res.json()) as { files: KnowledgeStoreFile[] };
+  return data.files;
+}
+
+export async function getKnowledgeStoreFileContent(relativePath: string): Promise<string> {
+  const url = new URL(`${KNOWLEDGE_ENGINE_URL}/knowledge-store/files/content`);
+  url.searchParams.set("path", relativePath);
+  const res = await fetch(url, { cache: "no-store" });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error ?? `knowledge-engine /knowledge-store/files/content failed with ${res.status}`);
+  }
+  return (data as { content: string }).content;
+}
+
 export async function knowledgeSearch(
   req: KnowledgeSearchRequest
 ): Promise<{ results: KnowledgeSearchResult[] } | { error: string }> {
