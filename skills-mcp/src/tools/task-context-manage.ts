@@ -77,7 +77,18 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
         "instead of just a free-text log. Task contexts, goals, projects, and coding tasks are " +
         "four separate things with their own independent numeric ids - always say 'task #N' (the " +
         "`ref` field below) when referring to one in conversation, never a bare number, since ids " +
-        "collide across these different concepts.",
+        "collide across these different concepts.\n\n" +
+        "Keep `objective` a short, stable title (so similar small tasks can share one task context " +
+        "instead of multiplying into near-duplicates) - track the real substance in `facts` / " +
+        "`assumptions` / `unknowns` / `nextAction` via repeated action='update' calls as the task " +
+        "develops, not by rewriting the objective itself. This is what keeps the task genuinely " +
+        "current: when you learn something new, confirm an assumption, resolve an unknown, or the " +
+        "next concrete step changes, call action='update' again with the revised value, not just " +
+        "action='log' (log is an append-only note, not something the user or you can see at a " +
+        "glance later). facts/assumptions/unknowns each fully REPLACE the previous array when " +
+        "provided - re-send the complete current list, not just what's new. Review the current " +
+        "values (shown in the open-tasks list and in action='update's own response) before " +
+        "patching so you don't accidentally drop something still true.",
       inputSchema: {
         action: z.enum(["create", "list", "update", "log", "plan", "advance_step"]).describe("Which task operation to perform."),
         // coerce, not number(): the model sometimes sends a stringified
@@ -88,6 +99,19 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
         capability: z.string().optional().describe("create/update: which capability this task relates to, e.g. 'research', 'automation' - metadata only."),
         domain: z.string().optional().describe("create/update: free-text domain, e.g. 'automotive' - same convention as knowledge_search's domain."),
         status: z.enum(["active", "waiting_for_user", "done", "abandoned"]).optional().describe("update: new status, if changing."),
+        facts: z
+          .array(z.string())
+          .optional()
+          .describe("update: the complete current list of established facts about this task - replaces the previous list entirely, so include everything still true, not just new additions."),
+        assumptions: z
+          .array(z.string())
+          .optional()
+          .describe("update: the complete current list of working assumptions - replaces the previous list entirely."),
+        unknowns: z
+          .array(z.string())
+          .optional()
+          .describe("update: the complete current list of open questions/unknowns still blocking this task - replaces the previous list entirely."),
+        nextAction: z.string().optional().describe("update: the concrete next step, in plain terms (e.g. 'waiting on user to measure the fuel sender tomorrow')."),
         note: z.string().optional().describe("log: what to record, e.g. a measurement or finding the user just reported. Required for action='log'."),
         stepDescriptions: z
           .array(z.string())
@@ -111,6 +135,10 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
       capability,
       domain,
       status,
+      facts,
+      assumptions,
+      unknowns,
+      nextAction,
       note,
       stepDescriptions,
       stepId,
@@ -154,6 +182,10 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
                 objective: t.objective,
                 status: t.status,
                 updatedAt: t.updated_at,
+                facts: t.facts?.length ? t.facts : undefined,
+                assumptions: t.assumptions?.length ? t.assumptions : undefined,
+                unknowns: t.unknowns?.length ? t.unknowns : undefined,
+                nextAction: t.next_action ?? undefined,
                 steps: steps.length
                   ? steps.map((s) => ({ id: s.id, description: s.description, status: s.status }))
                   : undefined,
@@ -165,8 +197,26 @@ export function registerTaskContextManage(server: McpServer, config: Config, cha
 
         if (action === "update") {
           if (!taskContextId) return errorResult("taskContextId is required for action='update'.");
-          const task = await updateTaskContext(config, taskContextId, { objective, capability, domain, status });
-          return textResult({ id: task.id, ref: `task #${task.id}`, objective: task.objective, status: task.status });
+          const task = await updateTaskContext(config, taskContextId, {
+            objective,
+            capability,
+            domain,
+            status,
+            facts,
+            assumptions,
+            unknowns,
+            nextAction,
+          });
+          return textResult({
+            id: task.id,
+            ref: `task #${task.id}`,
+            objective: task.objective,
+            status: task.status,
+            facts: task.facts,
+            assumptions: task.assumptions,
+            unknowns: task.unknowns,
+            nextAction: task.next_action,
+          });
         }
 
         if (action === "log") {

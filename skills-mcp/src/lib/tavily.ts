@@ -17,6 +17,12 @@ export interface TavilySearchOptions {
 // exposing another tunable the model would have to guess at.
 const NEWS_DAYS = 3;
 
+// Real, live-found gap: this fetch previously had no timeout, so a dropped
+// connection to Tavily (vs. a clean HTTP error) stalled the whole MCP tool
+// call indefinitely - agent-service only bounds the model call, not the
+// tool call itself, so this reproduced as a "no reply after web search" hang.
+const REQUEST_TIMEOUT_MS = 20_000;
+
 export async function tavilySearch(
   apiKey: string,
   query: string,
@@ -31,6 +37,7 @@ export async function tavilySearch(
       max_results: options.maxResults ?? 5,
       ...(options.topic === "news" ? { days: NEWS_DAYS } : {}),
     }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
   if (!res.ok) {

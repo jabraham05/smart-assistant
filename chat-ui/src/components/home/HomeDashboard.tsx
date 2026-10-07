@@ -51,11 +51,64 @@ function EmptyRow({ text }: { text: string }) {
   return <p className="px-1 py-1 text-xs text-zinc-600">{text}</p>;
 }
 
-function GoalRow({ goal }: { goal: Goal }) {
+// Goals are the one thing in this dashboard Amy is expected to keep
+// updated over time (see goal_manage's action='update') - this inline
+// click-to-edit exists so the user can also correct/add to it directly,
+// same pattern as TodoRow's objective edit, applied to both title and
+// description independently.
+function GoalRow({
+  goal,
+  onEdit,
+}: {
+  goal: Goal;
+  onEdit: (fields: { title?: string; description?: string }) => void;
+}) {
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(goal.title);
+  const [descriptionDraft, setDescriptionDraft] = useState(goal.description ?? "");
+
+  const commitTitle = () => {
+    setEditingTitle(false);
+    if (titleDraft.trim() && titleDraft.trim() !== goal.title) onEdit({ title: titleDraft.trim() });
+  };
+
+  const commitDescription = () => {
+    setEditingDescription(false);
+    const trimmed = descriptionDraft.trim();
+    if (trimmed !== (goal.description ?? "")) onEdit({ description: trimmed });
+  };
+
   return (
     <li className="rounded-lg border border-white/5 bg-white/[0.02] p-2.5">
-      <p className="text-sm text-zinc-100">{goal.title}</p>
-      {goal.description && <p className="mt-0.5 text-xs text-zinc-500">{goal.description}</p>}
+      {editingTitle ? (
+        <input
+          autoFocus
+          value={titleDraft}
+          onChange={(e) => setTitleDraft(e.target.value)}
+          onBlur={commitTitle}
+          onKeyDown={(e) => e.key === "Enter" && commitTitle()}
+          className="w-full rounded border border-indigo-500/40 bg-white/[0.04] px-1.5 py-0.5 text-sm text-zinc-100 outline-none"
+        />
+      ) : (
+        <p onClick={() => setEditingTitle(true)} className="cursor-text text-sm text-zinc-100">
+          {goal.title}
+        </p>
+      )}
+      {editingDescription ? (
+        <textarea
+          autoFocus
+          value={descriptionDraft}
+          onChange={(e) => setDescriptionDraft(e.target.value)}
+          onBlur={commitDescription}
+          rows={2}
+          className="mt-1 w-full rounded border border-indigo-500/40 bg-white/[0.04] px-1.5 py-0.5 text-xs text-zinc-300 outline-none"
+        />
+      ) : (
+        <p onClick={() => setEditingDescription(true)} className="mt-0.5 cursor-text text-xs text-zinc-500">
+          {goal.description || "Add a description…"}
+        </p>
+      )}
     </li>
   );
 }
@@ -218,6 +271,15 @@ export function HomeDashboard() {
     refresh();
   };
 
+  const patchGoal = async (id: number, fields: { title?: string; description?: string }) => {
+    await fetch("/api/goals", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, ...fields }),
+    });
+    refresh();
+  };
+
   const proposedProjects = projects.filter((p) => p.status === "proposed");
   const openTodos = (summary?.openTasks ?? []).filter((t) => t.status !== "done");
 
@@ -252,7 +314,9 @@ export function HomeDashboard() {
           {!summary && !error && <EmptyRow text="Loading…" />}
           {summary && summary.goals.length === 0 && <EmptyRow text="No active goals." />}
           <ul className="space-y-1.5">
-            {summary?.goals.map((goal) => <GoalRow key={goal.id} goal={goal} />)}
+            {summary?.goals.map((goal) => (
+              <GoalRow key={goal.id} goal={goal} onEdit={(fields) => patchGoal(goal.id, fields)} />
+            ))}
           </ul>
         </Card>
 

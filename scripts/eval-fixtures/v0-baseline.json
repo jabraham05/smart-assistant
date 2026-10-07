@@ -23,5 +23,12 @@
   { "message": "how's that coding task going that I started earlier?", "expectedGroups": ["self-growth"] },
   { "message": "save this article link for me to reference later: https://example.com/article", "expectedGroups": ["knowledge"] },
   { "message": "any updates on that research task I asked about?", "expectedGroups": ["research"] },
-  { "message": "show the weather widget and tell me if it'll rain today", "expectedGroups": ["dashboard", "info"] }
+  { "message": "show the weather widget and tell me if it'll rain today", "expectedGroups": ["dashboard", "info"] },
+
+  { "message": "what's new in agentic AI lately?", "expectedGroups": ["web"] },
+  { "message": "any news on Warframe?", "expectedGroups": ["web"] },
+  { "message": "what's going on with the housing market lately?", "expectedGroups": ["web"] },
+  { "message": "catch me up on what's new with SpaceX", "expectedGroups": ["web"] },
+  { "message": "is there a new Warframe update out?", "expectedGroups": ["web"] },
+  { "message": "what's the latest with the NBA playoffs?", "expectedGroups": ["web"] }
 ]

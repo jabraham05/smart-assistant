@@ -1,18 +1,29 @@
 {
   "model": "qwen3:8b",
-  "train_size": 17,
-  "val_size": 8,
+  "train_size": 21,
+  "val_size": 10,
   "baseline": {
-    "exact": 0.875,
-    "jaccard": 0.875,
+    "exact": 0.9,
+    "jaccard": 0.9,
     "rows": [
       {
-        "message": "any updates on that research task I asked about?",
+        "message": "how's that coding task going that I started earlier?",
         "expected": [
-          "research"
+          "self-growth"
         ],
         "predicted": [
-          "research"
+          "self-growth"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "is there a new Warframe update out?",
+        "expected": [
+          "web"
+        ],
+        "predicted": [
+          "web"
         ],
         "exact": true,
         "jaccard": 1.0
@@ -27,14 +38,12 @@
         "jaccard": 0.0
       },
       {
-        "message": "show the weather widget and tell me if it'll rain today",
+        "message": "what's new in agentic AI lately?",
         "expected": [
-          "dashboard",
-          "info"
+          "web"
         ],
         "predicted": [
-          "dashboard",
-          "info"
+          "web"
         ],
         "exact": true,
         "jaccard": 1.0
@@ -57,6 +66,17 @@
         ],
         "predicted": [
           "web"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "any updates on that research task I asked about?",
+        "expected": [
+          "research"
+        ],
+        "predicted": [
+          "research"
         ],
         "exact": true,
         "jaccard": 1.0
@@ -99,12 +119,23 @@
     "jaccard": 1.0,
     "rows": [
       {
-        "message": "any updates on that research task I asked about?",
+        "message": "how's that coding task going that I started earlier?",
         "expected": [
-          "research"
+          "self-growth"
         ],
         "predicted": [
-          "research"
+          "self-growth"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "is there a new Warframe update out?",
+        "expected": [
+          "web"
+        ],
+        "predicted": [
+          "web"
         ],
         "exact": true,
         "jaccard": 1.0
@@ -121,14 +152,12 @@
         "jaccard": 1.0
       },
       {
-        "message": "show the weather widget and tell me if it'll rain today",
+        "message": "what's new in agentic AI lately?",
         "expected": [
-          "dashboard",
-          "info"
+          "web"
         ],
         "predicted": [
-          "dashboard",
-          "info"
+          "web"
         ],
         "exact": true,
         "jaccard": 1.0
@@ -151,6 +180,17 @@
         ],
         "predicted": [
           "web"
+        ],
+        "exact": true,
+        "jaccard": 1.0
+      },
+      {
+        "message": "any updates on that research task I asked about?",
+        "expected": [
+          "research"
+        ],
+        "predicted": [
+          "research"
         ],
         "exact": true,
         "jaccard": 1.0

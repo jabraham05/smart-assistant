@@ -238,3 +238,45 @@ def classify_memory_grounding(role: str, called_tools: list[str]) -> str:
     if role == "user":
         return "user_stated"
     return "tool_verified" if called_tools else "ungrounded"
+
+
+# persona_draft.txt already instructs "don't close every reply with a stock
+# offer or question" - a real, user-reported recurring complaint
+# ("it keeps asking me do you need this, do you need this") shows the model
+# doesn't reliably follow that on its own, same model-compliance gap as the
+# other checks in this file. Deliberately narrow: only matches a trailing
+# low-value confirmation/offer tacked onto the END of the reply, never a
+# question appearing earlier or standing alone as the entire reply (that's
+# often a genuine clarifying question - e.g. weather_get's "which city?" -
+# which this must not suppress).
+_TRAILING_CONFIRMATION_QUESTION = re.compile(
+    r"(?:Do you (?:need|want)|Want me to|Should I|Would you like(?: me)? to|"
+    r"Let me know if (?:you need|there'?s)|Is there anything else|"
+    r"Anything else (?:you need|I can help with))[^.!?]*\?\s*$",
+    re.IGNORECASE,
+)
+
+# Below this many characters of actual content before the trailing question,
+# treat the question as the whole point of the reply (a real clarifying
+# question), not a stock tail worth retrying away.
+_MIN_SUBSTANTIVE_REPLY_LENGTH = 40
+
+
+def has_trailing_confirmation_question(reply_text: str, tool_policy: str) -> bool:
+    """True when the reply tacks a low-value confirmation/offer question onto
+    an otherwise-complete answer. Skipped when tool_policy == "required" -
+    a turn that genuinely depended on live data/an action is more likely to
+    have a real open ambiguity worth confirming, not a stock tic."""
+    if tool_policy == "required":
+        return False
+    match = _TRAILING_CONFIRMATION_QUESTION.search(reply_text)
+    if not match:
+        return False
+    return len(reply_text[: match.start()].rstrip()) >= _MIN_SUBSTANTIVE_REPLY_LENGTH
+
+
+TRAILING_CONFIRMATION_RETRY_NUDGE = (
+    " (Your last reply tacked on a stock closing question like \"do you need...\"/\"want me to...\" "
+    "that nothing in this conversation actually depends on - answer the same way but drop that "
+    "closing question entirely, or only ask it if something specific genuinely depends on the answer.)"
+)

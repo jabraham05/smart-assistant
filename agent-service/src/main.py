@@ -43,9 +43,11 @@ from .safety_net import (
     REQUIRED_TOOL_RETRY_NUDGE,
     SEARCH_RETRY_NUDGE,
     STATUS_NARRATION_MISMATCH_NUDGE,
+    TRAILING_CONFIRMATION_RETRY_NUDGE,
     classify_memory_grounding,
     has_fabricated_id_reference,
     has_status_narration_mismatch,
+    has_trailing_confirmation_question,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
     is_confabulated_action,
@@ -295,11 +297,19 @@ async def webhook(request: Request):
             # self-growth (e.g. "start a coding task to...") never triggered
             # it, even though code_task starts a genuine real async job, the
             # same class of "this is going to take a while" work.
+            #
+            # 'web' deliberately does NOT solo-trigger this: a bare web
+            # lookup is one ~1-3s Tavily call, not background work, and
+            # acking it the same way as a 90s+ research_task run or an async
+            # coding task made every quick lookup feel like it was getting
+            # research-level ceremony it didn't need (real user-reported
+            # friction). 'web' can still contribute via needs_planning/
+            # background below - "search the web for X and reschedule my
+            # 3pm" is still genuinely multi-step and still acks.
             should_acknowledge = (
                 classification.needs_planning
                 or classification.background
                 or "research" in classification.relevant_groups
-                or "web" in classification.relevant_groups
                 or "self-growth" in classification.relevant_groups
             )
 
@@ -543,6 +553,25 @@ async def webhook(request: Request):
                     classification.tool_policy, bound_tools, state.called_tools, classification.relevant_groups
                 ):
                     final_text = REQUIRED_TOOL_FAILURE_MESSAGE
+
+            if has_trailing_confirmation_question(final_text, classification.tool_policy):
+                yield emit(
+                    "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "trailing_confirmation"}
+                )
+                retry_text, chunks = await _run_turn(
+                    config,
+                    session_id,
+                    system_prompt,
+                    chat_input + TRAILING_CONFIRMATION_RETRY_NUDGE,
+                    bound_tools,
+                    state,
+                    emit,
+                    message_history,
+                )
+                for c in chunks:
+                    yield c
+                if retry_text.strip():
+                    final_text = retry_text
 
             yield emit("end")
             logger.info("TIMING total-until-end session=%s took=%.2fs", session_id, time.monotonic() - _turn_t0)

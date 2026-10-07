@@ -225,6 +225,27 @@ app.get("/research/status", async (req, res) => {
             });
           }
         }
+        if (queueMatch.status === "researching") {
+          // Real, live-found race: runWebResearchAndPersist sets
+          // research_sessions.status to its final value and fires the
+          // completion notification (what Home Activity reads) BEFORE
+          // drainQueue flips this research_queue row to done/failed - so
+          // there's a window where Home Activity already shows "finished"
+          // while a direct status check here still says "researching".
+          // research_sessions is the authoritative completion signal in
+          // that window; only fall back to the queue's own status while the
+          // session itself is still genuinely running (or doesn't exist yet).
+          const sessionMatch = await findResearchSessionByTopic(config, topic, config.researchQueueDedupMinOverlap);
+          if (sessionMatch && sessionMatch.status !== "running") {
+            return res.json({
+              found: true,
+              status: sessionMatch.status,
+              topic: sessionMatch.topic,
+              sessionId: sessionMatch.id,
+              documentId: sessionMatch.document_id,
+            });
+          }
+        }
         return res.json({ found: true, status: queueMatch.status, topic: queueMatch.topic });
       }
       const sessionMatch = await findResearchSessionByTopic(config, topic, config.researchQueueDedupMinOverlap);

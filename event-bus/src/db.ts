@@ -532,6 +532,19 @@ export async function getStaleGoals(config: Config, staleDays: number): Promise<
   return result.rows;
 }
 
+// Same shape as getStaleGoals, extended to task_contexts - both 'active'
+// and 'waiting_for_user' count as "open" (matching listTaskContexts'
+// status='open' virtual filter), not just 'active': a task genuinely
+// stuck waiting on the user is exactly the case worth nudging about.
+export async function getStaleTasks(config: Config, staleDays: number): Promise<TaskContextRow[]> {
+  const result = await getPool(config).query<TaskContextRow>(
+    `SELECT * FROM task_contexts
+     WHERE status IN ('active', 'waiting_for_user') AND updated_at < now() - ($1 || ' days')::interval`,
+    [staleDays],
+  );
+  return result.rows;
+}
+
 // Both scanner_state functions are scoped to a single named scanner (only
 // 'skill_gap_scanner' exists today) rather than assuming one global
 // cadence, so a second periodic scanner could get its own independent

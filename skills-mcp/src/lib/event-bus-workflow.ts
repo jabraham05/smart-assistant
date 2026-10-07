@@ -87,6 +87,15 @@ export interface TaskContextRecord {
   capability: string | null;
   domain: string | null;
   status: string;
+  // The "details" Amy is meant to keep current over a task's lifetime via
+  // repeated action='update' calls, with a short, stable objective as the
+  // title - see task-context-manage.ts's description. Already existed in
+  // the DB/REST layer (postgres/init/14-expand-task-context-fields.sql) but
+  // was unwired here until now.
+  facts: string[];
+  assumptions: string[];
+  unknowns: string[];
+  next_action: string | null;
   origin_session_id: string | null;
   created_at: string;
   updated_at: string;
@@ -108,6 +117,10 @@ export interface UpdateTaskContextInput {
   capability?: string;
   domain?: string;
   status?: string;
+  facts?: string[];
+  assumptions?: string[];
+  unknowns?: string[];
+  nextAction?: string;
 }
 
 export async function createTaskContext(config: Config, input: CreateTaskContextInput): Promise<TaskContextRecord> {
