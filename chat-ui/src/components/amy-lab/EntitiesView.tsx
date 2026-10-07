@@ -82,7 +82,15 @@ function EntityRow({ entity, isSelected, onSelect }: { entity: Entity; isSelecte
   );
 }
 
-function EntityDetailPane({ detail }: { detail: EntityDetail }) {
+function EntityDetailPane({
+  detail,
+  onOpenSession,
+  onViewInGraph,
+}: {
+  detail: EntityDetail;
+  onOpenSession?: (sessionId: string) => void;
+  onViewInGraph?: (graphitiId: string) => void;
+}) {
   return (
     <div>
       <div className="flex items-start justify-between gap-2">
@@ -111,6 +119,32 @@ function EntityDetailPane({ detail }: { detail: EntityDetail }) {
           </>
         )}
       </dl>
+      {/* Real provenance drill-through, not just inert display - "why does
+          Amy know this" for the two cases with an actual place to go: the
+          chat session that produced a classifier-extracted entity, or the
+          Graphiti node a project consolidation wrote. source_table==="projects"
+          stays text-only above - that case is self-referential (the project
+          entity IS what the Projects tab already shows). */}
+      {((detail.source_table === "chat" && detail.source_id && onOpenSession) || (detail.graphiti_id && onViewInGraph)) && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {detail.source_table === "chat" && detail.source_id && onOpenSession && (
+            <button
+              onClick={() => onOpenSession(detail.source_id!)}
+              className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1 text-[11px] text-indigo-300 transition-colors hover:border-indigo-500/40 hover:bg-indigo-500/[0.06]"
+            >
+              Open this conversation
+            </button>
+          )}
+          {detail.graphiti_id && onViewInGraph && (
+            <button
+              onClick={() => onViewInGraph(detail.graphiti_id!)}
+              className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1 text-[11px] text-indigo-300 transition-colors hover:border-indigo-500/40 hover:bg-indigo-500/[0.06]"
+            >
+              View in Knowledge Graph
+            </button>
+          )}
+        </div>
+      )}
       <div className="mt-3 border-t border-white/10 pt-3">
         {detail.content ? (
           <MarkdownContent content={detail.content} isUser={false} />
@@ -122,7 +156,23 @@ function EntityDetailPane({ detail }: { detail: EntityDetail }) {
   );
 }
 
-export function EntitiesView() {
+export function EntitiesView({
+  typeFilter,
+  description,
+  emptyMessage,
+  onOpenSession,
+  onViewInGraph,
+}: {
+  // Filters the already-fetched full list client-side rather than adding
+  // multi-type plumbing to getEntities (which only takes one type) - this
+  // view is reused across Projects/Memories/Amy-Learnings sub-tabs now,
+  // each wanting a different subset of the same underlying list.
+  typeFilter?: string[];
+  description?: string;
+  emptyMessage?: string;
+  onOpenSession?: (sessionId: string) => void;
+  onViewInGraph?: (graphitiId: string) => void;
+}) {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -139,6 +189,11 @@ export function EntitiesView() {
       .finally(() => setIsLoading(false));
   }, []);
 
+  const visibleEntities = useMemo(
+    () => (typeFilter ? entities.filter((e) => typeFilter.includes(e.type)) : entities),
+    [entities, typeFilter],
+  );
+
   useEffect(() => {
     if (selectedId === undefined) return;
     setDetail(null);
@@ -152,19 +207,21 @@ export function EntitiesView() {
   return (
     <div className="flex h-full flex-col">
       <p className="mb-3 text-xs text-zinc-500">
-        Durable things Amy has produced and had approved - projects, and whatever later phases add (learnings, preferences,
-        decisions). Each one is backed by a real file under knowledge-engine&apos;s knowledge store, not just a database row.
+        {description ??
+          "Durable things Amy has produced and had approved - projects, and whatever later phases add (learnings, preferences, decisions). Each one is backed by a real file under knowledge-engine's knowledge store, not just a database row."}
       </p>
-      <GrowthStats entities={entities} />
+      <GrowthStats entities={visibleEntities} />
       <div className="flex min-h-0 flex-1 gap-4">
         <div className="w-80 shrink-0 overflow-y-auto">
           {isLoading && <p className="text-xs text-zinc-600">Loading…</p>}
           {error && <p className="text-xs text-rose-400">{error}</p>}
-          {!isLoading && !error && entities.length === 0 && (
-            <p className="text-xs text-zinc-600">Nothing yet - entities are created when a proposed project gets approved and completed.</p>
+          {!isLoading && !error && visibleEntities.length === 0 && (
+            <p className="text-xs text-zinc-600">
+              {emptyMessage ?? "Nothing yet - entities are created when a proposed project gets approved and completed."}
+            </p>
           )}
           <ul className="space-y-1.5">
-            {entities.map((entity) => (
+            {visibleEntities.map((entity) => (
               <EntityRow
                 key={entity.id}
                 entity={entity}
@@ -179,7 +236,9 @@ export function EntitiesView() {
           {selectedId === undefined && <p className="text-xs text-zinc-600">Select an item to see its full write-up.</p>}
           {selectedId !== undefined && detailError && <p className="text-xs text-rose-400">{detailError}</p>}
           {selectedId !== undefined && !detailError && detail === null && <p className="text-xs text-zinc-600">Loading…</p>}
-          {selectedId !== undefined && !detailError && detail !== null && <EntityDetailPane detail={detail} />}
+          {selectedId !== undefined && !detailError && detail !== null && (
+            <EntityDetailPane detail={detail} onOpenSession={onOpenSession} onViewInGraph={onViewInGraph} />
+          )}
         </div>
       </div>
     </div>

@@ -10,52 +10,58 @@ import { EntitiesView } from "@/components/amy-lab/EntitiesView";
 import { CodingProjectBreakdown } from "@/components/amy-lab/CodingProjectBreakdown";
 import { SuggestedUpgrades } from "@/components/amy-lab/SuggestedUpgrades";
 import { PersonaView } from "@/components/amy-lab/PersonaView";
-import { UserProfileView } from "@/components/amy-lab/UserProfileView";
+import { UserProfileView, UserInstructionsView } from "@/components/amy-lab/UserProfileView";
 import { FilesView } from "@/components/amy-lab/FilesView";
+import { TimelineView } from "@/components/amy-lab/TimelineView";
+import { SystemPromptView } from "@/components/amy-lab/SystemPromptView";
 import type { EventBusEvent } from "@/types/chat";
 
-type Tab =
-  | "trace"
-  | "system-prompt"
-  | "knowledge-graph"
-  | "growth"
-  | "coding-projects"
-  | "suggested-upgrades"
-  | "profiles"
-  | "files";
+// Amy Lab Phase 2: restructured from a flat tab bar into a "Memory Library"
+// grouping (User/Amy/Projects/Memories/Knowledge/Session) - every existing
+// feature relocated, nothing dropped, plus four new pieces (categorized
+// profile, provenance drill-through, cross-source Timeline, real System
+// Prompt sizes). See the plan doc for the research behind this split -
+// categories only exist here where a real, already-grounded data source
+// backs them.
+const CATEGORIES = ["user", "amy", "projects", "memories", "knowledge", "session"] as const;
+type Category = (typeof CATEGORIES)[number];
 
-const TAB_LABELS: Record<Tab, string> = {
-  trace: "Trace",
-  "system-prompt": "System Prompt",
-  "knowledge-graph": "Knowledge Graph",
-  growth: "Growth",
-  "coding-projects": "Coding Projects",
-  "suggested-upgrades": "Suggested Upgrades",
-  profiles: "Profiles",
-  files: "Files",
+const CATEGORY_LABELS: Record<Category, string> = {
+  user: "User",
+  amy: "Amy",
+  projects: "Projects",
+  memories: "Memories",
+  knowledge: "Knowledge",
+  session: "Session",
 };
 
-// Mirrors chat-orchestrator/src/system-prompt.ts's buildSystemPrompt clause
-// order. Persona text, user cards, and the skills catalog aren't captured
-// per-turn anywhere retrievable after the fact (only the classify decision
-// below is persisted to event-bus, see chat-orchestrator/src/events.ts's
-// publishClassificationEvent) - this is a structural explainer of what
-// Amy's system prompt is built from, not a reconstruction of one turn's
-// exact prompt text.
-const SYSTEM_PROMPT_SECTIONS: { label: string; description: string; dynamic: boolean }[] = [
-  { label: "Persona", description: "Amy's core persona text, loaded from the active persona record.", dynamic: false },
-  { label: "Current date/time", description: "Pacific time, injected fresh every turn as ground truth for relative dates.", dynamic: false },
-  { label: "Response style", description: "Standing rule: concise, synthesized answers, not raw tool-output dumps.", dynamic: false },
-  { label: "Tool-error handling", description: "Standing rule: diagnose and retry a failed tool call in the same reply, don't just say 'I'll check later'.", dynamic: false },
-  { label: "User card", description: "What Amy knows about the user, an evolving profile.", dynamic: false },
-  { label: "User card for Amy", description: "Standing instructions the user has given about how Amy should behave.", dynamic: false },
-  { label: "Relevant memories", description: "Cross-conversation recall from memory-engine, filtered by this turn's memory policy.", dynamic: true },
-  { label: "Open tasks", description: "Every open task_context, shown every turn regardless of memory policy (see this session's Trace tab).", dynamic: true },
-  { label: "Relevant goals", description: "Goals keyword-matched to this message.", dynamic: true },
-  { label: "Needs-planning nudge", description: "One-time nudge to plan a multi-step task before attempting it.", dynamic: true },
-  { label: "Narrate-before-slow-answer", description: "Told to narrate what it's about to do when a turn will likely take a while.", dynamic: true },
-  { label: "Skills catalog", description: "The full list of skills Amy has learned.", dynamic: false },
-];
+const SUB_TABS: Record<Category, { key: string; label: string }[]> = {
+  user: [
+    { key: "profile", label: "Profile" },
+    { key: "instructions", label: "Instructions" },
+  ],
+  amy: [
+    { key: "soul", label: "Soul" },
+    { key: "learnings", label: "Learnings" },
+    { key: "suggested-upgrades", label: "Suggested Upgrades" },
+  ],
+  projects: [
+    { key: "entities", label: "Entities" },
+    { key: "coding", label: "Coding" },
+  ],
+  memories: [
+    { key: "decisions-facts", label: "Decisions & Facts" },
+    { key: "timeline", label: "Timeline" },
+  ],
+  knowledge: [
+    { key: "graph", label: "Graph" },
+    { key: "files", label: "Files" },
+  ],
+  session: [
+    { key: "trace", label: "Trace" },
+    { key: "system-prompt", label: "System Prompt" },
+  ],
+};
 
 function classificationSummary(payload: Record<string, unknown>) {
   const relevantGroups = Array.isArray(payload.relevantGroups) ? (payload.relevantGroups as string[]) : [];
@@ -172,7 +178,28 @@ function FeedbackForm({ sessionId }: { sessionId: string }) {
 export function AmyLab() {
   const { sessions, activeSessionId, setActiveSessionId, startNewSession, isLoading } = useSessions();
   const eventsState = useEvents(activeSessionId);
-  const [tab, setTab] = useState<Tab>("trace");
+  const [category, setCategory] = useState<Category>("session");
+  const [subTab, setSubTab] = useState<string>("trace");
+  // Provenance drill-through target (see EntitiesView's "View in Knowledge
+  // Graph" button) - passed to KnowledgeGraphView as initialSelectedId.
+  const [selectedGraphNodeId, setSelectedGraphNodeId] = useState<string | undefined>();
+
+  const selectCategory = (c: Category) => {
+    setCategory(c);
+    setSubTab(SUB_TABS[c][0].key);
+  };
+
+  const openSession = (sessionId: string) => {
+    setActiveSessionId(sessionId);
+    setCategory("session");
+    setSubTab("trace");
+  };
+
+  const viewInGraph = (graphitiId: string) => {
+    setSelectedGraphNodeId(graphitiId);
+    setCategory("knowledge");
+    setSubTab("graph");
+  };
 
   useEffect(() => {
     eventsState.refresh();
@@ -194,31 +221,73 @@ export function AmyLab() {
       />
       <div className="flex flex-1 flex-col">
         <div className="flex items-center gap-1 border-b border-white/10 px-4 py-2">
-          {(
-            [
-              "trace",
-              "system-prompt",
-              "knowledge-graph",
-              "growth",
-              "coding-projects",
-              "suggested-upgrades",
-              "profiles",
-              "files",
-            ] as Tab[]
-          ).map((t) => (
+          {CATEGORIES.map((c) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
+              key={c}
+              onClick={() => selectCategory(c)}
               className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
-                tab === t ? "bg-indigo-500/10 font-medium text-indigo-300" : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+                category === c ? "bg-indigo-500/10 font-medium text-indigo-300" : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
               }`}
             >
-              {TAB_LABELS[t]}
+              {CATEGORY_LABELS[c]}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 border-b border-white/10 px-4 py-1.5">
+          {SUB_TABS[category].map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setSubTab(t.key)}
+              className={`rounded-lg px-2.5 py-1 text-xs transition-colors ${
+                subTab === t.key ? "bg-white/10 font-medium text-zinc-200" : "text-zinc-600 hover:bg-white/5 hover:text-zinc-400"
+              }`}
+            >
+              {t.label}
             </button>
           ))}
         </div>
         <div className="flex-1 overflow-y-auto p-4">
-          {tab === "trace" && (
+          {category === "user" && subTab === "profile" && <UserProfileView />}
+          {category === "user" && subTab === "instructions" && <UserInstructionsView />}
+
+          {category === "amy" && subTab === "soul" && <PersonaView />}
+          {category === "amy" && subTab === "learnings" && (
+            <EntitiesView
+              typeFilter={["learning"]}
+              description="Discovered rules, lessons, and behavior-feedback-derived learnings - captured automatically from conversations."
+              emptyMessage="Nothing yet - learnings are captured automatically from conversations and repeated behavior feedback."
+              onOpenSession={openSession}
+              onViewInGraph={viewInGraph}
+            />
+          )}
+          {category === "amy" && subTab === "suggested-upgrades" && <SuggestedUpgrades />}
+
+          {category === "projects" && subTab === "entities" && (
+            <EntitiesView
+              typeFilter={["project"]}
+              description="Completed projects Amy has had approved - each backed by a real write-up file."
+              emptyMessage="Nothing yet - entities are created when a proposed project gets approved and completed."
+              onOpenSession={openSession}
+              onViewInGraph={viewInGraph}
+            />
+          )}
+          {category === "projects" && subTab === "coding" && <CodingProjectBreakdown />}
+
+          {category === "memories" && subTab === "decisions-facts" && (
+            <EntitiesView
+              typeFilter={["decision", "fact"]}
+              description="Durable facts and decisions captured automatically from real conversations."
+              emptyMessage="Nothing yet - facts/decisions are captured automatically when they come up in conversation."
+              onOpenSession={openSession}
+              onViewInGraph={viewInGraph}
+            />
+          )}
+          {category === "memories" && subTab === "timeline" && <TimelineView />}
+
+          {category === "knowledge" && subTab === "graph" && <KnowledgeGraphView initialSelectedId={selectedGraphNodeId} />}
+          {category === "knowledge" && subTab === "files" && <FilesView />}
+
+          {category === "session" && subTab === "trace" && (
             <>
               <p className="mb-3 text-xs text-zinc-500">
                 Each turn&apos;s classify decision for this session - the dynamic half of what shapes Amy&apos;s system prompt.
@@ -236,47 +305,7 @@ export function AmyLab() {
               </ul>
             </>
           )}
-
-          {tab === "system-prompt" && (
-            <>
-              <p className="mb-3 text-xs text-zinc-500">
-                Every named section chat-orchestrator&apos;s buildSystemPrompt assembles, in order. Sections marked
-                &quot;varies by turn&quot; change with this session&apos;s Trace tab above; the rest are effectively static.
-              </p>
-              <ul className="space-y-2">
-                {SYSTEM_PROMPT_SECTIONS.map((s) => (
-                  <li key={s.label} className="rounded-xl border border-white/10 bg-zinc-900/40 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-zinc-200">{s.label}</p>
-                      {s.dynamic && (
-                        <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-amber-300">
-                          varies by turn
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-0.5 text-xs text-zinc-500">{s.description}</p>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {tab === "knowledge-graph" && <KnowledgeGraphView />}
-
-          {tab === "growth" && <EntitiesView />}
-
-          {tab === "coding-projects" && <CodingProjectBreakdown />}
-
-          {tab === "suggested-upgrades" && <SuggestedUpgrades />}
-
-          {tab === "profiles" && (
-            <div className="space-y-6">
-              <PersonaView />
-              <UserProfileView />
-            </div>
-          )}
-
-          {tab === "files" && <FilesView />}
+          {category === "session" && subTab === "system-prompt" && <SystemPromptView />}
         </div>
       </div>
       <div className="flex h-full w-96 flex-col border-l border-white/10">
