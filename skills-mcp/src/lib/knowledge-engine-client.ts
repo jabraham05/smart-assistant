@@ -6,6 +6,14 @@ import type { Config } from "../config.js";
 // own comment). Replaces lib/research-workflow.ts, which called
 // research_pipeline's three n8n webhooks.
 
+// Real, live-found gap: none of these fetches previously bounded how long
+// they'd wait, so a dropped connection to knowledge-engine (vs. a clean HTTP
+// error) stalled the whole MCP tool call indefinitely - agent-service only
+// times out the *model* call, not the tool call itself, so this was a
+// reproducible "no reply" hang. knowledge-engine is internal/same-network,
+// so a slow response here is already abnormal - 20s is generous, not tight.
+const REQUEST_TIMEOUT_MS = 20_000;
+
 export interface KnowledgeSearchResult {
   content: string;
   documentTitle: string | null;
@@ -34,6 +42,7 @@ export async function knowledgeSearch(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, domain: options.domain, topK: options.topK }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const data = await jsonOrThrow<{ results: KnowledgeSearchResult[] }>(res, "Knowledge search");
   return data.results;
@@ -54,6 +63,7 @@ export async function knowledgeIngestUrl(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sourceType: "url", url, domain: options.domain, title: options.title, triggerSource: "chat" }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   return jsonOrThrow<KnowledgeIngestResult>(res, "Knowledge ingest");
 }
@@ -84,6 +94,7 @@ export async function startResearch(
       originSessionId: options.originSessionId,
       deferNotify: options.deferNotify,
     }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   return jsonOrThrow<ResearchStartResult>(res, "Research start");
 }
@@ -103,7 +114,7 @@ export interface ResearchStatus {
 export async function getResearchStatus(config: Config, originSessionId: string): Promise<ResearchStatus> {
   const url = new URL(`${config.knowledgeEngineUrl}/research/status`);
   url.searchParams.set("sessionId", originSessionId);
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   return jsonOrThrow<ResearchStatus>(res, "Research status lookup");
 }
 
@@ -116,7 +127,7 @@ export async function getResearchStatus(config: Config, originSessionId: string)
 export async function getResearchStatusByTopic(config: Config, topic: string): Promise<ResearchStatus> {
   const url = new URL(`${config.knowledgeEngineUrl}/research/status`);
   url.searchParams.set("topic", topic);
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   return jsonOrThrow<ResearchStatus>(res, "Research status lookup");
 }
 
@@ -150,6 +161,7 @@ export async function proposeProject(
       activityType: input.activityType,
       targetRepoUrl: input.repoUrl,
     }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   return jsonOrThrow<ProjectProposeResult>(res, "Project proposal");
 }
@@ -171,7 +183,7 @@ export interface ProjectListItem {
 export async function listProjects(config: Config, status?: string): Promise<ProjectListItem[]> {
   const url = new URL(`${config.knowledgeEngineUrl}/projects`);
   if (status) url.searchParams.set("status", status);
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   const data = await jsonOrThrow<{ projects: ProjectListItem[] }>(res, "Project list");
   return data.projects;
 }
@@ -185,7 +197,7 @@ export interface ResearchQueueItem {
 
 export async function listResearchQueue(config: Config, limit = 10): Promise<ResearchQueueItem[]> {
   const url = new URL(`${config.knowledgeEngineUrl}/research-queue`);
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   const data = await jsonOrThrow<{ queue: ResearchQueueItem[] }>(res, "Research queue list");
   return data.queue.slice(0, limit);
 }
@@ -202,7 +214,10 @@ export interface ProjectCompleteResult {
 // failure reason) is an expected, useful outcome to relay to the user, not
 // a genuine tool failure to surface as an error.
 export async function completeProject(config: Config, projectId: number): Promise<ProjectCompleteResult> {
-  const res = await fetch(`${config.knowledgeEngineUrl}/projects/${projectId}/complete`, { method: "POST" });
+  const res = await fetch(`${config.knowledgeEngineUrl}/projects/${projectId}/complete`, {
+    method: "POST",
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     return { completed: false, reason: body.error ?? `failed with status ${res.status}` };

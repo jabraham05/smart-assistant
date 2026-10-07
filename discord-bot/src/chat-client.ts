@@ -29,6 +29,19 @@ export async function sendChatMessage(
   }
 
   let output = "";
+  // agent-service's outer except (main.py's stream()) emits this whenever
+  // something fails OUTSIDE the per-attempt turn wrapper (e.g. classify,
+  // system-prompt assembly, Honcho recall) - before any "item" text was
+  // ever produced. Real, live-found gap: this event type was previously
+  // ignored entirely here, so a failure there streamed to completion with
+  // output="" and silently surfaced to the user as the generic
+  // "(no response)" fallback below, indistinguishable from an actually-empty
+  // valid reply and with the real error visible only in agent-service's own
+  // logs. If an error arrives AFTER real reply text already streamed (e.g. a
+  // post-turn memory-write failure, which happens after the reply is fully
+  // sent), the reply itself is still good - only an empty-output error
+  // should become a thrown, user-visible failure.
+  let errorMessage: string | null = null;
   const decoder = new TextDecoder();
   let buffer = "";
 
@@ -48,6 +61,9 @@ export async function sendChatMessage(
     if (event.type === "item" && event.metadata?.nodeName === "AI Agent" && event.content) {
       output += event.content;
     }
+    if (event.type === "error" && event.content) {
+      errorMessage = event.content;
+    }
   };
 
   for await (const chunk of res.body as any as AsyncIterable<Uint8Array>) {
@@ -57,6 +73,10 @@ export async function sendChatMessage(
     for (const line of lines) handleLine(line);
   }
   handleLine(buffer);
+
+  if (!output.trim() && errorMessage) {
+    throw new Error(`agent-service turn failed: ${errorMessage}`);
+  }
 
   return output;
 }
