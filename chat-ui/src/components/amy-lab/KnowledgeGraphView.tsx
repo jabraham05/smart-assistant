@@ -13,7 +13,7 @@ interface GraphData {
   links: KnowledgeGraphEdge[];
 }
 
-export function KnowledgeGraphView() {
+export function KnowledgeGraphView({ initialSelectedId }: { initialSelectedId?: string } = {}) {
   const [data, setData] = useState<GraphData | null>(null);
   const [error, setError] = useState<string | undefined>();
   const [selected, setSelected] = useState<KnowledgeGraphNode | null>(null);
@@ -39,6 +39,16 @@ export function KnowledgeGraphView() {
       cancelled = true;
     };
   }, []);
+
+  // Provenance drill-through from an entity's graphiti_id (see EntitiesView's
+  // "View in Knowledge Graph" button) - additive only, no effect when
+  // initialSelectedId is absent (the normal click-to-select flow below is
+  // unchanged).
+  useEffect(() => {
+    if (!initialSelectedId || !data) return;
+    const node = data.nodes.find((n) => n.id === initialSelectedId);
+    if (node) setSelected(node);
+  }, [data, initialSelectedId]);
 
   useEffect(() => {
     const el = containerRef.current;
