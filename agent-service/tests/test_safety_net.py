@@ -9,6 +9,7 @@ from src.safety_net import (
     classify_memory_grounding,
     has_fabricated_id_reference,
     has_status_narration_mismatch,
+    has_trailing_confirmation_question,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
     is_confabulated_action,
@@ -219,3 +220,32 @@ def test_classify_memory_grounding_assistant_with_tools_is_tool_verified():
 
 def test_classify_memory_grounding_assistant_with_no_tools_is_ungrounded():
     assert classify_memory_grounding("assistant", []) == "ungrounded"
+
+
+def test_has_trailing_confirmation_question_flags_stock_tail_on_substantial_reply():
+    reply = (
+        "The login bug was caused by a stale session token not being refreshed. "
+        "I've already patched the token refresh logic. Do you need me to do anything else?"
+    )
+    assert has_trailing_confirmation_question(reply, "optional") is True
+
+
+def test_has_trailing_confirmation_question_does_not_flag_plain_reply():
+    assert has_trailing_confirmation_question("The weather today is sunny and 72 degrees.", "optional") is False
+
+
+def test_has_trailing_confirmation_question_does_not_flag_when_question_is_the_whole_reply():
+    assert has_trailing_confirmation_question("Which city's weather do you want?", "optional") is False
+
+
+def test_has_trailing_confirmation_question_ignores_required_tool_policy():
+    reply = (
+        "The login bug was caused by a stale session token not being refreshed. "
+        "I've already patched the token refresh logic. Do you need me to do anything else?"
+    )
+    assert has_trailing_confirmation_question(reply, "required") is False
+
+
+def test_has_trailing_confirmation_question_does_not_flag_genuine_midtext_question():
+    reply = "Do you want the dentist appointment at 2pm or 3pm? Either works with the rest of your day."
+    assert has_trailing_confirmation_question(reply, "optional") is False
