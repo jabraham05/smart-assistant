@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Config } from "../config.js";
 import type { EntityRow } from "../db.js";
-import { toFrontmatter, relativePath, readEntityFile } from "./entities.js";
+import { toFrontmatter, relativePath, readEntityFile, listKnowledgeStoreFiles, readKnowledgeStoreFile } from "./entities.js";
 
 function fakeEntity(overrides: Partial<EntityRow> = {}): EntityRow {
   return {
@@ -73,4 +73,51 @@ test("readEntityFile returns undefined when the file is missing on disk", async 
   const result = await readEntityFile(config, entity);
   assert.equal(result, undefined);
   await rm(dir, { recursive: true, force: true });
+});
+
+test("listKnowledgeStoreFiles recursively lists every file under the store root", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knowledge-store-test-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  await mkdir(path.join(dir, "project"), { recursive: true });
+  await writeFile(path.join(dir, "project", "a.md"), "a", "utf8");
+  await mkdir(path.join(dir, "learning"), { recursive: true });
+  await writeFile(path.join(dir, "learning", "b.md"), "bb", "utf8");
+
+  const config = { knowledgeStorePath: dir } as Config;
+  const files = await listKnowledgeStoreFiles(config);
+  const relPaths = files.map((f) => f.relativePath).sort();
+  assert.deepEqual(relPaths, ["learning/b.md", "project/a.md"]);
+  assert.equal(files.find((f) => f.relativePath === "learning/b.md")?.size, 2);
+});
+
+test("listKnowledgeStoreFiles returns an empty list when the store root doesn't exist yet", async () => {
+  const config = { knowledgeStorePath: "/does/not/exist/at/all" } as Config;
+  assert.deepEqual(await listKnowledgeStoreFiles(config), []);
+});
+
+test("readKnowledgeStoreFile reads a real file by relative path", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knowledge-store-test-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await mkdir(path.join(dir, "fact"), { recursive: true });
+  await writeFile(path.join(dir, "fact", "1.md"), "hello", "utf8");
+
+  const config = { knowledgeStorePath: dir } as Config;
+  assert.equal(await readKnowledgeStoreFile(config, "fact/1.md"), "hello");
+});
+
+test("readKnowledgeStoreFile rejects a path that escapes the store root", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knowledge-store-test-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  const config = { knowledgeStorePath: dir } as Config;
+  await assert.rejects(() => readKnowledgeStoreFile(config, "../../etc/passwd"));
+});
+
+test("readKnowledgeStoreFile returns undefined for a missing file inside the root", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knowledge-store-test-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  const config = { knowledgeStorePath: dir } as Config;
+  assert.equal(await readKnowledgeStoreFile(config, "nope.md"), undefined);
 });

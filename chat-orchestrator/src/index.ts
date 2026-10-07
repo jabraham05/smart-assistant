@@ -9,7 +9,7 @@ import { formatSkillsCatalog } from "./skills-catalog.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { SkillsMcpClient } from "./mcp-client.js";
 import { searchMemory, ingestMemory, isRelevantMemory } from "./memory-engine-client.js";
-import { enqueueResearchTopic } from "./knowledge-engine-client.js";
+import { enqueueResearchTopic, createEntityFromChat } from "./knowledge-engine-client.js";
 import { matchTaskContexts, matchGoals } from "./event-bus-client.js";
 import { runAgentLoop, type AgentTool, type AgentTraceEvent } from "./agent-loop.js";
 import {
@@ -149,8 +149,17 @@ app.post("/webhook", async (req, res) => {
       matchTaskContexts(config, chatInput),
       matchGoals(config, chatInput),
     ]);
-    const { relevantGroups, relevantTools, toolPolicy, memoryPolicy, needsPlanning, background, knowledgeGapTopic, behaviorFeedback } =
-      classification;
+    const {
+      relevantGroups,
+      relevantTools,
+      toolPolicy,
+      memoryPolicy,
+      needsPlanning,
+      background,
+      knowledgeGapTopic,
+      behaviorFeedback,
+      memorableItems,
+    } = classification;
 
     // memoryPolicy only ever gates retrieval/injection into this turn's
     // prompt - never storage. History keeps accumulating in Redis
@@ -199,6 +208,16 @@ app.post("/webhook", async (req, res) => {
       publishBehaviorFeedbackEvent(config, sessionId, behaviorFeedback).catch((e) =>
         console.error("publishBehaviorFeedbackEvent failed:", e),
       );
+      // Promotes the already-captured signal into a visible, durable entity
+      // (Growth tab) instead of only logging to event-bus, where nothing
+      // reads it automatically yet.
+      createEntityFromChat(config, "learning", `${behaviorFeedback.category}: ${behaviorFeedback.note}`, {
+        sessionId,
+      });
+    }
+
+    for (const item of memorableItems) {
+      createEntityFromChat(config, item.type, item.content, { sessionId });
     }
 
     // Skip the peer-card fetch entirely (not just its injection) for
@@ -414,6 +433,33 @@ app.post("/webhook", async (req, res) => {
     console.error(`chat turn failed for session ${sessionId}:`, e);
     emit("error", e instanceof Error ? e.message : String(e));
     res.end();
+  }
+});
+
+// Read-only - reuses the exact lookup buildSystemPrompt's own persona clause
+// already relies on (db.getPersonaSystemPrompt), so this always reflects
+// the real live persona text, not a snapshot. Powers chat-ui's Amy Lab
+// "Profiles" tab.
+app.get("/persona", async (_req, res) => {
+  try {
+    const systemPrompt = await db.getPersonaSystemPrompt(config);
+    res.json({ systemPrompt: systemPrompt ?? null });
+  } catch (e) {
+    console.error("GET /persona failed:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// Read-only - reuses the exact Honcho peer-card calls buildSystemPrompt's
+// own userCard/userCardForAmy clauses already rely on. Powers chat-ui's
+// Amy Lab "Profiles" tab.
+app.get("/user-profile", async (_req, res) => {
+  try {
+    const [userCard, userCardForAmy] = await Promise.all([honcho.getUserCard(config), honcho.getUserCardForAmy(config)]);
+    res.json({ userCard, userCardForAmy });
+  } catch (e) {
+    console.error("GET /user-profile failed:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
 

@@ -31,6 +31,32 @@ async def enqueue_research_topic(
         logger.exception("knowledge-engine research-queue enqueue failed")
 
 
+async def create_entity_from_chat(
+    config: Config, item_type: str, content: str, session_id: str | None = None
+) -> None:
+    """Promotes a classifier-extracted memorable item (fact/preference/decision/
+    learning) or a behavior-feedback capture into a durable `entities` row -
+    fire-and-forget, same pattern as enqueue_research_topic above. Dedup/
+    validation all happen inside knowledge-engine's own POST /entities; this
+    is a thin, fail-silent client.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{config.knowledge_engine_url}/entities",
+                json={
+                    "type": item_type,
+                    "name": content[:80],
+                    "description": content,
+                    "sourceTable": "chat",
+                    "sourceId": session_id,
+                },
+                timeout=10,
+            )
+    except Exception:
+        logger.exception("knowledge-engine entity create failed")
+
+
 @dataclass(frozen=True)
 class OpenProjectSummary:
     id: int

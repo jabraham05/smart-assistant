@@ -24,7 +24,7 @@ import { checkKnowledge, runWebResearchAndPersist } from "./engine/research.js";
 import { enqueueTopic, drainQueue } from "./engine/research-queue.js";
 import { consolidateProject, consolidateFromExistingKnowledge } from "./engine/consolidate.js";
 import { startCodingTask, getCodingTask } from "./lib/coding-orchestrator-client.js";
-import { createEntity, readEntityFile } from "./engine/entities.js";
+import { createEntity, readEntityFile, listKnowledgeStoreFiles, readKnowledgeStoreFile } from "./engine/entities.js";
 
 const config = loadConfig(process.env);
 
@@ -650,6 +650,35 @@ app.patch("/entities/:id", async (req, res) => {
   } catch (e) {
     console.error(`failed to update entity ${req.params.id}:`, e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// Raw directory browser over KNOWLEDGE_STORE_PATH, independent of the
+// `entities` registry - see engine/entities.ts's listKnowledgeStoreFiles.
+// Powers chat-ui's Amy Lab "Files" tab.
+app.get("/knowledge-store/files", async (_req, res) => {
+  try {
+    const files = await listKnowledgeStoreFiles(config);
+    res.json({ files });
+  } catch (e) {
+    console.error("failed to list knowledge store files:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// path is a client-supplied relative path, unlike /entities/:id's
+// server-generated source_path - readKnowledgeStoreFile rejects anything
+// that resolves outside the store root.
+app.get("/knowledge-store/files/content", async (req, res) => {
+  const relativePath = typeof req.query.path === "string" ? req.query.path : undefined;
+  if (!relativePath) return res.status(400).json({ error: "path is required" });
+  try {
+    const content = await readKnowledgeStoreFile(config, relativePath);
+    if (content === undefined) return res.status(404).json({ error: `file not found: ${relativePath}` });
+    res.json({ content });
+  } catch (e) {
+    console.error(`failed to read knowledge store file ${relativePath}:`, e);
+    res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
 

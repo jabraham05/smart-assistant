@@ -23,6 +23,8 @@ export const TOOL_GROUPS = [
 
 export type ToolGroup = (typeof TOOL_GROUPS)[number];
 
+export const MEMORABLE_ITEM_TYPES = ["fact", "preference", "decision", "learning"] as const;
+
 // Single source of truth for which tools each category exposes - same
 // maintenance-cost tradeoff the original n8n Code node had: this lives
 // separately from skills-mcp's own tool registration, so a newly added
@@ -106,6 +108,16 @@ const CLASSIFIER_SYSTEM_PROMPT =
   "messages have none. Base this ONLY on the CURRENT message below, never on the prior exchange shown " +
   "for context - if the current message doesn't itself contain feedback, use null even if the prior " +
   "exchange did.\n\n" +
+  "- memorableItems: zero or more durable things worth saving permanently, each {type, content}. type " +
+  "is 'fact' (a concrete, lasting fact about the user's life, environment, or circumstances - e.g. " +
+  "hardware specs, job, location), 'preference' (a stated like/dislike or how they want something done, " +
+  "independent of this one request), 'decision' (a deliberate choice made in this conversation about " +
+  "how something should work, especially an architecture/project decision), or 'learning' (a discovered " +
+  "rule, technical lesson, or practice about HOW to do something - not about the user personally). Only " +
+  "extract something durable and likely to matter again later - most messages have none, so default to " +
+  "an empty list. Never extract the user's immediate request/question itself, only genuinely new " +
+  "standing information revealed along the way. content is a short, self-contained sentence - don't " +
+  "assume prior context.\n\n" +
   "You may also be given the single most recent exchange as brief prior context, labeled 'Prior " +
   "exchange (for reference only)'. Use it ONLY to resolve what a vague follow-up refers to (\"fix " +
   "that\", \"change it to 11am today\", \"actually make it Tuesday\", \"delete it\") - classify based " +
@@ -130,6 +142,17 @@ const CLASSIFIER_FORMAT = {
       enum: ["communication", "tool_selection", "memory_retrieval", "planning", "proactivity", "other", null],
     },
     behaviorFeedbackNote: { type: ["string", "null"] },
+    memorableItems: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: MEMORABLE_ITEM_TYPES },
+          content: { type: "string" },
+        },
+        required: ["type", "content"],
+      },
+    },
   },
   required: [
     "relevantGroups",
@@ -140,11 +163,13 @@ const CLASSIFIER_FORMAT = {
     "knowledgeGapTopic",
     "behaviorFeedbackCategory",
     "behaviorFeedbackNote",
+    "memorableItems",
   ],
 };
 
 export type ToolPolicy = "required" | "optional";
 export type MemoryPolicy = "none" | "optional" | "relevant" | "required";
+export type MemorableItemType = (typeof MEMORABLE_ITEM_TYPES)[number];
 
 export interface ClassificationResult {
   relevantGroups: string[];
@@ -167,6 +192,10 @@ export interface ClassificationResult {
   // building block of the self-improvement loop discussed alongside the
   // /amy projects feature (see docs/chat-orchestrator.md's dated entry).
   behaviorFeedback: { category: string; note: string } | null;
+  // Fire-and-forget promotion to a durable `entities` row per item (see
+  // knowledge-engine-client.ts's createEntityFromChat), consumed by
+  // index.ts the same way knowledgeGapTopic/behaviorFeedback are above.
+  memorableItems: { type: MemorableItemType; content: string }[];
 }
 
 const TOOL_POLICIES: readonly ToolPolicy[] = ["required", "optional"];
@@ -216,6 +245,7 @@ export async function classifyRelevantTools(
       knowledgeGapTopic?: string | null;
       behaviorFeedbackCategory?: string | null;
       behaviorFeedbackNote?: string | null;
+      memorableItems?: { type?: string; content?: string }[];
     }>(message.content, {});
     const relevantGroups = (parsed.relevantGroups ?? []).filter((g): g is ToolGroup =>
       (TOOL_GROUPS as readonly string[]).includes(g),
@@ -254,6 +284,16 @@ export async function classifyRelevantTools(
         ? { category: parsed.behaviorFeedbackCategory, note: parsed.behaviorFeedbackNote.trim() }
         : null;
 
+    const memorableItems = (parsed.memorableItems ?? [])
+      .filter(
+        (item): item is { type: MemorableItemType; content: string } =>
+          typeof item.type === "string" &&
+          (MEMORABLE_ITEM_TYPES as readonly string[]).includes(item.type) &&
+          typeof item.content === "string" &&
+          item.content.trim().length > 0,
+      )
+      .map((item) => ({ type: item.type, content: item.content.trim() }));
+
     return {
       relevantGroups,
       relevantTools,
@@ -263,6 +303,7 @@ export async function classifyRelevantTools(
       background,
       knowledgeGapTopic,
       behaviorFeedback,
+      memorableItems,
     };
   } catch (e) {
     // Classifier failure degrades to "only calculate" rather than "all
@@ -279,6 +320,7 @@ export async function classifyRelevantTools(
       background: false,
       knowledgeGapTopic: null,
       behaviorFeedback: null,
+      memorableItems: [],
     };
   }
 }

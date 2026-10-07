@@ -73,6 +73,8 @@ BEHAVIOR_FEEDBACK_CATEGORIES = [
     "other",
 ]
 
+MEMORABLE_ITEM_TYPES = ["fact", "preference", "decision", "learning"]
+
 _CLASSIFIER_SYSTEM_PROMPT = (
     "Classify which capability categories (zero, one, or a few) might be needed to respond to the "
     "user's message. Categories: 'media' (music/Spotify playback control), 'scheduling' (calendar "
@@ -139,6 +141,16 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "Both null when no such feedback is present - most messages have none. Base this ONLY on the "
     "CURRENT message below, never on the prior exchange shown for context - if the current message "
     "doesn't itself contain feedback, use null even if the prior exchange did.\n\n"
+    "- memorableItems: zero or more durable things worth saving permanently, each "
+    "{type, content}. type is 'fact' (a concrete, lasting fact about the user's life, environment, "
+    "or circumstances - e.g. hardware specs, job, location), 'preference' (a stated like/dislike or "
+    "how they want something done, independent of this one request), 'decision' (a deliberate choice "
+    "made in this conversation about how something should work, especially an architecture/project "
+    "decision), or 'learning' (a discovered rule, technical lesson, or practice about HOW to do "
+    "something - not about the user personally). Only extract something durable and likely to matter "
+    "again later - most messages have none, so default to an empty list. Never extract the user's "
+    "immediate request/question itself, only genuinely new standing information revealed along the "
+    "way. content is a short, self-contained sentence - don't assume prior context.\n\n"
     "You may also be given the single most recent exchange as brief prior context, labeled 'Prior "
     "exchange (for reference only)'. Use it ONLY to resolve what a vague follow-up refers to (\"fix "
     "that\", \"change it to 11am today\", \"actually make it Tuesday\", \"delete it\") - classify based "
@@ -146,6 +158,11 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "correction to something just scheduled is still 'scheduling'; a correction to a task just "
     "created is still whatever category the task itself was."
 )
+
+
+class MemorableItemOutput(BaseModel):
+    type: str
+    content: str
 
 
 class ClassifierOutput(BaseModel):
@@ -168,6 +185,7 @@ class ClassifierOutput(BaseModel):
     knowledge_gap_topic: str | None = Field(alias="knowledgeGapTopic")
     behavior_feedback_category: str | None = Field(alias="behaviorFeedbackCategory")
     behavior_feedback_note: str | None = Field(alias="behaviorFeedbackNote")
+    memorable_items: list[MemorableItemOutput] = Field(alias="memorableItems")
 
     model_config = {"populate_by_name": True}
 
@@ -175,6 +193,11 @@ class ClassifierOutput(BaseModel):
 class BehaviorFeedback(BaseModel):
     category: str
     note: str
+
+
+class MemorableItem(BaseModel):
+    type: str
+    content: str
 
 
 class ClassificationResult(BaseModel):
@@ -186,6 +209,7 @@ class ClassificationResult(BaseModel):
     background: bool
     knowledge_gap_topic: str | None
     behavior_feedback: BehaviorFeedback | None
+    memorable_items: list[MemorableItem]
 
 
 def expand_groups_to_tools(relevant_groups: list[str]) -> list[str]:
@@ -258,6 +282,7 @@ def _fallback_result() -> ClassificationResult:
         background=False,
         knowledge_gap_topic=None,
         behavior_feedback=None,
+        memorable_items=[],
     )
 
 
@@ -304,6 +329,12 @@ async def classify_relevant_tools(
             else None
         )
 
+        memorable_items = [
+            MemorableItem(type=item.type, content=item.content.strip())
+            for item in parsed.memorable_items
+            if item.type in MEMORABLE_ITEM_TYPES and item.content and item.content.strip()
+        ]
+
         return ClassificationResult(
             relevant_groups=relevant_groups,
             relevant_tools=relevant_tools,
@@ -313,6 +344,7 @@ async def classify_relevant_tools(
             background=background,
             knowledge_gap_topic=knowledge_gap_topic,
             behavior_feedback=behavior_feedback,
+            memorable_items=memorable_items,
         )
     except Exception:
         logger.exception("classify_relevant_tools failed, falling back to calculate-only")

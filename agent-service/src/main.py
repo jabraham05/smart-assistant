@@ -319,6 +319,22 @@ async def webhook(request: Request):
                         classification.behavior_feedback.note,
                     )
                 )
+                # Promotes the already-captured signal into a visible,
+                # durable entity (Growth tab) instead of only logging to
+                # event-bus, where nothing reads it automatically yet.
+                asyncio.create_task(
+                    knowledge_client.create_entity_from_chat(
+                        config,
+                        "learning",
+                        f"{classification.behavior_feedback.category}: {classification.behavior_feedback.note}",
+                        session_id=session_id,
+                    )
+                )
+
+            for item in classification.memorable_items:
+                asyncio.create_task(
+                    knowledge_client.create_entity_from_chat(config, item.type, item.content, session_id=session_id)
+                )
 
             relevant_memory_results = [
                 m
