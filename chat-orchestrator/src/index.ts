@@ -17,6 +17,8 @@ import {
   isConfabulatedAction,
   hasUnsatisfiedRequiredTool,
   classifyMemoryGrounding,
+  stripEmoji,
+  stripKnownStockClosers,
   SEARCH_RETRY_NUDGE,
   REQUIRED_TOOL_RETRY_NUDGE,
   REQUIRED_TOOL_FAILURE_MESSAGE,
@@ -388,6 +390,12 @@ app.post("/webhook", async (req, res) => {
         finalText = REQUIRED_TOOL_FAILURE_MESSAGE;
       }
     }
+
+    // Deterministic tone backstop - runs after every retry above has
+    // settled, unconditionally, since the persona's own "no emoji"/"no
+    // stock closer" rules are reliably violated often enough (confirmed via
+    // live testing) that this can't be left to prompt compliance alone.
+    finalText = stripKnownStockClosers(stripEmoji(finalText));
 
     emit("item", finalText);
     emit("end");

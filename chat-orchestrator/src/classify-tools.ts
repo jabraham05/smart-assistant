@@ -47,7 +47,11 @@ const CLASSIFIER_SYSTEM_PROMPT =
   "'info' (weather, or recalling facts/preferences ABOUT THE USER THEMSELVES specifically - their " +
   "traits, likes, past statements - never a document, manual, or reference material), 'self-growth' " +
   "(proposing a new skill/tool, starting a coding task on a repo, checking on a coding task's " +
-  "progress, or proposing a longer-term coding project for approval before work starts), 'dashboard' " +
+  "progress, proposing a longer-term coding project for approval before work starts, OR the user " +
+  "wants something Amy has no existing tool for, where a new skill or tool could plausibly be built - " +
+  "a missing integration, a new device/service to control - NOT something inherently requiring a " +
+  "human or physical action like ordering physical goods or signing something, where no software " +
+  "assistant could ever do it), 'dashboard' " +
   "(moving, resizing, showing, or hiding widgets on the smart-mirror dashboard), " +
   "'web' (searching the live web for current information, news, or facts that could have changed since " +
   "training, OR looking something up online in general such as finding products, links, or " +
@@ -90,11 +94,14 @@ const CLASSIFIER_SYSTEM_PROMPT =
   "- knowledgeGapTopic: a short topic string (a few words) ONLY when the user expresses genuine ongoing " +
   "interest in a specific topic/project they want to learn about or work on - something Amy likely " +
   "knows little about and should go quietly research in the background, not something to answer right " +
-  "now. Example: 'I have a new project idea, I want to build a robotics arm' -> \"robotics arm design " +
-  "and construction\". null for everything else, including: a direct question expecting an immediate " +
-  "answer (that's 'web'/'knowledge' - answered now, not queued for later), small talk, or anything " +
-  "already covered earlier in this same conversation. When genuinely unsure, use null - this is for " +
-  "clear, specific new interests, not a guess on every message.\n" +
+  "now. Covers explicit project-idea framing ('I have a new project idea, I want to build a robotics " +
+  "arm' -> \"robotics arm design and construction\") AND general new-interest statements with the same " +
+  "shape ('I've gotten really into drone photography lately', 'I've been exploring Rust lately', 'I'm " +
+  "really into woodworking now' -> the topic they're newly interested in). null for everything else, " +
+  "including: a direct question expecting an immediate answer (that's 'web'/'knowledge' - answered now, " +
+  "not queued for later), small talk, or anything already covered earlier in this same conversation. " +
+  "When genuinely unsure, use null - this is for clear, specific new interests, not a guess on every " +
+  "message.\n" +
   "- behaviorFeedbackCategory/behaviorFeedbackNote: capture ONLY when the user is giving feedback about " +
   "a REPEATED pattern in Amy's own behavior or approach across conversations - e.g. 'you keep giving me " +
   "too much detail', 'you have trouble remembering our past conversations', 'you always use the wrong " +
