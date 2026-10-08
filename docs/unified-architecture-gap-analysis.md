@@ -100,18 +100,299 @@ Gap vs. the vision: skills aren't first-class objects (no explicit triggers/inpu
 
 Low urgency relative to §4/§5. The logic already exists and already works (the parallel gather + `build_system_prompt` in `agent-service/src/main.py` / `system_prompt.py`, mirrored in `chat-orchestrator/src/system-prompt.ts`). The gap is purely organizational: it isn't named as a "Context Builder" or extracted into its own module/service, which matters mainly if/when Skills v2 needs a clean integration point for relevance-based skill selection (a named Context Builder is a natural place to add "ask Skill Discovery what's relevant" as one more parallel-gather branch).
 
-## 7. Recommended phased roadmap
+## 7. Canonical build roadmap
 
-Given the existing 5-pillar rebuild numbering, this would naturally continue as "what comes after Phase 5":
+This supersedes §7/§8 of the original draft. The framing isn't "build the unified cognitive architecture" — most of it already exists. It's **unify Amy's existing cognitive systems through Growth, Skills v2, and Context Builder boundaries**, continuing the existing 5-pillar rebuild numbering as Phases 6–9, in priority order:
 
-1. **Growth engine** (highest value, has validated prior art to build from) — port the `96a56acd` schema onto `agent-service`/Postgres, add the weighted opportunity-scoring model, wire the entities table's reserved types as the consolidation target.
-2. **Skills v2** (independent of #1, but a natural consumer of #3) — add skill metadata/levels and relevance-based selection on top of the existing table/approval pipeline.
-3. **Context Builder naming/extraction** (lowest urgency, can be done opportunistically alongside #2) — give the existing assembly logic an explicit module boundary so Skill Discovery (and future Growth-engine context needs) have a clean integration point.
+```
+6. Growth Engine  →  7. Skills v2  →  8. Context Builder extraction  →  9. Autonomous Growth
+```
 
-None of these three strictly blocks another; #2 benefits from #3 being done first but doesn't require it.
+That order gets the biggest capability jump first, while reusing the substantial work already done. None of the three foundational phases (6, 7, 8) strictly blocks another — #7 benefits from #8 being done first but doesn't require it — Phase 9 is the payoff that needs all three in place.
 
-## 8. Open decisions requiring sign-off before any build phase starts
+### Phase 6 — Growth Engine (highest priority)
 
-- **Persona autonomy**: should the dormant `personas.proposed_system_prompt`/`proposed_reason` autonomous-edit path be activated at all once a Growth engine can populate it, or should persona edits stay fully manual indefinitely?
-- **Growth engine autonomy tier**: how much should run automatically vs. require approval — mirroring the vision's three-tier model (automatic for low-risk/knowledge additions, user-approval for new skills/persona changes, always-approval for identity/safety-relevant changes)?
-- **Old self-improvement n8n workflows**: delete `sijudgesub0001x.json`/`siproposer0001x.json`/`sireviewer0001x.json` and the orphaned branch once the schema design has been ported, or keep them as historical reference?
+Build on the abandoned `96a56acd` work rather than recreating it; move the lifecycle into `agent-service` and the current architecture instead of resurrecting the old n8n implementation.
+
+```
+Existing signals
+    │
+    ├── behaviorFeedback
+    ├── knowledgeGapTopic
+    ├── idle_reflection
+    ├── skill_gap_scanner
+    ├── tool failures
+    ├── safety-net failures
+    ├── user corrections
+    └── review scores
+             │
+             ▼
+     Growth Opportunity
+             │
+      ┌──────┴──────┐
+      │             │
+   score          classify
+      │             │
+      └──────┬──────┘
+             ▼
+       Growth Proposal
+             │
+             ▼
+       Learning Plan
+             │
+             ▼
+         Experiment
+             │
+             ▼
+         Evaluation
+             │
+             ▼
+     Approval / Decision
+             │
+             ▼
+       Consolidation
+             │
+      ┌──────┼────────┐
+      ▼      ▼        ▼
+   Knowledge Skill  Behavior
+```
+
+**Reuse from `96a56acd`** (schema/rubric design, not the n8n implementation): `persona_snapshots`, `review_turns`, `review_scores`, `review_attributions`, `golden_transcripts`, `golden_regression_runs`, `review_cursor`, `review_runs`, the shared-judge pattern, the attribution model, the deterministic evidence threshold, and the regression-before-proposal behavior.
+
+**Phase 6.1 — Unified Growth data model.** Before building autonomous behavior, establish the records:
+
+```
+Growth
+├── Observations
+├── Opportunities
+├── Proposals
+├── Learning Plans
+├── Experiments
+├── Evaluations
+└── History
+```
+
+Operational state lives in Postgres. The existing `entities` table becomes the durable registry for *consolidated outcomes* — not a competing memory system — which is exactly what its reserved-but-unused types (`user_fact`, `preference`, `learning`, `decision`, `document`, alongside the already-used `project`) were anticipating (§3). The key distinction: **Growth records the development process; entities/knowledge/memory store the resulting durable knowledge.**
+
+**Phase 6.2 — Growth Opportunity scoring.** The major missing intelligence. Instead of every signal immediately becoming a proposal (`signal → proposal`), accumulate evidence and score it first:
+
+```
+signal → observation → accumulate evidence → score opportunity → proposal only when worthwhile
+```
+
+```
+Opportunity Score =
+    frequency
+  + usefulness
+  + confidence
+  + reuse potential
+  + improvement value
+  - effort
+  - interruption cost
+```
+
+This is where Amy starts being selective rather than noisy — and it's the piece `96a56acd`'s single deterministic threshold under-specified.
+
+**Phase 6.3 — Classify what Amy actually needs.** Every worthwhile opportunity gets classified before action is taken:
+
+```
+                  Growth Opportunity
+                          │
+       ┌──────────────────┼──────────────────┐
+       ▼                  ▼                  ▼
+   Knowledge            Skill             Behavior
+       │                  │                  │
+   Research/learn      Build/improve     Procedure change
+```
+
+A fourth branch — **Tool / Integration** — is worth reserving too. This classification step is what prevents every weakness from automatically becoming a new skill.
+
+**Phase 6.4 — Experiments + Evaluation.** This is where the old Reviewer architecture is especially valuable, applied generally rather than only to persona edits:
+
+```
+Problem: Amy is inconsistent at job evaluation
+        ↓
+Baseline: 10 historical examples
+        ↓
+Create Job Evaluation v1
+        ↓
+Run same 10 examples
+        ↓
+Compare → Evaluation
+        ↓
+v1 succeeds / fails → v2 or abandon
+```
+
+Evidence-based self-improvement, not "I'm better now" — "the new procedure improved the evaluation score from X to Y across these test cases."
+
+**Phase 6.5 — Consolidation.** Once an improvement passes evaluation, Growth decides where it belongs — the missing bridge between the various existing systems:
+
+```
+Learning
+   ↓
+┌──────────────┬──────────────┬──────────────┐
+│              │              │              │
+Knowledge      Skill        Preference     Decision
+│              │              │              │
+Knowledge      Skills/       User model     Graph/
+Engine         Library                      entities
+```
+
+### Phase 7 — Skills v2
+
+Upgrade the existing skills system rather than replacing it.
+
+```
+Current: skills → all active skills → every prompt
+
+New:
+User request → Skill Discovery → Candidate skills → Relevant skills → Load appropriate level
+```
+
+First-class skill object:
+
+```
+Skill
+├── metadata
+├── purpose
+├── triggers
+├── inputs
+├── outputs
+├── procedure
+├── rules
+├── tools
+├── knowledge requirements
+├── dependencies
+├── failure handling
+├── examples
+├── evaluation criteria
+└── versions
+```
+
+Loading levels — most turns should only need L1/L2, which directly addresses context-window and latency concerns:
+
+```
+L1  Metadata
+        ↓
+L2  Core instructions
+        ↓
+L3  Detailed procedure
+        ↓
+L4  Examples/reference material
+```
+
+**Phase 7.1 — Keep existing skill authoring.** Don't throw away `skill_propose`, `skill_gap_scanner`, human approval, or the existing Postgres skill records — those stay as the authoring side. Skills v2 only adds the missing runtime side:
+
+```
+Skill Registry
+      │
+      ├── discover
+      ├── rank
+      ├── load
+      ├── compose
+      └── version
+```
+
+This is a much smaller change than rebuilding skills entirely.
+
+**Phase 7.2 — Skill composition.** Eventually a skill can declare dependencies (e.g. a "Job Evaluation" skill requiring `research`, `decision-analysis`, `resume-analysis`, `user-preference-retrieval`), and Skill Discovery resolves the dependency graph. This becomes especially powerful once Amy can create skills herself.
+
+### Phase 8 — Context Builder extraction (intentionally low priority)
+
+Do not rewrite working context assembly just because the architecture vision calls it "Context Builder" — it already exists and works (§6). Extract it into an explicit module boundary:
+
+```
+agent-service/
+    context/
+        builder.py
+        retrieval.py
+        skill_discovery.py
+        assembly.py
+```
+
+`ContextBuilder.build(request)` becomes the one place responsible for assembling runtime context, internally parallelizing history/memory/user/tasks/goals/projects/knowledge/skills, then handing off `Context → Prompt → PydanticAI`. This gives Skills v2 a clean integration point without unnecessarily disturbing the existing runtime.
+
+### Phase 9 — Amy's self-learning loop
+
+Once Phases 6–8 exist, the original idea becomes a real loop:
+
+```
+                 ┌───────────────┐
+                 │ Amy interacts │
+                 └───────┬───────┘
+                         ↓
+                    Experiences
+                         ↓
+                     Observations
+                         ↓
+                 Growth evaluates
+                         ↓
+                "Should I improve?"
+                         ↓
+              ┌──────────┴──────────┐
+              │                     │
+             No                    Yes
+              │                     │
+           Monitor            Growth Proposal
+                                    ↓
+                              Learning Plan
+                                    ↓
+                                Experiment
+                                    ↓
+                                Evaluation
+                                    ↓
+                              ┌─────┴─────┐
+                              │           │
+                           Failed      Successful
+                              │           │
+                           Revise       Approve
+                                          ↓
+                                    Consolidate
+                                          ↓
+                                     Better Amy
+```
+
+## 8. The autonomy model (resolves the open decision from §2/§4)
+
+**Tier 1 — Autonomous.** Amy can do these without asking: research something, learn factual knowledge, create internal observations, run evaluations, create experiments, improve documentation, identify recurring problems, propose opportunities, maintain growth history.
+
+**Tier 2 — User approval.** Ask before: activating a new skill, changing an established skill, changing user preferences, changing persona behavior, installing/adding capabilities, changing important workflows.
+
+**Tier 3 — Always approval.** Never autonomously change: identity, core values, safety rules, permissions, tool access, destructive-action policies, security architecture.
+
+This gives Amy a real drive toward growth without unrestricted self-modification. It directly resolves the "persona autonomy" and "Growth engine autonomy tier" open decisions from the original draft — the dormant `personas.proposed_system_prompt` path is Tier 2 (propose freely, always human-approved before promotion), never Tier 1.
+
+## 9. Disposition of the old n8n self-improvement workflows
+
+Keep `sijudgesub0001x.json`/`siproposer0001x.json`/`sireviewer0001x.json` and the `origin/worktree-self-improvement-cycle` branch as historical reference, but not operational:
+
+```
+96a56acd → extract validated design → new agent-service implementation → tests/evals → archive old branch/workflows
+```
+
+Archive only once Phase 6 is implemented and the schema/design has been ported and verified — keeps the repository clean without throwing away useful architectural history.
+
+## 10. Target end-state architecture
+
+```
+                         AMY
+                          │
+             ┌────────────┴────────────┐
+             │                         │
+          RUNTIME                    GROWTH
+             │                         │
+      ┌──────┼───────┐         ┌──────┼───────┐
+      │      │       │         │      │       │
+   Memory Knowledge Skills  Learn  Experiments Eval
+      │      │       │         │      │       │
+      └──────┼───────┘         └──────┼───────┘
+             │                         │
+             ▼                         ▼
+       Context Builder          Improvement Loop
+             │                         │
+             └──────────┬──────────────┘
+                        ▼
+                       AMY
+```
+
+Underneath: Postgres (operational state) · Memory Engine (episodic recall) · Knowledge Engine (semantic/world knowledge) · Graphiti (relationships, decisions, development history) · Skills (procedural capability) · Growth (determines what Amy should become better at) · Context Builder (determines what Amy needs right now).
