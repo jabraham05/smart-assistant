@@ -51,6 +51,7 @@ GROUPS: dict[str, list[str]] = {
     "info": ["weather_get", "memory_recall"],
     "self-growth": [
         "skill_propose",
+        "growth_review",
         "code_task",
         "code_task_status",
         "project_propose",

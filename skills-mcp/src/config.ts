@@ -24,6 +24,11 @@ export interface Config {
   tavilyApiKey?: string;
   knowledgeEngineUrl: string;
   memoryEngineUrl: string;
+  // Always-on internal infra, same tier as eventBusUrl/knowledgeEngineUrl
+  // above - growth_review (Phase 6.5) proxies to agent-service's own
+  // /growth/* HTTP routes, since the Growth engine's data access lives
+  // there rather than in its own microservice (see docs/growth-engine.md).
+  agentServiceUrl: string;
   // Used directly by code_task/code_task_status (lib/coding-workflow.ts)
   // for task submission/status, and by lib/coding-orchestrator-client.ts's
   // read-only listCodingTasks - the old CODING_TASK_WEBHOOK_URL/
@@ -114,6 +119,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     knowledgeEngineUrl: env.KNOWLEDGE_ENGINE_URL || "http://knowledge-engine:3005",
     codingOrchestratorUrl: env.CODING_ORCHESTRATOR_URL || "http://coding-orchestrator:3003",
     memoryEngineUrl: env.MEMORY_ENGINE_URL || "http://memory-engine:3007",
+    agentServiceUrl: env.AGENT_SERVICE_URL || "http://agent-service:3010",
     chatUiUrl: env.CHAT_UI_URL || "http://localhost:3000",
   };
 }
