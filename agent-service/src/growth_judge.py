@@ -156,6 +156,62 @@ _SCORE_FIELD_MAP = {
 }
 
 
+class SkillEvaluationOutput(BaseModel):
+    # No field defaults - same reasoning as JudgeOutput/ClassifierOutput.
+    effectiveness_score: int = Field(alias="effectivenessScore")
+    reasoning: str
+
+    model_config = {"populate_by_name": True}
+
+
+_SKILL_EVAL_SYSTEM_PROMPT = (
+    "You are evaluating a proposed skill (a written procedure Amy, a personal AI assistant, would "
+    "follow) against real evidence of a recurring problem it's meant to address. Score "
+    "effectivenessScore 1-5: would a reasonable assistant, actually following these instructions, "
+    "plausibly have prevented or fixed the problem shown in the evidence? 1 means the instructions "
+    "are irrelevant or would not have helped; 5 means they directly and clearly address the root "
+    "cause. Be skeptical of vague instructions that restate the problem without giving a concrete "
+    "procedure. reasoning: one or two sentences justifying the score."
+)
+
+
+def _build_skill_eval_agent(config: Config) -> Agent[None, SkillEvaluationOutput]:
+    return Agent(
+        OllamaModel(
+            model_name=config.growth_judge_model, provider=OllamaProvider(base_url=f"{config.ollama_host}/v1")
+        ),
+        output_type=NativeOutput(SkillEvaluationOutput),
+        instructions=_SKILL_EVAL_SYSTEM_PROMPT,
+        model_settings={"thinking": False, "timeout": 60},
+    )
+
+
+# Below this score, the skill still gets written (the human already
+# approved it via growth_review - this is informational, not a block, same
+# pattern as the behavior/regression check never auto-blocking either) but
+# the consolidated skill's `reason` gets a loud warning prefix instead of
+# silently looking as sound as a high-scoring one.
+SKILL_EFFECTIVENESS_PASS_THRESHOLD = 4
+
+
+async def evaluate_skill_plausibility(config: Config, evidence_text: str, draft_instructions: str) -> SkillEvaluationOutput | None:
+    """Phase 6.4, skill category: the before/after check skill proposals
+    were missing. Not a full baseline-vs-candidate behavioral simulation
+    (there's no lightweight way to re-run a real agent turn with a
+    hypothetical new skill without reimplementing the whole chat flow) -
+    instead, a judge-based plausibility check against the actual evidence
+    that produced the opportunity. Still a real evaluation with a real
+    recorded score, not a rubber stamp."""
+    try:
+        agent = _build_skill_eval_agent(config)
+        prompt = f"Evidence of the recurring problem:\n{evidence_text}\n\nProposed skill instructions:\n{draft_instructions}"
+        result = await agent.run(prompt)
+        return result.output
+    except Exception:
+        logger.exception("growth_judge.evaluate_skill_plausibility failed")
+        return None
+
+
 async def check_golden_regression(config: Config, current_persona: str, candidate_persona: str) -> list[dict]:
     """Phase 6.4: before any 'behavior' proposal gets consolidated into a
     persona edit (Phase 6.5), replay every golden transcript's user turns

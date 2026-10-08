@@ -528,7 +528,8 @@ services:
       EVENT_BUS_URL: http://event-bus:3004
       MEMORY_ENGINE_URL: http://memory-engine:3007
       KNOWLEDGE_ENGINE_URL: http://knowledge-engine:3005
-    depends_on: [postgres, redis, ollama, skills-mcp, event-bus, memory-engine]
+      GRAPHITI_SERVICE_URL: http://graphiti-service:3012
+    depends_on: [postgres, redis, ollama, skills-mcp, event-bus, memory-engine, graphiti-service]
     networks: [assistant-net]
 
   # Phase 3 of the infrastructure rebuild's storage backend - the graph

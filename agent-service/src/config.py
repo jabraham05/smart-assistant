@@ -73,6 +73,12 @@ class Config:
     event_bus_url: str
     memory_engine_url: str
     knowledge_engine_url: str
+    # Growth engine follow-up: episodes for meaningful lifecycle moments
+    # (proposed/consolidated, not every raw observation) - same "fire an
+    # episode at a meaningful moment, not every event" convention
+    # event-bus/knowledge-engine already use. Not previously wired into
+    # agent-service at all (only coding-orchestrator had this URL).
+    graphiti_service_url: str
     memory_min_relevance_score: float
     memory_min_keyword_overlap: int
 
@@ -128,6 +134,7 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         event_bus_url=env.get("EVENT_BUS_URL") or "http://event-bus:3004",
         memory_engine_url=env.get("MEMORY_ENGINE_URL") or "http://memory-engine:3007",
         knowledge_engine_url=env.get("KNOWLEDGE_ENGINE_URL") or "http://knowledge-engine:3005",
+        graphiti_service_url=env.get("GRAPHITI_SERVICE_URL") or "http://graphiti-service:3012",
         # Same default value as knowledge-engine's routeToWebThreshold - both
         # are RRF scores from the identical k=60 formula.
         memory_min_relevance_score=_float_env("MEMORY_MIN_RELEVANCE_SCORE", 0.012),

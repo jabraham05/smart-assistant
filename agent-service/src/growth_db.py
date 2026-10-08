@@ -18,12 +18,15 @@ autonomously, so it needs no approval-tier gating of its own.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
+from datetime import datetime, timezone
 
 import asyncpg
 
+from . import growth_graphiti
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -153,6 +156,25 @@ PROPOSAL_MIN_FREQUENCY = 2
 PROPOSAL_HIGH_CONFIDENCE = 4.5
 PROPOSAL_HIGH_CONFIDENCE_SCORE_THRESHOLD = 5.0
 
+# The autonomy model (docs/unified-architecture-gap-analysis.md §8), made
+# real instead of every proposal defaulting to tier2 regardless of
+# category. §8's Tier 1 list includes "learn factual knowledge" - a
+# knowledge-category proposal is exactly that, so it auto-approves and
+# auto-consolidates with no human in the loop. Every other category
+# matches §8's Tier 2 list verbatim ("activating a new skill," "changing
+# persona behavior," - and 'tool' proposals are treated the same way since
+# they still mean "installing/adding capabilities" even though they only
+# ever land in an existing human-review queue). Tier 3 isn't represented
+# here at all: nothing in the Growth engine ever touches identity/safety/
+# permissions/tool-access tables, so there's no code path that could reach
+# tier3 regardless of this map.
+APPROVAL_TIER_BY_CATEGORY: dict[str, str] = {
+    "knowledge": "tier1",
+    "skill": "tier2",
+    "tool": "tier2",
+    "behavior": "tier2",
+}
+
 
 def classify_category(source: str, behavior_feedback_category: str | None = None) -> str | None:
     if source == "behavior_feedback" and behavior_feedback_category:
@@ -227,15 +249,21 @@ async def _maybe_promote(config: Config, opportunity_id: int) -> None:
         return
 
     category = opp["category"] or "behavior"
+    tier = APPROVAL_TIER_BY_CATEGORY.get(category, "tier2")
+    is_tier1 = tier == "tier1"
     proposed_action, rationale = _draft_proposal_text(opp)
     async with pool.acquire() as conn, conn.transaction():
         row = await conn.fetchrow(
-            "INSERT INTO growth_proposals (opportunity_id, category, proposed_action, rationale, approval_tier) "
-            "VALUES ($1, $2, $3, $4, 'tier2') RETURNING id",
+            "INSERT INTO growth_proposals (opportunity_id, category, proposed_action, rationale, approval_tier, status, reviewed_at, reviewer_notes) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
             opportunity_id,
             category,
             proposed_action,
             rationale,
+            tier,
+            "approved" if is_tier1 else "proposed",
+            datetime.now(timezone.utc) if is_tier1 else None,
+            "auto-approved: Tier 1 (knowledge) per the autonomy model" if is_tier1 else None,
         )
         await conn.execute(
             "UPDATE growth_opportunities SET status = 'proposed', updated_at = now() WHERE id = $1", opportunity_id
@@ -245,15 +273,34 @@ async def _maybe_promote(config: Config, opportunity_id: int) -> None:
             "VALUES ($1, $2, 'proposed', $3)",
             opportunity_id,
             row["id"],
-            json.dumps({"category": category, "score": float(score)}),
+            json.dumps({"category": category, "score": float(score), "tier": tier}),
         )
     logger.info(
-        "growth_db: promoted opportunity %s to proposal %s (score=%s frequency=%s)",
+        "growth_db: promoted opportunity %s to proposal %s (score=%s frequency=%s tier=%s)",
         opportunity_id,
         row["id"],
         score,
         opp["frequency"],
+        tier,
     )
+    asyncio.create_task(
+        growth_graphiti.add_episode(
+            config,
+            f"growth-proposal-{row['id']}",
+            f"Amy's Growth engine proposed a {category} improvement: {opp['title']}. {rationale}",
+            "growth_engine proposed event",
+        )
+    )
+
+    if is_tier1:
+        # Deferred import - growth_consolidate imports this module, so this
+        # has to be a late binding to avoid a circular import. Tier 1 means
+        # "no human in the loop," so the auto-approval above goes straight
+        # to consolidation in the same call rather than waiting for
+        # anything else to notice the 'approved' status.
+        from . import growth_consolidate
+
+        await growth_consolidate.consolidate_proposal(config, row["id"])
 
 
 async def record_observation(
@@ -678,6 +725,96 @@ async def create_tool_idea_proposal(
         )
     except Exception:
         logger.exception("growth_db.create_tool_idea_proposal failed (name=%s)", name)
+
+
+# ============================================================
+# Learning Plans - the missing step between an approved proposal
+# and its experiment/consolidation (roadmap: Proposal -> Learning
+# Plan -> Experiment -> Evaluation -> Approval/Decision -> Consolidation)
+# ============================================================
+
+# Deterministic per-category step templates - same rule-based-over-LLM-call
+# preference as everywhere else in this module. A learning plan's steps are
+# a fixed JSONB array, not a child table: plans are read/updated as a
+# whole, never queried step-by-step.
+LEARNING_PLAN_TEMPLATES: dict[str, list[str]] = {
+    "knowledge": [
+        "Confirm the fact/learning is accurate and self-contained",
+        "Record it as a durable entity",
+    ],
+    "skill": [
+        "Draft skill instructions from the opportunity's evidence",
+        "Evaluate the draft against the opportunity's linked observations",
+        "Write the skill if the evaluation looks sound",
+    ],
+    "behavior": [
+        "Draft a candidate persona edit",
+        "Run the golden-transcript regression check",
+        "Submit the candidate for manual promotion",
+    ],
+    "tool": [
+        "Draft a tool/integration idea",
+        "Queue it for human review via skill_proposals",
+    ],
+}
+
+
+async def list_observations_for_opportunity(config: Config, opportunity_id: int) -> list[dict]:
+    pool = await _get_pool(config)
+    rows = await pool.fetch(
+        "SELECT * FROM growth_observations WHERE opportunity_id = $1 ORDER BY id", opportunity_id
+    )
+    return [dict(r) for r in rows]
+
+
+async def create_learning_plan(config: Config, proposal_id: int, category: str) -> int | None:
+    """Creates a plan from the fixed per-category template the moment a
+    proposal is approved - this is what makes the roadmap's Learning Plan
+    stage real instead of skipped straight from Proposal to Consolidation."""
+    try:
+        pool = await _get_pool(config)
+        steps = [{"description": d, "status": "pending"} for d in LEARNING_PLAN_TEMPLATES.get(category, [])]
+        goal = f"Act on an approved {category} proposal"
+        row = await pool.fetchrow(
+            "INSERT INTO learning_plans (proposal_id, goal, steps, status) VALUES ($1, $2, $3, 'active') RETURNING id",
+            proposal_id,
+            goal,
+            json.dumps(steps),
+        )
+        await insert_growth_history(config, "learning_plan_created", {"planId": row["id"], "category": category}, proposal_id=proposal_id)
+        return row["id"]
+    except Exception:
+        logger.exception("growth_db.create_learning_plan failed for proposal %s", proposal_id)
+        return None
+
+
+async def advance_learning_plan_step(config: Config, plan_id: int, step_index: int, status: str) -> None:
+    """Read-modify-write on the steps JSONB array - plans are small (a
+    handful of steps), so this is simpler and safer than a child table for
+    something nothing ever needs to query by step across plans."""
+    try:
+        pool = await _get_pool(config)
+        row = await pool.fetchrow("SELECT steps FROM learning_plans WHERE id = $1", plan_id)
+        if not row:
+            return
+        steps = json.loads(row["steps"]) if isinstance(row["steps"], str) else row["steps"]
+        if 0 <= step_index < len(steps):
+            steps[step_index]["status"] = status
+        await pool.execute(
+            "UPDATE learning_plans SET steps = $2, updated_at = now() WHERE id = $1", plan_id, json.dumps(steps)
+        )
+    except Exception:
+        logger.exception("growth_db.advance_learning_plan_step failed for plan %s", plan_id)
+
+
+async def finish_learning_plan(config: Config, plan_id: int, status: str) -> None:
+    try:
+        pool = await _get_pool(config)
+        await pool.execute(
+            "UPDATE learning_plans SET status = $2, updated_at = now() WHERE id = $1", plan_id, status
+        )
+    except Exception:
+        logger.exception("growth_db.finish_learning_plan failed for plan %s", plan_id)
 
 
 async def insert_growth_history(
