@@ -32,7 +32,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
 )
 
-from . import event_bus_client, honcho_client, knowledge_client, memory_client, session_memory
+from . import event_bus_client, growth_db, honcho_client, knowledge_client, memory_client, session_memory
 from .agent import AgentDeps, build_agent
 from .classify import classify_relevant_tools
 from .config import Config, load_config
@@ -599,6 +599,22 @@ async def webhook(request: Request):
                     memory_domain,
                     memory_task_context_id,
                     grounding=classify_memory_grounding("assistant", state.called_tools),
+                ),
+                # Growth engine Phase 6.1 raw capture - see growth_db.py.
+                # Snapshots the persona's own text (not the fully-assembled
+                # system_prompt with date/cards/skills baked in), matching
+                # what the ported review_turns schema expects to diff
+                # against over time.
+                growth_db.log_review_turn(
+                    config,
+                    session_id,
+                    persona_prompt or "You are Amy, a helpful personal assistant.",
+                    chat_input,
+                    final_text,
+                    state.called_tools,
+                    user_card,
+                    user_card_for_amy,
+                    config.chat_model,
                 ),
             )
             logger.info("TIMING post-turn-writes session=%s took=%.2fs", session_id, time.monotonic() - _t)

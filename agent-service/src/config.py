@@ -20,6 +20,9 @@ class PostgresConfig:
     # its Data Table feature) - same database chat-orchestrator/coding-orchestrator
     # already read/write directly.
     n8n_database: str
+    # The Growth engine's own database (postgres/init/24-create-growth-db.sql) -
+    # same one-database-per-concern convention as n8n_database above.
+    growth_database: str
     user: str
     password: str
 
@@ -99,6 +102,7 @@ def load_config(env: dict[str, str] | None = None) -> Config:
             host=env.get("POSTGRES_HOST") or "postgres",
             port=_int_env("POSTGRES_PORT", 5432),
             n8n_database=env.get("N8N_DB_NAME") or "n8n",
+            growth_database=env.get("GROWTH_DB_NAME") or "growth",
             user=env.get("POSTGRES_USER") or "assistant",
             password=postgres_password,
         ),
