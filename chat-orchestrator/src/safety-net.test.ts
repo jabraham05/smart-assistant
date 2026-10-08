@@ -5,6 +5,8 @@ import {
   hasUnfulfilledSearchIntent,
   hasUnsatisfiedRequiredTool,
   classifyMemoryGrounding,
+  stripEmoji,
+  stripKnownStockClosers,
 } from "./safety-net.js";
 
 test("isConfabulatedAction flags a claimed action with no matching tool call", () => {
@@ -132,4 +134,32 @@ test("classifyMemoryGrounding tags an assistant reply with a tool call as tool_v
 
 test("classifyMemoryGrounding tags an assistant reply with no tool calls as ungrounded", () => {
   assert.equal(classifyMemoryGrounding("assistant", []), "ungrounded");
+});
+
+test("stripEmoji removes emoji and extra whitespace", () => {
+  assert.equal(stripEmoji("You're welcome! \u{1F60A}"), "You're welcome!");
+});
+
+test("stripEmoji leaves plain text unchanged", () => {
+  assert.equal(stripEmoji("17 times 24 is 408."), "17 times 24 is 408.");
+});
+
+test("stripKnownStockClosers removes a trailing exact phrase", () => {
+  assert.equal(stripKnownStockClosers("Done, sir. Let me know if you need anything else."), "Done, sir");
+});
+
+test("stripKnownStockClosers removes a no-pressure closer", () => {
+  assert.equal(
+    stripKnownStockClosers("The weather is 62F and clear. No pressure, take your time."),
+    "The weather is 62F and clear",
+  );
+});
+
+test("stripKnownStockClosers does not flag a non-trailing mention", () => {
+  const text = "The gauge shows no pressure issue. Everything else looks fine.";
+  assert.equal(stripKnownStockClosers(text), text);
+});
+
+test("stripKnownStockClosers leaves plain text unchanged", () => {
+  assert.equal(stripKnownStockClosers("17 times 24 is 408."), "17 times 24 is 408.");
 });

@@ -280,3 +280,47 @@ TRAILING_CONFIRMATION_RETRY_NUDGE = (
     "that nothing in this conversation actually depends on - answer the same way but drop that "
     "closing question entirely, or only ask it if something specific genuinely depends on the answer.)"
 )
+
+# Real gap found via live testing: a plain "lol thanks" still came back with
+# an emoji and the exact "let me know if you need anything else" closer the
+# persona's own "How you talk" section explicitly forbids, with worked
+# examples. Same "don't trust the model's own compliance" reasoning as the
+# deterministic date-validation checks elsewhere in this project - applied
+# unconditionally to every final reply, not gated on anything.
+_EMOJI_RANGES = [
+    (0x1F300, 0x1F9FF),
+    (0x1FA00, 0x1FAFF),
+    (0x2600, 0x27BF),
+    (0x2B00, 0x2BFF),
+    (0x1F1E6, 0x1F1FF),
+]
+# Built from code points via chr() rather than pasted literal characters -
+# a pasted emoji/variation-selector/ZWJ character in source is unverifiable
+# at a glance (invisible or render-dependent); this is auditable instead.
+_emoji_class = "".join(f"{chr(lo)}-{chr(hi)}" for lo, hi in _EMOJI_RANGES) + chr(0xFE0F) + chr(0x200D)
+_EMOJI_REGEX = re.compile(f"[{_emoji_class}]")
+
+
+def strip_emoji(text: str) -> str:
+    stripped = _EMOJI_REGEX.sub("", text)
+    stripped = re.sub(r"[ \t]{2,}", " ", stripped)
+    stripped = re.sub(r"[ \t]+$", "", stripped, flags=re.MULTILINE)
+    return stripped.rstrip()
+
+
+# Deliberately narrow - matches only the exact phrases the persona's own
+# "How you talk" section names, and only as the trailing sentence/clause
+# ($ anchor), same "catches the real observed case, not a general closer-
+# detector" conservatism as _UNFULFILLED_SEARCH_INTENT above. A false
+# positive here would delete legitimate trailing content, so this only
+# fires on an exact, named phrase.
+_STOCK_CLOSER_REGEX = re.compile(
+    r"(?:^|[.!?]\s+)[^.!?]*?(?:let me know if you need anything|no pressure|"
+    r"I['’]m here when you['’]re ready)[^.!?]*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def strip_known_stock_closers(text: str) -> str:
+    stripped = _STOCK_CLOSER_REGEX.sub("", text, count=1).rstrip()
+    return stripped if stripped else text.rstrip()

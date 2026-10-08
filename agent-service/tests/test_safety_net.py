@@ -13,6 +13,8 @@ from src.safety_net import (
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
     is_confabulated_action,
+    strip_emoji,
+    strip_known_stock_closers,
 )
 
 
@@ -249,3 +251,31 @@ def test_has_trailing_confirmation_question_ignores_required_tool_policy():
 def test_has_trailing_confirmation_question_does_not_flag_genuine_midtext_question():
     reply = "Do you want the dentist appointment at 2pm or 3pm? Either works with the rest of your day."
     assert has_trailing_confirmation_question(reply, "optional") is False
+
+
+def test_strip_emoji_removes_emoji_and_extra_whitespace():
+    assert strip_emoji("You're welcome! \U0001F60A") == "You're welcome!"
+
+
+def test_strip_emoji_leaves_plain_text_unchanged():
+    assert strip_emoji("17 times 24 is 408.") == "17 times 24 is 408."
+
+
+def test_strip_known_stock_closers_removes_trailing_exact_phrase():
+    assert strip_known_stock_closers("Done, sir. Let me know if you need anything else.") == "Done, sir"
+
+
+def test_strip_known_stock_closers_removes_no_pressure_closer():
+    assert (
+        strip_known_stock_closers("The weather is 62F and clear. No pressure, take your time.")
+        == "The weather is 62F and clear"
+    )
+
+
+def test_strip_known_stock_closers_does_not_flag_non_trailing_mention():
+    text = "The gauge shows no pressure issue. Everything else looks fine."
+    assert strip_known_stock_closers(text) == text
+
+
+def test_strip_known_stock_closers_leaves_plain_text_unchanged():
+    assert strip_known_stock_closers("17 times 24 is 408.") == "17 times 24 is 408."

@@ -51,6 +51,8 @@ from .safety_net import (
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
     is_confabulated_action,
+    strip_emoji,
+    strip_known_stock_closers,
 )
 from .system_prompt import (
     OpenProject,
@@ -572,6 +574,22 @@ async def webhook(request: Request):
                     yield c
                 if retry_text.strip():
                     final_text = retry_text
+
+            # Deterministic tone backstop - runs after every retry above
+            # (including the trailing-confirmation one) has settled, since
+            # every attempt's raw chunks were already streamed to the client
+            # live (see _run_turn's chunks.append) - fixing final_text alone
+            # would only clean what gets stored, not what the user already
+            # saw. Reuses the exact mechanism chat-ui's message-reducer
+            # already has for a real retry (resets displayed content on a
+            # trace kind="retry" event) to correct the visible reply too -
+            # only emitted when stripping actually changed something, so a
+            # clean turn emits nothing extra.
+            cleaned_text = strip_known_stock_closers(strip_emoji(final_text))
+            if cleaned_text != final_text:
+                yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "tone_backstop"})
+                yield emit("item", cleaned_text)
+                final_text = cleaned_text
 
             yield emit("end")
             logger.info("TIMING total-until-end session=%s took=%.2fs", session_id, time.monotonic() - _turn_t0)

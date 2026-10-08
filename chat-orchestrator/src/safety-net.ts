@@ -145,3 +145,34 @@ export function classifyMemoryGrounding(role: "user" | "assistant", calledTools:
   if (role === "user") return "user_stated";
   return calledTools.length > 0 ? "tool_verified" : "ungrounded";
 }
+
+// Real gap found via live testing: a plain "lol thanks" still came back with
+// an emoji and the exact "let me know if you need anything else" closer the
+// persona's own "How you talk" section explicitly forbids, with worked
+// examples. Same "don't trust the model's own compliance" reasoning as
+// weekdayMismatchError/implausibleDateError elsewhere in this project -
+// applied unconditionally to every final reply, not gated on anything.
+const EMOJI_REGEX =
+  /[\u{1F300}-\u{1F9FF}\u{1FA00}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}\u{FE0F}\u{200D}]/gu;
+
+export function stripEmoji(text: string): string {
+  return text
+    .replace(EMOJI_REGEX, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+$/gm, "")
+    .trimEnd();
+}
+
+// Deliberately narrow - matches only the exact phrases the persona's own
+// "How you talk" section names, and only as the trailing sentence/clause
+// ($ anchor), same "catches the real observed case, not a general closer-
+// detector" conservatism as UNFULFILLED_SEARCH_INTENT above. A false
+// positive here would delete legitimate trailing content, so this only
+// fires on an exact, named phrase.
+const STOCK_CLOSER_REGEX =
+  /(?:^|[.!?]\s+)[^.!?]*?(?:let me know if you need anything|no pressure|I['’]m here when you['’]re ready)[^.!?]*[.!?]?\s*$/i;
+
+export function stripKnownStockClosers(text: string): string {
+  const stripped = text.replace(STOCK_CLOSER_REGEX, "").trimEnd();
+  return stripped.length > 0 ? stripped : text.trimEnd();
+}
