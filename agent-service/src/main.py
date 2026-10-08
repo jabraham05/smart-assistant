@@ -32,11 +32,19 @@ from pydantic_ai.messages import (
     TextPartDelta,
 )
 
-from . import event_bus_client, honcho_client, knowledge_client, memory_client, session_memory
+from . import (
+    context_builder,
+    event_bus_client,
+    growth_background,
+    growth_db,
+    growth_routes,
+    honcho_client,
+    knowledge_client,
+    memory_client,
+    session_memory,
+)
 from .agent import AgentDeps, build_agent
-from .classify import classify_relevant_tools
 from .config import Config, load_config
-from .db import get_active_instruction_skills, get_persona_system_prompt
 from .safety_net import (
     FABRICATED_ID_NUDGE,
     REQUIRED_TOOL_FAILURE_MESSAGE,
@@ -54,21 +62,22 @@ from .safety_net import (
     strip_emoji,
     strip_known_stock_closers,
 )
-from .system_prompt import (
-    OpenProject,
-    OpenTask,
-    RelevantGoal,
-    RelevantMemory,
-    SystemPromptInput,
-    build_system_prompt,
-)
-from datetime import datetime, timezone
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 config = load_config()
 app = FastAPI()
+app.include_router(growth_routes.build_router(config))
+
+
+@app.on_event("startup")
+async def _start_growth_background_loop() -> None:
+    # Phase 9: the autonomous Growth loop - periodically judges unreviewed
+    # review_turns and feeds actionable attributions into opportunity
+    # scoring. Fire-and-forget: a crash in the loop body is caught inside
+    # growth_background itself and must never take down the webhook.
+    asyncio.create_task(growth_background.start_background_loop(config))
 
 # Same literal string chat-ui/discord-bot already key off of - both clients
 # only ever treat a type:"item" event with metadata.nodeName:"AI Agent" as
@@ -273,52 +282,40 @@ async def webhook(request: Request):
                 last_two = full_history[-2:]
                 recent_context = "\n".join(f"{m.role}: {m.content}" for m in last_two)
 
-            _t = time.monotonic()
-            classification, persona_prompt, active_skills, memory_results, open_tasks, relevant_goals, open_projects = (
-                await asyncio.gather(
-                    classify_relevant_tools(config.ollama_host, config.classifier_model, chat_input, recent_context),
-                    get_persona_system_prompt(config),
-                    get_active_instruction_skills(config),
-                    memory_client.search_memory(config, chat_input),
-                    event_bus_client.match_task_contexts(config, chat_input),
-                    event_bus_client.match_goals(config, chat_input),
-                    knowledge_client.list_open_projects(config),
-                )
-            )
-            # Real, live-verified finding: this gather's wall time is almost
-            # entirely classify_relevant_tools's own LLM call (confirmed via
-            # per-task timing during a live profiling session) - every other
-            # item here (Postgres/event-bus/knowledge-engine reads, a single
-            # memory-engine embedding lookup) finishes in well under half a
-            # second. classify and the main reply are the two dominant,
-            # unavoidable-per-turn LLM calls on this hardware.
-            logger.info("TIMING classify+context-gather session=%s took=%.2fs", session_id, time.monotonic() - _t)
-
-            # Real, live-verified gap: this used to only check needs_planning/
-            # background/research/web - a message that classifies purely as
-            # self-growth (e.g. "start a coding task to...") never triggered
-            # it, even though code_task starts a genuine real async job, the
-            # same class of "this is going to take a while" work.
-            #
-            # 'web' deliberately does NOT solo-trigger this: a bare web
-            # lookup is one ~1-3s Tavily call, not background work, and
-            # acking it the same way as a 90s+ research_task run or an async
-            # coding task made every quick lookup feel like it was getting
-            # research-level ceremony it didn't need (real user-reported
-            # friction). 'web' can still contribute via needs_planning/
-            # background below - "search the web for X and reschedule my
-            # 3pm" is still genuinely multi-step and still acks.
-            should_acknowledge = (
-                classification.needs_planning
-                or classification.background
-                or "research" in classification.relevant_groups
-                or "self-growth" in classification.relevant_groups
-            )
+            # Growth engine Phase 8: the parallel gather + Honcho card fetch
+            # + skill discovery + system-prompt assembly that used to be
+            # inlined here now lives in context_builder.py - a pure
+            # relocation (same calls, same order, same log lines), not a
+            # behavior change. See that module's docstring for why side
+            # effects below stay here instead of moving with it.
+            ctx = await context_builder.build_context(config, session_id, chat_input, recent_context)
+            classification = ctx.classification
+            persona_prompt = ctx.persona_prompt
+            open_tasks = ctx.open_tasks
+            relevant_goals = ctx.relevant_goals
+            relevant_memory_results = ctx.relevant_memory_results
+            user_card = ctx.user_card
+            user_card_for_amy = ctx.user_card_for_amy
+            system_prompt = ctx.system_prompt
+            should_acknowledge = ctx.should_acknowledge
 
             if classification.knowledge_gap_topic:
                 asyncio.create_task(
                     knowledge_client.enqueue_research_topic(
                         config, classification.knowledge_gap_topic, session_id=session_id
+                    )
+                )
+                # Growth engine Phase 6.2: additive, not a replacement for
+                # the research-queue enqueue above - this is what lets a
+                # recurring knowledge gap eventually surface as a scored
+                # Growth opportunity, not just a one-off research job.
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config,
+                        "knowledge_gap",
+                        classification.knowledge_gap_topic,
+                        {"chatInput": chat_input},
+                        session_id=session_id,
                     )
                 )
 
@@ -342,53 +339,28 @@ async def webhook(request: Request):
                         session_id=session_id,
                     )
                 )
+                # Growth engine Phase 6.2/6.3: the same signal also
+                # accumulates toward a scored Growth opportunity, classified
+                # per its own sub-category (see growth_db.classify_category) -
+                # a repeated 'tool_selection' complaint should surface as a
+                # tool/skill opportunity, not a behavior one.
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config,
+                        "behavior_feedback",
+                        classification.behavior_feedback.note,
+                        {"category": classification.behavior_feedback.category, "chatInput": chat_input},
+                        session_id=session_id,
+                        category=growth_db.classify_category(
+                            "behavior_feedback", classification.behavior_feedback.category
+                        ),
+                    )
+                )
 
             for item in classification.memorable_items:
                 asyncio.create_task(
                     knowledge_client.create_entity_from_chat(config, item.type, item.content, session_id=session_id)
                 )
-
-            relevant_memory_results = [
-                m
-                for m in memory_results
-                if memory_client.is_relevant_memory(
-                    m, config.memory_min_relevance_score, config.memory_min_keyword_overlap
-                )
-            ] if classification.memory_policy != "none" else []
-            relevant_memories = [
-                RelevantMemory(content=m.content, grounding=m.grounding) for m in relevant_memory_results
-            ]
-
-            user_card: list[str] = []
-            user_card_for_amy: list[str] = []
-            if classification.memory_policy != "none":
-                _t = time.monotonic()
-                if not await session_memory.is_honcho_initialized(config, session_id):
-                    await honcho_client.ensure_session_exists(config, session_id)
-                    await honcho_client.set_user_observe_config(config, session_id)
-                    await session_memory.mark_honcho_initialized(config, session_id)
-                user_card, user_card_for_amy = await asyncio.gather(
-                    honcho_client.get_user_card(config), honcho_client.get_user_card_for_amy(config)
-                )
-                logger.info("TIMING honcho session=%s took=%.2fs", session_id, time.monotonic() - _t)
-
-            system_prompt = build_system_prompt(
-                SystemPromptInput(
-                    persona_system_prompt=persona_prompt or "You are Amy, a helpful personal assistant.",
-                    now=datetime.now(timezone.utc),
-                    user_card=user_card,
-                    user_card_for_amy=user_card_for_amy,
-                    skills_catalog_text="\n\n".join(
-                        f"## {s.name}\n{s.description}\n\n{s.instructions}" for s in active_skills
-                    ),
-                    relevant_memories=relevant_memories,
-                    open_tasks=[OpenTask(id=t.id, objective=t.objective, status=t.status) for t in open_tasks],
-                    relevant_goals=[RelevantGoal(id=g.id, title=g.title, status=g.status) for g in relevant_goals],
-                    open_projects=[OpenProject(id=p.id, title=p.title, status=p.status) for p in open_projects],
-                    needs_planning_nudge=classification.needs_planning,
-                    narrate_before_slow_answer=should_acknowledge,
-                )
-            )
 
             yield emit(
                 "trace",
@@ -482,6 +454,12 @@ async def webhook(request: Request):
             bound_tools = classification.relevant_tools
 
             if has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools):
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config, "safety_net_failure", "Reply implied a search without calling a search tool",
+                        {"reason": "search_intent", "chatInput": chat_input}, session_id=session_id,
+                    )
+                )
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "search_intent"})
                 retry_text, chunks = await _run_turn(
                     config, session_id, system_prompt, chat_input + SEARCH_RETRY_NUDGE, bound_tools, state, emit,
@@ -493,6 +471,12 @@ async def webhook(request: Request):
                     final_text = retry_text
 
             if is_confabulated_action(final_text, bound_tools, state.called_tools):
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config, "safety_net_failure", "Reply claimed an action was taken without calling a tool",
+                        {"reason": "confabulation", "chatInput": chat_input}, session_id=session_id,
+                    )
+                )
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "confabulation"})
                 nudge = (
                     " (Your last reply claimed to have done something, but no matching tool was actually "
@@ -508,6 +492,12 @@ async def webhook(request: Request):
                     final_text = retry_text
 
             if has_fabricated_id_reference(final_text, state.called_tools, state.tool_results):
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config, "safety_net_failure", "Reply referenced an id not present in any real tool result",
+                        {"reason": "fabricated_id", "chatInput": chat_input}, session_id=session_id,
+                    )
+                )
                 yield emit(
                     "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "fabricated_id"}
                 )
@@ -521,6 +511,12 @@ async def webhook(request: Request):
                     final_text = retry_text
 
             if has_status_narration_mismatch(final_text, state.called_tools, state.tool_results):
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config, "safety_net_failure", "Reply's narration didn't match what a status/lookup tool actually returned",
+                        {"reason": "status_narration_mismatch", "chatInput": chat_input}, session_id=session_id,
+                    )
+                )
                 yield emit(
                     "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "status_narration_mismatch"}
                 )
@@ -536,6 +532,13 @@ async def webhook(request: Request):
             if has_unsatisfied_required_tool(
                 classification.tool_policy, bound_tools, state.called_tools, classification.relevant_groups
             ):
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config, "safety_net_failure", "A required tool for this message's category was never called",
+                        {"reason": "required_tool", "chatInput": chat_input, "relevantGroups": classification.relevant_groups},
+                        session_id=session_id,
+                    )
+                )
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "required_tool"})
                 retry_text, chunks = await _run_turn(
                     config,
@@ -557,6 +560,12 @@ async def webhook(request: Request):
                     final_text = REQUIRED_TOOL_FAILURE_MESSAGE
 
             if has_trailing_confirmation_question(final_text, classification.tool_policy):
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config, "safety_net_failure", "Reply tacked on a stock trailing confirmation question",
+                        {"reason": "trailing_confirmation", "chatInput": chat_input}, session_id=session_id,
+                    )
+                )
                 yield emit(
                     "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "trailing_confirmation"}
                 )
@@ -617,6 +626,22 @@ async def webhook(request: Request):
                     memory_domain,
                     memory_task_context_id,
                     grounding=classify_memory_grounding("assistant", state.called_tools),
+                ),
+                # Growth engine Phase 6.1 raw capture - see growth_db.py.
+                # Snapshots the persona's own text (not the fully-assembled
+                # system_prompt with date/cards/skills baked in), matching
+                # what the ported review_turns schema expects to diff
+                # against over time.
+                growth_db.log_review_turn(
+                    config,
+                    session_id,
+                    persona_prompt or "You are Amy, a helpful personal assistant.",
+                    chat_input,
+                    final_text,
+                    state.called_tools,
+                    user_card,
+                    user_card_for_amy,
+                    config.chat_model,
                 ),
             )
             logger.info("TIMING post-turn-writes session=%s took=%.2fs", session_id, time.monotonic() - _t)

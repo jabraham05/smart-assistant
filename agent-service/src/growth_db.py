@@ -1,0 +1,700 @@
+"""Direct Postgres access for the Growth engine's own database (Phase 6.1 -
+see docs/unified-architecture-gap-analysis.md §7 and docs/growth-engine.md).
+Growth lives inside agent-service rather than as its own microservice, per
+the roadmap ("move the lifecycle into agent-service and the current
+architecture, do not resurrect the old n8n implementation") - but keeps its
+own database, same one-database-per-concern convention as memory/events/
+research/skills.
+
+Reuses the schema design from the abandoned self-improvement pipeline
+(commit 96a56acd, never merged) without reviving its n8n implementation:
+persona_snapshots + review_turns are the raw capture mechanism, ported
+verbatim and wired as a side effect of main.py's existing post-turn
+persistence step. Everything past that (scoring, classification,
+experiments, consolidation) is schema-only until Phase 6.2+ wires real
+logic on top - this module only ever writes an observation, never acts
+autonomously, so it needs no approval-tier gating of its own.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+
+import asyncpg
+
+from .config import Config
+
+logger = logging.getLogger(__name__)
+
+_pool: asyncpg.Pool | None = None
+
+
+async def _get_pool(config: Config) -> asyncpg.Pool:
+    global _pool
+    if _pool is None:
+        _pool = await asyncpg.create_pool(
+            host=config.postgres.host,
+            port=config.postgres.port,
+            database=config.postgres.growth_database,
+            user=config.postgres.user,
+            password=config.postgres.password,
+        )
+    return _pool
+
+
+async def _ensure_persona_snapshot(pool: asyncpg.Pool, persona_system_prompt: str) -> str:
+    # Computed in Python rather than SQL's md5() - unlike the Code-node
+    # sandbox gotcha that motivated computing hashes in SQL for the
+    # original n8n pipeline, asyncpg/Python has no equivalent crypto-import
+    # footgun, so there's no reason to push this into the query.
+    prompt_hash = hashlib.md5(persona_system_prompt.encode("utf-8")).hexdigest()
+    await pool.execute(
+        "INSERT INTO persona_snapshots (hash, system_prompt) VALUES ($1, $2) "
+        "ON CONFLICT (hash) DO NOTHING",
+        prompt_hash,
+        persona_system_prompt,
+    )
+    return prompt_hash
+
+
+async def log_review_turn(
+    config: Config,
+    session_id: str,
+    persona_system_prompt: str,
+    user_message: str,
+    agent_reply: str,
+    tool_calls: list[str],
+    user_card_snapshot: list[str],
+    user_card_for_amy_snapshot: list[str],
+    model: str,
+) -> None:
+    """Raw per-turn capture for the Growth engine - mirrors the Honcho/
+    memory-engine writes already happening alongside this call in main.py.
+    Never raises: this is awaited in the same gather as those writes, and a
+    failure here must not affect a reply that has already streamed back to
+    the user."""
+    try:
+        pool = await _get_pool(config)
+        prompt_hash = await _ensure_persona_snapshot(pool, persona_system_prompt)
+        await pool.execute(
+            "INSERT INTO review_turns "
+            "(session_id, user_message, agent_reply, tool_calls, persona_prompt_hash, "
+            " user_card_snapshot, user_card_for_amy_snapshot, model) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            session_id,
+            user_message,
+            agent_reply,
+            json.dumps(tool_calls),
+            prompt_hash,
+            json.dumps(user_card_snapshot),
+            json.dumps(user_card_for_amy_snapshot),
+            model,
+        )
+    except Exception:
+        logger.exception("growth_db.log_review_turn failed for session %s", session_id)
+
+
+# ============================================================
+# Phase 6.2/6.3: opportunity scoring + classification
+# ============================================================
+
+# Deterministic per-source heuristic defaults for the five positive
+# dimensions (frequency is tracked separately via accumulation) - mirrors
+# this project's general preference for rule-based routing where possible
+# (event-bus's classify.ts, knowledge-engine's router.ts) rather than an
+# LLM call on every single observation. A starting point, not a claim of
+# precision - review_score observations (Phase 6.4) carry a confidence
+# derived from the judge's own attribution instead of this fixed default.
+_SOURCE_DEFAULTS: dict[str, dict[str, float]] = {
+    "tool_failure": {"usefulness": 3, "confidence": 4, "reuse_potential": 2, "improvement_value": 3, "effort": 2, "interruption_cost": 1},
+    "safety_net_failure": {"usefulness": 3, "confidence": 4, "reuse_potential": 2, "improvement_value": 3, "effort": 2, "interruption_cost": 1},
+    "user_correction": {"usefulness": 4, "confidence": 4, "reuse_potential": 3, "improvement_value": 4, "effort": 2, "interruption_cost": 2},
+    "behavior_feedback": {"usefulness": 3, "confidence": 3, "reuse_potential": 3, "improvement_value": 3, "effort": 2, "interruption_cost": 2},
+    "knowledge_gap": {"usefulness": 3, "confidence": 3, "reuse_potential": 2, "improvement_value": 2, "effort": 1, "interruption_cost": 1},
+    "idle_reflection": {"usefulness": 2, "confidence": 2, "reuse_potential": 2, "improvement_value": 2, "effort": 2, "interruption_cost": 2},
+    "skill_gap_scan": {"usefulness": 3, "confidence": 3, "reuse_potential": 3, "improvement_value": 3, "effort": 3, "interruption_cost": 2},
+    "review_score": {"usefulness": 3, "confidence": 3, "reuse_potential": 2, "improvement_value": 3, "effort": 3, "interruption_cost": 2},
+}
+_DEFAULT_SCORE_DIMENSIONS = {
+    "usefulness": 2, "confidence": 2, "reuse_potential": 2, "improvement_value": 2, "effort": 2, "interruption_cost": 2,
+}
+
+# source -> Growth category (Phase 6.3). behaviorFeedback's own sub-category
+# (classify.py's BEHAVIOR_FEEDBACK_CATEGORIES) is more specific and spans
+# more than one Growth category - e.g. 'tool_selection' feedback is really
+# about a tool/skill, not a persona behavior change - so it's resolved
+# separately in classify_category below rather than collapsed here.
+_SOURCE_CATEGORY: dict[str, str] = {
+    "knowledge_gap": "knowledge",
+    "tool_failure": "tool",
+    "skill_gap_scan": "skill",
+    "idle_reflection": "behavior",
+    "review_score": "behavior",
+    "safety_net_failure": "behavior",
+    "user_correction": "behavior",
+}
+_BEHAVIOR_FEEDBACK_CATEGORY_MAP: dict[str, str] = {
+    "tool_selection": "tool",
+    "memory_retrieval": "behavior",
+    "communication": "behavior",
+    "planning": "behavior",
+    "proactivity": "behavior",
+    "other": "behavior",
+}
+
+# An opportunity is proposed once it clears both a minimum score AND has
+# been seen more than once - generalizes 96a56acd's own evidence threshold
+# ("≥2 qualifying attributions in 14 days, or one at confidence ≥0.9") past
+# persona review to every Growth category.
+PROPOSAL_SCORE_THRESHOLD = 8.0
+PROPOSAL_MIN_FREQUENCY = 2
+PROPOSAL_HIGH_CONFIDENCE = 4.5
+PROPOSAL_HIGH_CONFIDENCE_SCORE_THRESHOLD = 5.0
+
+
+def classify_category(source: str, behavior_feedback_category: str | None = None) -> str | None:
+    if source == "behavior_feedback" and behavior_feedback_category:
+        return _BEHAVIOR_FEEDBACK_CATEGORY_MAP.get(behavior_feedback_category, "behavior")
+    return _SOURCE_CATEGORY.get(source)
+
+
+def compute_score(
+    frequency: float,
+    usefulness: float,
+    confidence: float,
+    reuse_potential: float,
+    improvement_value: float,
+    effort: float,
+    interruption_cost: float,
+) -> float:
+    """The roadmap's scoring model, verbatim: frequency + usefulness +
+    confidence + reuse_potential + improvement_value - effort -
+    interruption_cost. A pure function so it can be unit-tested/tuned
+    independently of the Postgres accumulation logic around it."""
+    return frequency + usefulness + confidence + reuse_potential + improvement_value - effort - interruption_cost
+
+
+def _draft_proposal_text(opp: asyncpg.Record) -> tuple[str, str]:
+    category = opp["category"] or "behavior"
+    title = opp["title"]
+    if category == "knowledge":
+        action = f"Research and record durable knowledge about: {title}"
+    elif category == "skill":
+        action = f"Author or improve a skill addressing: {title}"
+    elif category == "tool":
+        action = f"Evaluate a new tool/integration for: {title}"
+    else:
+        action = f"Review and adjust behavior/persona guidance regarding: {title}"
+    score = opp["score"]
+    rationale = (
+        f"Observed {opp['frequency']} time(s), accumulated score "
+        f"{float(score):.1f} (threshold {PROPOSAL_SCORE_THRESHOLD}). {opp['description']}"
+    )
+    return action, rationale
+
+
+async def _maybe_promote(config: Config, opportunity_id: int) -> None:
+    """Phase 6.2's selectivity gate - signal -> observation -> accumulate ->
+    score -> propose ONLY when worthwhile, never signal -> proposal
+    directly. Idempotent: an opportunity already proposed/rejected/dormant
+    is left alone."""
+    pool = await _get_pool(config)
+    opp = await pool.fetchrow(
+        "SELECT id, title, description, category, frequency, confidence, score, status "
+        "FROM growth_opportunities WHERE id = $1",
+        opportunity_id,
+    )
+    if not opp or opp["status"] in ("proposed", "rejected", "dormant"):
+        return
+
+    score = opp["score"]
+    confidence = opp["confidence"]
+    qualifies = (
+        score is not None and float(score) >= PROPOSAL_SCORE_THRESHOLD and opp["frequency"] >= PROPOSAL_MIN_FREQUENCY
+    ) or (
+        confidence is not None
+        and float(confidence) >= PROPOSAL_HIGH_CONFIDENCE
+        and score is not None
+        and float(score) >= PROPOSAL_HIGH_CONFIDENCE_SCORE_THRESHOLD
+    )
+    if not qualifies:
+        if opp["status"] == "observed" and score is not None and float(score) >= PROPOSAL_SCORE_THRESHOLD:
+            await pool.execute(
+                "UPDATE growth_opportunities SET status = 'scored', updated_at = now() WHERE id = $1", opportunity_id
+            )
+        return
+
+    category = opp["category"] or "behavior"
+    proposed_action, rationale = _draft_proposal_text(opp)
+    async with pool.acquire() as conn, conn.transaction():
+        row = await conn.fetchrow(
+            "INSERT INTO growth_proposals (opportunity_id, category, proposed_action, rationale, approval_tier) "
+            "VALUES ($1, $2, $3, $4, 'tier2') RETURNING id",
+            opportunity_id,
+            category,
+            proposed_action,
+            rationale,
+        )
+        await conn.execute(
+            "UPDATE growth_opportunities SET status = 'proposed', updated_at = now() WHERE id = $1", opportunity_id
+        )
+        await conn.execute(
+            "INSERT INTO growth_history (opportunity_id, proposal_id, event_type, detail) "
+            "VALUES ($1, $2, 'proposed', $3)",
+            opportunity_id,
+            row["id"],
+            json.dumps({"category": category, "score": float(score)}),
+        )
+    logger.info(
+        "growth_db: promoted opportunity %s to proposal %s (score=%s frequency=%s)",
+        opportunity_id,
+        row["id"],
+        score,
+        opp["frequency"],
+    )
+
+
+async def record_observation(
+    config: Config,
+    source: str,
+    summary: str,
+    evidence: dict,
+    session_id: str | None = None,
+    category: str | None = None,
+) -> int | None:
+    """Raw signal -> accumulated, scored opportunity (Phase 6.2/6.3). Never
+    raises - every call site fires this as a best-effort side observation,
+    same fail-silent convention as log_review_turn above. Dedup/
+    accumulation matches on a normalized title rather than an embedding
+    search - deterministic and good enough for now; Phase 6.2 follow-up
+    work can swap in similarity matching without changing this function's
+    signature. Returns the opportunity id touched, or None on failure."""
+    try:
+        pool = await _get_pool(config)
+        category = category or classify_category(source)
+        title = summary.strip()[:200]
+        if not title:
+            return None
+
+        async with pool.acquire() as conn, conn.transaction():
+            existing = await conn.fetchrow(
+                "SELECT id, frequency FROM growth_opportunities "
+                "WHERE lower(title) = lower($1) AND status NOT IN ('rejected', 'dormant') "
+                "ORDER BY id DESC LIMIT 1",
+                title,
+            )
+            defaults = _SOURCE_DEFAULTS.get(source, _DEFAULT_SCORE_DIMENSIONS)
+            if existing:
+                opportunity_id = existing["id"]
+                frequency = existing["frequency"] + 1
+                score = compute_score(frequency, **defaults)
+                await conn.execute(
+                    "UPDATE growth_opportunities SET frequency = $2, score = $3, "
+                    "last_observed_at = now(), updated_at = now() WHERE id = $1",
+                    opportunity_id,
+                    frequency,
+                    score,
+                )
+            else:
+                frequency = 1
+                score = compute_score(frequency, **defaults)
+                row = await conn.fetchrow(
+                    "INSERT INTO growth_opportunities "
+                    "(title, description, category, frequency, usefulness, confidence, "
+                    " reuse_potential, improvement_value, effort, interruption_cost, score, status) "
+                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'observed') RETURNING id",
+                    title,
+                    summary,
+                    category,
+                    frequency,
+                    defaults["usefulness"],
+                    defaults["confidence"],
+                    defaults["reuse_potential"],
+                    defaults["improvement_value"],
+                    defaults["effort"],
+                    defaults["interruption_cost"],
+                    score,
+                )
+                opportunity_id = row["id"]
+
+            await conn.execute(
+                "INSERT INTO growth_observations (source, category, summary, evidence, session_id, opportunity_id) "
+                "VALUES ($1, $2, $3, $4, $5, $6)",
+                source,
+                category,
+                summary,
+                json.dumps(evidence),
+                session_id,
+                opportunity_id,
+            )
+            await conn.execute(
+                "INSERT INTO growth_history (opportunity_id, event_type, detail) VALUES ($1, 'observed', $2)",
+                opportunity_id,
+                json.dumps({"source": source, "summary": summary}),
+            )
+
+        await _maybe_promote(config, opportunity_id)
+        return opportunity_id
+    except Exception:
+        logger.exception("growth_db.record_observation failed (source=%s)", source)
+        return None
+
+
+# ============================================================
+# Read/review access for the growth_review tool (Phase 6.5)
+# ============================================================
+
+
+async def list_opportunities(config: Config, status: str | None = None, limit: int = 50) -> list[dict]:
+    pool = await _get_pool(config)
+    if status:
+        rows = await pool.fetch(
+            "SELECT * FROM growth_opportunities WHERE status = $1 "
+            "ORDER BY score DESC NULLS LAST, updated_at DESC LIMIT $2",
+            status,
+            limit,
+        )
+    else:
+        rows = await pool.fetch(
+            "SELECT * FROM growth_opportunities ORDER BY score DESC NULLS LAST, updated_at DESC LIMIT $1", limit
+        )
+    return [dict(r) for r in rows]
+
+
+async def list_proposals(config: Config, status: str | None = None, limit: int = 50) -> list[dict]:
+    pool = await _get_pool(config)
+    if status:
+        rows = await pool.fetch(
+            "SELECT * FROM growth_proposals WHERE status = $1 ORDER BY created_at DESC LIMIT $2", status, limit
+        )
+    else:
+        rows = await pool.fetch("SELECT * FROM growth_proposals ORDER BY created_at DESC LIMIT $1", limit)
+    return [dict(r) for r in rows]
+
+
+async def get_proposal(config: Config, proposal_id: int) -> dict | None:
+    pool = await _get_pool(config)
+    row = await pool.fetchrow(
+        "SELECT p.*, o.title AS opportunity_title, o.description AS opportunity_description "
+        "FROM growth_proposals p JOIN growth_opportunities o ON o.id = p.opportunity_id WHERE p.id = $1",
+        proposal_id,
+    )
+    return dict(row) if row else None
+
+
+async def set_proposal_status(config: Config, proposal_id: int, status: str, notes: str | None = None) -> None:
+    pool = await _get_pool(config)
+    await pool.execute(
+        "UPDATE growth_proposals SET status = $2, reviewed_at = now(), reviewer_notes = $3 WHERE id = $1",
+        proposal_id,
+        status,
+        notes,
+    )
+    await pool.execute(
+        "INSERT INTO growth_history (proposal_id, event_type, detail) VALUES ($1, $2, $3)",
+        proposal_id,
+        status,
+        json.dumps({"notes": notes}),
+    )
+
+
+async def record_review_score(
+    config: Config,
+    session_id: str,
+    chunk_index: int,
+    turn_ids: list[int],
+    persona_prompt_hash: str | None,
+    model: str,
+    judge,  # growth_judge.JudgeOutput - typed there, not here, to avoid a circular import
+) -> int | None:
+    """Phase 6.4: persists one judge run (five rubric scores + its
+    one-to-many attributions) against a contiguous slice of review_turns."""
+    try:
+        pool = await _get_pool(config)
+        async with pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                "INSERT INTO review_scores "
+                "(session_id, chunk_index, turn_ids, persona_prompt_hash, model, task_success_score, "
+                " relevance_score, persona_alignment_score, user_sentiment_score, followup_coherence_score, "
+                " overall_notes, raw_judge_output, flagged_for_human) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id",
+                session_id,
+                chunk_index,
+                json.dumps(turn_ids),
+                persona_prompt_hash,
+                model,
+                judge.task_success,
+                judge.relevance,
+                judge.persona_alignment,
+                judge.user_sentiment,
+                judge.followup_coherence,
+                judge.overall_notes,
+                judge.model_dump_json(by_alias=True),
+                judge.flagged_for_human,
+            )
+            score_id = row["id"]
+            for attr in judge.attributions:
+                await conn.execute(
+                    "INSERT INTO review_attributions "
+                    "(review_score_id, attribution_type, confidence, evidence, suggested_fix_area) "
+                    "VALUES ($1,$2,$3,$4,$5)",
+                    score_id,
+                    attr.type,
+                    attr.confidence,
+                    attr.evidence,
+                    attr.suggested_fix_area,
+                )
+        return score_id
+    except Exception:
+        logger.exception("growth_db.record_review_score failed for session %s", session_id)
+        return None
+
+
+async def list_unreviewed_review_turns(config: Config, since: object, limit: int = 100) -> list[dict]:
+    pool = await _get_pool(config)
+    rows = await pool.fetch(
+        "SELECT * FROM review_turns WHERE occurred_at > $1 ORDER BY occurred_at ASC LIMIT $2", since, limit
+    )
+    return [dict(r) for r in rows]
+
+
+async def get_review_cursor(config: Config, key: str = "reviewer") -> object:
+    pool = await _get_pool(config)
+    row = await pool.fetchrow("SELECT last_reviewed_at FROM review_cursor WHERE key = $1", key)
+    return row["last_reviewed_at"] if row else None
+
+
+async def set_review_cursor(config: Config, when: object, key: str = "reviewer") -> None:
+    pool = await _get_pool(config)
+    await pool.execute(
+        "UPDATE review_cursor SET last_reviewed_at = $2, updated_at = now() WHERE key = $1", key, when
+    )
+
+
+async def start_review_run(config: Config) -> int | None:
+    pool = await _get_pool(config)
+    row = await pool.fetchrow("INSERT INTO review_runs (status) VALUES ('running') RETURNING id")
+    return row["id"]
+
+
+async def finish_review_run(config: Config, run_id: int, sessions_scanned: int, chunks_reviewed: int, status: str) -> None:
+    pool = await _get_pool(config)
+    await pool.execute(
+        "UPDATE review_runs SET finished_at = now(), sessions_scanned = $2, chunks_reviewed = $3, status = $4 "
+        "WHERE id = $1",
+        run_id,
+        sessions_scanned,
+        chunks_reviewed,
+        status,
+    )
+
+
+async def list_golden_transcripts(config: Config) -> list[dict]:
+    pool = await _get_pool(config)
+    rows = await pool.fetch("SELECT * FROM golden_transcripts ORDER BY id")
+    return [dict(r) for r in rows]
+
+
+async def record_golden_regression_run(
+    config: Config,
+    golden_transcript_id: int,
+    candidate_persona_hash: str,
+    baseline_scores: dict,
+    candidate_scores: dict,
+    regressed: bool,
+) -> None:
+    pool = await _get_pool(config)
+    await pool.execute(
+        "INSERT INTO golden_regression_runs "
+        "(golden_transcript_id, candidate_persona_hash, baseline_scores, candidate_scores, regressed) "
+        "VALUES ($1,$2,$3,$4,$5)",
+        golden_transcript_id,
+        candidate_persona_hash,
+        json.dumps(baseline_scores),
+        json.dumps(candidate_scores),
+        regressed,
+    )
+
+
+async def create_experiment(
+    config: Config,
+    description: str,
+    baseline_definition: dict,
+    candidate_definition: dict,
+    learning_plan_id: int | None = None,
+    proposal_id: int | None = None,
+) -> int | None:
+    try:
+        pool = await _get_pool(config)
+        row = await pool.fetchrow(
+            "INSERT INTO experiments "
+            "(learning_plan_id, proposal_id, description, baseline_definition, candidate_definition, status, started_at) "
+            "VALUES ($1,$2,$3,$4,$5,'running',now()) RETURNING id",
+            learning_plan_id,
+            proposal_id,
+            description,
+            json.dumps(baseline_definition),
+            json.dumps(candidate_definition),
+        )
+        return row["id"]
+    except Exception:
+        logger.exception("growth_db.create_experiment failed")
+        return None
+
+
+async def record_evaluation(
+    config: Config,
+    experiment_id: int,
+    metric: str,
+    baseline_score: float | None,
+    candidate_score: float | None,
+    baseline_results: dict,
+    candidate_results: dict,
+    notes: str | None = None,
+    improved: bool | None = None,
+) -> int | None:
+    try:
+        if improved is None and baseline_score is not None and candidate_score is not None:
+            improved = candidate_score > baseline_score
+        pool = await _get_pool(config)
+        async with pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                "INSERT INTO evaluations "
+                "(experiment_id, metric, baseline_score, candidate_score, improved, baseline_results, candidate_results, notes) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",
+                experiment_id,
+                metric,
+                baseline_score,
+                candidate_score,
+                improved,
+                json.dumps(baseline_results),
+                json.dumps(candidate_results),
+                notes,
+            )
+            await conn.execute(
+                "UPDATE experiments SET status = 'complete', finished_at = now() WHERE id = $1", experiment_id
+            )
+        return row["id"]
+    except Exception:
+        logger.exception("growth_db.record_evaluation failed")
+        return None
+
+
+# ============================================================
+# Phase 6.5: consolidation writes into n8n's/skills-mcp's databases
+# ============================================================
+
+# Cache of pools for databases other than `growth` (keyed by database
+# name) - used only by the three consolidation writers below. Kept
+# separate from _get_pool/_pool above so a Growth-engine-only database
+# outage never affects turn-logging, and so db.py's own "nothing here
+# ever writes" invariant isn't bent to accommodate this.
+_other_pools: dict[str, asyncpg.Pool] = {}
+
+
+async def _get_pool_for(config: Config, database: str) -> asyncpg.Pool:
+    if database not in _other_pools:
+        _other_pools[database] = await asyncpg.create_pool(
+            host=config.postgres.host,
+            port=config.postgres.port,
+            database=database,
+            user=config.postgres.user,
+            password=config.postgres.password,
+        )
+    return _other_pools[database]
+
+
+# n8n's Data Table feature stores "skills"/"personas" as views over a
+# table with a generated name (see db.py's own module docstring) - these
+# are the real underlying tables, confirmed via `SELECT definition FROM
+# pg_views WHERE viewname IN ('skills','personas')` against the live
+# stack. Fixed, hardcoded identifiers, not user input - safe to embed
+# directly in SQL text.
+_SKILLS_TABLE = '"data_table_user_suWDTLC9t3H1ESud"'
+_PERSONAS_TABLE = '"data_table_user_9E02ctNxKP8AGEqI"'
+
+
+async def consolidate_skill(config: Config, name: str, description: str, instructions: str, reason: str) -> None:
+    """Writes a new active instruction skill directly into n8n's
+    Data-Table-backed skills table - the final automation step for an
+    already-approved Growth proposal (approval already happened via
+    growth_proposals.status='approved'; this is what a human would
+    otherwise type into n8n's Data Table UI by hand). Uses its own
+    connection rather than extending db.py's documented-read-only pool,
+    so that invariant stays true for every other caller of db.py."""
+    try:
+        pool = await _get_pool_for(config, config.postgres.n8n_database)
+        await pool.execute(
+            f'INSERT INTO {_SKILLS_TABLE} '
+            '(name, description, kind, instructions, reason, status, "createdAt", "updatedAt") '
+            "VALUES ($1, $2, 'instruction', $3, $4, 'active', now(), now())",
+            name,
+            description,
+            instructions,
+            reason,
+        )
+    except Exception:
+        logger.exception("growth_db.consolidate_skill failed (name=%s)", name)
+
+
+async def propose_persona_edit(config: Config, name: str, proposed_system_prompt: str, reason: str) -> None:
+    """Tier 2, always human-approved before promotion (postgres/init/25-add-
+    persona-proposal-columns.sql): writes a candidate persona edit into the
+    proposed_* columns without ever touching the live system_prompt itself -
+    same never-auto-applies guarantee as every other self-authoring
+    mechanism in this project."""
+    try:
+        pool = await _get_pool_for(config, config.postgres.n8n_database)
+        await pool.execute(
+            f'UPDATE {_PERSONAS_TABLE} '
+            'SET proposed_system_prompt = $2, proposed_reason = $3, proposed_at = now(), "updatedAt" = now() '
+            "WHERE name = $1",
+            name,
+            proposed_system_prompt,
+            reason,
+        )
+    except Exception:
+        logger.exception("growth_db.propose_persona_edit failed (name=%s)", name)
+
+
+async def create_tool_idea_proposal(
+    config: Config, name: str, description: str, reason: str, tool_idea_details: str
+) -> None:
+    """Routes a 'tool' category Growth proposal into the EXISTING
+    skill_proposals human-review pipeline (skills DB, kind='tool_idea') -
+    reuses infra that already exists rather than inventing a parallel
+    review queue."""
+    try:
+        pool = await _get_pool_for(config, config.postgres.skills_database)
+        await pool.execute(
+            "INSERT INTO skill_proposals (kind, name, description, reason, tool_idea_details, status) "
+            "VALUES ('tool_idea', $1, $2, $3, $4, 'proposed')",
+            name,
+            description,
+            reason,
+            tool_idea_details,
+        )
+    except Exception:
+        logger.exception("growth_db.create_tool_idea_proposal failed (name=%s)", name)
+
+
+async def insert_growth_history(
+    config: Config,
+    event_type: str,
+    detail: dict,
+    opportunity_id: int | None = None,
+    proposal_id: int | None = None,
+    entity_id: str | None = None,
+) -> None:
+    pool = await _get_pool(config)
+    await pool.execute(
+        "INSERT INTO growth_history (opportunity_id, proposal_id, event_type, detail, entity_id) "
+        "VALUES ($1, $2, $3, $4, $5)",
+        opportunity_id,
+        proposal_id,
+        event_type,
+        json.dumps(detail),
+        entity_id,
+    )

@@ -20,6 +20,13 @@ class PostgresConfig:
     # its Data Table feature) - same database chat-orchestrator/coding-orchestrator
     # already read/write directly.
     n8n_database: str
+    # The Growth engine's own database (postgres/init/24-create-growth-db.sql) -
+    # same one-database-per-concern convention as n8n_database above.
+    growth_database: str
+    # skills-mcp's own database (skill_proposals) - Growth's consolidation
+    # step (Phase 6.5) routes 'tool' category proposals here, reusing the
+    # existing human-review queue instead of inventing a parallel one.
+    skills_database: str
     user: str
     password: str
 
@@ -40,6 +47,11 @@ class Config:
     ollama_host: str
     chat_model: str
     classifier_model: str
+    # An 8b judge is a documented reliability risk for reflective-reasoning
+    # tasks in this project (see docs/growth-engine.md) - the Growth
+    # engine's judge (Phase 6.4) uses the bigger model already pulled on
+    # this stack's Ollama instance, same choice 96a56acd's own design made.
+    growth_judge_model: str
     agent_max_iterations: int
     num_ctx: int
     # Timeout (seconds) for the model call on any agent-loop iteration after
@@ -91,6 +103,7 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         # runtime/orchestration mechanism, not a model swap.
         chat_model=env.get("CHAT_MODEL") or "qwen3:8b",
         classifier_model=env.get("CHAT_CLASSIFIER_MODEL") or "qwen3:8b",
+        growth_judge_model=env.get("GROWTH_JUDGE_MODEL") or "qwen3:14b",
         agent_max_iterations=_int_env("CHAT_AGENT_MAX_ITERATIONS", 10),
         num_ctx=_int_env("CHAT_NUM_CTX", 16384),
         post_tool_timeout_seconds=_float_env("CHAT_POST_TOOL_TIMEOUT_SECONDS", 120.0),
@@ -99,6 +112,8 @@ def load_config(env: dict[str, str] | None = None) -> Config:
             host=env.get("POSTGRES_HOST") or "postgres",
             port=_int_env("POSTGRES_PORT", 5432),
             n8n_database=env.get("N8N_DB_NAME") or "n8n",
+            growth_database=env.get("GROWTH_DB_NAME") or "growth",
+            skills_database=env.get("SKILLS_DB_NAME") or "skills",
             user=env.get("POSTGRES_USER") or "assistant",
             password=postgres_password,
         ),

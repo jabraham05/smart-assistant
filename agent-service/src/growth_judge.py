@@ -1,0 +1,204 @@
+"""Growth engine Phase 6.4: the shared judge. One prompt, reused by both the
+live review sweep (growth_background.py) and the golden-transcript
+regression check below - the old self-improvement pipeline (96a56acd)
+extracted this into its own n8n sub-workflow specifically so the two could
+never diverge in wording; here that just means "one function, two
+callers."
+
+Structured output via PydanticAI's Agent(output_type=NativeOutput(...)),
+same pattern classify.py already uses and already proved reliable against
+this stack's Ollama - not a raw hand-parsed JSON call. Runs on the bigger
+qwen3:14b model (config.growth_judge_model), not the 8b model the live
+chat/classifier turns use: an 8b judge is a documented reliability risk for
+reflective-reasoning tasks in this project.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+from typing import Literal
+
+import httpx
+from pydantic import BaseModel, Field
+from pydantic_ai import Agent, NativeOutput
+from pydantic_ai.models.ollama import OllamaModel
+from pydantic_ai.providers.ollama import OllamaProvider
+
+from . import growth_db
+from .config import Config
+
+logger = logging.getLogger(__name__)
+
+_JUDGE_SYSTEM_PROMPT = (
+    "You are reviewing one exchange between a user and Amy, a personal AI assistant, to help Amy "
+    "improve over time. Score five independent dimensions, each 1-5 (5 is best): taskSuccess (did "
+    "Amy's reply actually accomplish what the user needed), relevance (did it address what was "
+    "actually asked), personaAlignment (did Amy's tone/behavior match a helpful, direct personal "
+    "assistant - not sycophantic, not robotic, no reflexive stock phrases), userSentiment (did the "
+    "user seem satisfied, frustrated, or neutral based on their own words), followupCoherence (if "
+    "there's a follow-up message, did Amy's reply make sense in light of it - e.g. did Amy actually "
+    "stop doing something the user just asked it to stop doing).\n\n"
+    "Then list EVERY distinct root cause you can identify for any score below 4 - a single symptom "
+    "can have more than one independent cause; do not stop at the first plausible explanation. Each "
+    "attribution needs a type (persona_text: Amy's own system-prompt instructions caused this; "
+    "honcho_peer_card: a stored behavioral instruction about Amy caused this; "
+    "model_capability_limitation: the underlying model just got something wrong unrelated to "
+    "instructions; tool_failure: a tool call failed or wasn't made when it should have been; "
+    "ambiguous_user_request: the user's own message was genuinely unclear; none: nothing worth "
+    "flagging), a confidence from 0 to 1, evidence (quote the actual transcript), and an optional "
+    "suggestedFixArea (a short phrase naming what should change). If every score is 4 or 5, return "
+    "a single attribution with type 'none', confidence 1, evidence 'no issues found', and a null "
+    "suggestedFixArea.\n\n"
+    "flaggedForHuman: true only for something a human should look at directly (e.g. a safety "
+    "concern, a repeated severe failure) - false for ordinary scoring.\n"
+    "overallNotes: one or two sentences summarizing the exchange's quality."
+)
+
+
+class JudgeAttributionOutput(BaseModel):
+    type: Literal[
+        "persona_text", "honcho_peer_card", "model_capability_limitation", "tool_failure",
+        "ambiguous_user_request", "none",
+    ]
+    confidence: float
+    evidence: str
+    suggested_fix_area: str | None = Field(alias="suggestedFixArea")
+
+    model_config = {"populate_by_name": True}
+
+
+class JudgeOutput(BaseModel):
+    # Deliberately no field defaults - same reasoning as classify.py's
+    # ClassifierOutput: a default lets Ollama's grammar-constrained decoder
+    # take an always-valid shortcut instead of actually scoring.
+    task_success: int = Field(alias="taskSuccess")
+    relevance: int
+    persona_alignment: int = Field(alias="personaAlignment")
+    user_sentiment: int = Field(alias="userSentiment")
+    followup_coherence: int = Field(alias="followupCoherence")
+    overall_notes: str = Field(alias="overallNotes")
+    flagged_for_human: bool = Field(alias="flaggedForHuman")
+    attributions: list[JudgeAttributionOutput]
+
+    model_config = {"populate_by_name": True}
+
+
+def _build_judge_agent(config: Config) -> Agent[None, JudgeOutput]:
+    return Agent(
+        OllamaModel(
+            model_name=config.growth_judge_model, provider=OllamaProvider(base_url=f"{config.ollama_host}/v1")
+        ),
+        output_type=NativeOutput(JudgeOutput),
+        instructions=_JUDGE_SYSTEM_PROMPT,
+        model_settings={"thinking": False, "timeout": 90},
+    )
+
+
+async def run_judge(config: Config, transcript: str) -> JudgeOutput | None:
+    try:
+        agent = _build_judge_agent(config)
+        result = await agent.run(transcript)
+        return result.output
+    except Exception:
+        logger.exception("growth_judge.run_judge failed")
+        return None
+
+
+def format_transcript(turns: list[dict]) -> str:
+    """review_turns rows (user_message/agent_reply pairs, in order) ->
+    plain User:/Amy: text, same shape golden_transcripts already store."""
+    lines = []
+    for t in turns:
+        lines.append(f"User: {t['user_message']}")
+        lines.append(f"Amy: {t['agent_reply']}")
+    return "\n".join(lines)
+
+
+async def _ollama_chat(config: Config, model: str, messages: list[dict], timeout: float = 60.0) -> str:
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{config.ollama_host}/v1/chat/completions",
+            json={"model": model, "messages": messages, "stream": False},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+
+
+def _extract_user_turns(transcript: str) -> list[str]:
+    return [line[len("User: "):] for line in transcript.split("\n") if line.startswith("User: ")]
+
+
+async def _regenerate_transcript(config: Config, persona_system_prompt: str, user_turns: list[str]) -> str:
+    """Replays a golden transcript's user turns as a plain, non-tool chat
+    completion against a given persona - golden transcripts are ordinary
+    conversation with no tool calls expected, so the full PydanticAI
+    tool-calling agent loop isn't needed for this simulation."""
+    messages: list[dict] = [{"role": "system", "content": persona_system_prompt}]
+    lines: list[str] = []
+    for turn in user_turns:
+        messages.append({"role": "user", "content": turn})
+        reply = await _ollama_chat(config, config.chat_model, messages)
+        messages.append({"role": "assistant", "content": reply})
+        lines.append(f"User: {turn}")
+        lines.append(f"Amy: {reply}")
+    return "\n".join(lines)
+
+
+_SCORE_FIELD_MAP = {
+    "task_success_score": "task_success",
+    "relevance_score": "relevance",
+    "persona_alignment_score": "persona_alignment",
+    "user_sentiment_score": "user_sentiment",
+    "followup_coherence_score": "followup_coherence",
+}
+
+
+async def check_golden_regression(config: Config, current_persona: str, candidate_persona: str) -> list[dict]:
+    """Phase 6.4: before any 'behavior' proposal gets consolidated into a
+    persona edit (Phase 6.5), replay every golden transcript's user turns
+    against both the current and candidate persona, judge each regenerated
+    exchange, and flag a regression if the candidate scores worse than
+    either the transcript's own expected_min_scores bar or the current
+    persona's actual baseline on that transcript - a fix for one failure
+    mode must not silently regress another. Returns one result dict per
+    golden transcript; never raises (a judge/regenerate failure for one
+    transcript just skips it rather than aborting the whole check)."""
+    candidate_hash = hashlib.md5(candidate_persona.encode("utf-8")).hexdigest()
+    transcripts = await growth_db.list_golden_transcripts(config)
+    results: list[dict] = []
+    for gt in transcripts:
+        try:
+            user_turns = _extract_user_turns(gt["transcript"])
+            if not user_turns:
+                continue
+            expected_min = gt["expected_min_scores"]
+            if isinstance(expected_min, str):
+                expected_min = json.loads(expected_min) if expected_min else {}
+            expected_min = expected_min or {}
+
+            baseline_transcript = await _regenerate_transcript(config, current_persona, user_turns)
+            candidate_transcript = await _regenerate_transcript(config, candidate_persona, user_turns)
+            baseline_judge = await run_judge(config, baseline_transcript)
+            candidate_judge = await run_judge(config, candidate_transcript)
+            if baseline_judge is None or candidate_judge is None:
+                continue
+
+            baseline_scores = {k: getattr(baseline_judge, v) for k, v in _SCORE_FIELD_MAP.items()}
+            candidate_scores = {k: getattr(candidate_judge, v) for k, v in _SCORE_FIELD_MAP.items()}
+            regressed = any(
+                candidate_scores[k] < expected_min.get(k, 1) or candidate_scores[k] < baseline_scores[k]
+                for k in _SCORE_FIELD_MAP
+            )
+
+            await growth_db.record_golden_regression_run(
+                config, gt["id"], candidate_hash, baseline_scores, candidate_scores, regressed
+            )
+            results.append(
+                {"label": gt["label"], "regressed": regressed, "baseline": baseline_scores, "candidate": candidate_scores}
+            )
+        except Exception:
+            logger.exception("growth_judge.check_golden_regression failed for transcript %s", gt.get("label"))
+    return results
