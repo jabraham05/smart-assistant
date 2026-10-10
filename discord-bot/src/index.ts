@@ -45,6 +45,31 @@ client.once(Events.ClientReady, (c) => {
   console.log(`discord-bot logged in as ${c.user.tag}, forwarding DMs from user ${config.allowedUserId}`);
 });
 
+// Real, live-observed failure (2026-10-10): the container never crashed and
+// docker compose ps showed it healthy for 16+ hours, but Discord showed the
+// bot offline the whole time - discord.js can give up on reconnecting after
+// a dropped gateway session without throwing anything that crashes the
+// process, so there was nothing here to catch it and nothing for the
+// `restart: unless-stopped` policy to act on. Invalidated specifically
+// means discord.js has exhausted its own reconnect attempts and the
+// session is dead for good; Error/ShardError are a catch-all for anything
+// else that could silently wedge the connection. Exiting lets Docker's
+// existing restart policy do exactly what manually restarting the
+// container was doing - there's no in-process recovery that's more
+// reliable than a clean fresh client.login().
+client.on(Events.Error, (err) => {
+  console.error("discord client error, exiting for restart:", err);
+  process.exit(1);
+});
+client.on(Events.ShardError, (err) => {
+  console.error("discord shard error, exiting for restart:", err);
+  process.exit(1);
+});
+client.on(Events.Invalidated, () => {
+  console.error("discord session invalidated (reconnect exhausted), exiting for restart");
+  process.exit(1);
+});
+
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
   if (message.channel.type !== ChannelType.DM) return;

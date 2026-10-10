@@ -341,11 +341,29 @@ def strip_emoji(text: str) -> str:
 # (the original phrases above) - it's the model fishing for the next task
 # on a turn that was never asking for one. Same fix as a stock closer:
 # strip the trailing clause, not the whole reply.
+#
+# Third real gap (2026-10-10, deeper live testing): two more paraphrases
+# of the same two families ("Let me know if you need further details!",
+# "Help with something else?" as a numbered-list option), plus a new one -
+# "I'm here and ready to help" / "I'm here to help you with whatever you
+# need, always" - a disguised reassurance statement that moved from the
+# closing line into the body of the answer (a real "How's it going Amy"
+# reply used it as the entire response), so it needs to match whether or
+# not it's the literal trailing clause.
+#
+# Fourth real gap (2026-10-10): the anchor `(?:^|[.!?]\s+)` requires
+# sentence punctuation or start-of-string immediately before the matched
+# phrase, so a stock closer tacked on after a bulleted list (which ends
+# with no trailing period) was never anchored and slipped through
+# unstripped - "- goal #13: Track job search\n\nLet me know if you'd like
+# to revisit any of these!" has no `[.!?]` before "Let me know", just a
+# paragraph break. Added `\n\s*\n` as an equally valid boundary.
 _STOCK_CLOSER_REGEX = re.compile(
-    r"(?:^|[.!?]\s+)[^.!?]*?(?:let me know if you need anything|"
+    r"(?:^|[.!?]\s+|\n\s*\n)(?:[^.!?\n]|\n(?!\n))*?(?:let me know if you need (?:anything|further|more)|"
     r"let me know if you['’]?d? ?(?:like|want)|"
     r"(?:is there |let me know if there['’]?s )?anything else (?:you need|i can help with|you['’]?d like)|"
-    r"no pressure|I['’]m here when you['’]re ready|"
+    r"help with something else|"
+    r"no pressure|I['’]m here (?:when you['’]re ready|(?:and )?ready to help|to help (?:you )?with whatever you need)|"
     r"what['’]?s on your mind|"
     r"what (?:can|do) I (?:help (?:you )?with|do for you)|"
     r"how can I (?:help|assist)(?: you)?|"
@@ -400,4 +418,31 @@ TOOL_FAILURE_NARRATION_NUDGE = (
     " (Your last reply told the user a tool/check of yours failed - never mention that. Drop that "
     "part entirely and answer using whatever you do already know; if you have nothing else to say "
     "about it, just omit it rather than explaining why.)"
+)
+
+# Real gap found via live testing (2026-10-10): "do you ever get tired of
+# this?" - a purely conversational question needing no lookup at all - got
+# back "Checking now, sir." as an opener before the actual answer. That
+# phrase is lifted verbatim from the persona's own worked example ("Example
+# - starting a reply to a new request: 'Checking now, sir.'"), which was
+# meant to demonstrate a pattern for turns that actually involve checking
+# something, not a stock opener to reuse regardless of relevance - the
+# model appears to be pattern-matching the literal example text. Gated on
+# no tool having been called this turn, since "Checking now, sir" followed
+# by an actual tool call is exactly the example's intended, correct use.
+_UNWARRANTED_CHECKING_OPENER = re.compile(r"^\s*checking now\b", re.IGNORECASE)
+
+
+def has_unwarranted_checking_opener(reply_text: str, called_tools: list[str]) -> bool:
+    """True when the reply opens with a "checking now" acknowledgment but
+    no tool was actually called this turn - there was nothing to check."""
+    if called_tools:
+        return False
+    return bool(_UNWARRANTED_CHECKING_OPENER.search(reply_text))
+
+
+UNWARRANTED_CHECKING_OPENER_NUDGE = (
+    " (Your last reply opened with \"checking now\" or similar, but nothing actually needed checking "
+    "this turn - that opener is only for when you're about to call a tool. Just answer directly "
+    "instead, with no opener at all.)"
 )
