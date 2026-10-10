@@ -117,14 +117,25 @@ def format_transcript(turns: list[dict]) -> str:
 
 
 async def _ollama_chat(config: Config, model: str, messages: list[dict], timeout: float = 60.0) -> str:
+    """Real, live-verified finding (2026-10-10): the OpenAI-compatible
+    /v1/chat/completions endpoint silently ignores Ollama's "think" field -
+    a call with think=False took the same ~60s as one without it, both
+    well over this function's timeout, while the exact same prompt against
+    the native /api/chat endpoint with think=False returned in ~2s. This is
+    the same thinking-mode gap agent.py had (qwen3 defaults thinking ON),
+    just hitting an endpoint that can't be told to turn it off - unlike
+    _build_judge_agent's PydanticAI OllamaModel, which goes through the
+    native API under the hood and already disables it correctly. Switching
+    endpoints is the fix, not raising the timeout further.
+    """
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            f"{config.ollama_host}/v1/chat/completions",
-            json={"model": model, "messages": messages, "stream": False},
+            f"{config.ollama_host}/api/chat",
+            json={"model": model, "messages": messages, "stream": False, "think": False},
             timeout=timeout,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        return resp.json()["message"]["content"]
 
 
 def _extract_user_turns(transcript: str) -> list[str]:

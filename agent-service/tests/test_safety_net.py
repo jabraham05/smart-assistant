@@ -279,3 +279,24 @@ def test_strip_known_stock_closers_does_not_flag_non_trailing_mention():
 
 def test_strip_known_stock_closers_leaves_plain_text_unchanged():
     assert strip_known_stock_closers("17 times 24 is 408.") == "17 times 24 is 408."
+
+
+def test_strip_known_stock_closers_removes_whats_on_your_mind():
+    assert (
+        strip_known_stock_closers("All systems go! What's on your mind?")
+        == "All systems go"
+    )
+
+
+def test_strip_known_stock_closers_removes_how_can_i_help():
+    assert (
+        strip_known_stock_closers("Going well, sir. How can I help?")
+        == "Going well, sir"
+    )
+
+
+def test_strip_known_stock_closers_removes_what_can_i_do_for_you():
+    assert (
+        strip_known_stock_closers("All good here. What can I do for you?")
+        == "All good here"
+    )

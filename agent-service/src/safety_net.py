@@ -326,11 +326,24 @@ def strip_emoji(text: str) -> str:
 # (below) doesn't catch since it requires a trailing "?" by design (it's
 # specifically a confirmation-*question* detector). Added the paraphrase
 # variants actually seen, not a general pattern.
+#
+# Second real gap (2026-10-10, live test): a plain "hey, how's it going"
+# got back "All systems go! What's on your mind?" - a third distinct
+# category neither of the other two checks catch. It's not a yes/no
+# confirmation question (_TRAILING_CONFIRMATION_QUESTION's "Do you
+# need/want.../Should I...?" shape), and it's not a reassurance statement
+# (the original phrases above) - it's the model fishing for the next task
+# on a turn that was never asking for one. Same fix as a stock closer:
+# strip the trailing clause, not the whole reply.
 _STOCK_CLOSER_REGEX = re.compile(
     r"(?:^|[.!?]\s+)[^.!?]*?(?:let me know if you need anything|"
     r"let me know if you['’]?d? ?(?:like|want)|"
     r"(?:is there |let me know if there['’]?s )?anything else (?:you need|i can help with|you['’]?d like)|"
-    r"no pressure|I['’]m here when you['’]re ready)[^.!?]*[.!?]?\s*$",
+    r"no pressure|I['’]m here when you['’]re ready|"
+    r"what['’]?s on your mind|"
+    r"what (?:can|do) I (?:help (?:you )?with|do for you)|"
+    r"how can I (?:help|assist)(?: you)?|"
+    r"what do you need(?: help with)?)[^.!?]*[.!?]?\s*$",
     re.IGNORECASE,
 )
 
