@@ -70,6 +70,46 @@ client.on(Events.Invalidated, () => {
   process.exit(1);
 });
 
+// Second real finding, same day: after the fix above, the container ran
+// for hours with 0 restarts (confirmed via `docker inspect` RestartCount)
+// and Discord still showed the bot offline - none of Error/ShardError/
+// Invalidated ever fired. That means the gateway connection went fully
+// silent without discord.js itself ever noticing anything wrong - the
+// classic shape of a NAT/idle-timeout killing a long-lived WebSocket
+// without a proper close frame on either side (plausible here: Docker
+// Desktop's network stack on Windows), which looks like nothing happened
+// at the socket level until the next write attempt, if one ever comes.
+// Rather than depend on discord.js detecting this, Events.Raw fires for
+// every single gateway payload including heartbeat acks (no extra
+// intents needed, unlike guild/message content events) - so tracking the
+// time since the last one and self-exiting if it goes quiet for far
+// longer than the ~41s heartbeat interval catches this regardless of
+// whether the library's own reconnect logic ever kicks in.
+let lastGatewayActivity = Date.now();
+client.on(Events.Raw, () => {
+  lastGatewayActivity = Date.now();
+});
+client.on(Events.ShardDisconnect, (_event, shardId) => {
+  console.warn(`discord shard ${shardId} disconnected`);
+});
+client.on(Events.ShardReconnecting, (shardId) => {
+  console.warn(`discord shard ${shardId} reconnecting`);
+});
+client.on(Events.ShardResume, (shardId) => {
+  console.warn(`discord shard ${shardId} resumed`);
+  lastGatewayActivity = Date.now();
+});
+
+const GATEWAY_WATCHDOG_INTERVAL_MS = 30_000;
+const GATEWAY_SILENCE_LIMIT_MS = 120_000;
+setInterval(() => {
+  const silentFor = Date.now() - lastGatewayActivity;
+  if (silentFor > GATEWAY_SILENCE_LIMIT_MS) {
+    console.error(`no gateway activity for ${Math.round(silentFor / 1000)}s, exiting for restart`);
+    process.exit(1);
+  }
+}, GATEWAY_WATCHDOG_INTERVAL_MS);
+
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
   if (message.channel.type !== ChannelType.DM) return;
