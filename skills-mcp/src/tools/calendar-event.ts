@@ -270,7 +270,21 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
         await deleteEvent(config, eventId);
         return textResult(`Event ${eventId} deleted.`);
       } catch (e) {
-        return errorResult(`calendar_event failed: ${e instanceof Error ? e.message : String(e)}`);
+        const message = e instanceof Error ? e.message : String(e);
+        // Real, live-observed failure (2026-10-10): the googleapis client
+        // puts the full raw error response body - a JSON payload including
+        // the exact failing project id and a remediation URL - into
+        // e.message, unlike every other tool's short generic failure
+        // strings. That's detailed and actionable-looking enough that the
+        // model dumped it straight to the user instead of honoring the
+        // persona's "never mention a tool failure" rule, even after a
+        // safety-net retry explicitly telling it not to. Capping it here
+        // removes the temptation at the source instead of relying on model
+        // compliance with detail it's already seen in context.
+        const safeMessage = message.length > 150 || message.includes("{")
+          ? "the calendar service didn't respond correctly"
+          : message;
+        return errorResult(`calendar_event failed: ${safeMessage}`);
       }
     },
   );

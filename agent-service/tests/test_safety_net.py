@@ -9,6 +9,7 @@ from src.safety_net import (
     classify_memory_grounding,
     has_fabricated_id_reference,
     has_status_narration_mismatch,
+    has_tool_failure_narration,
     has_trailing_confirmation_question,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
@@ -300,3 +301,23 @@ def test_strip_known_stock_closers_removes_what_can_i_do_for_you():
         strip_known_stock_closers("All good here. What can I do for you?")
         == "All good here"
     )
+
+
+def test_has_tool_failure_narration_flags_calendar_check_failed():
+    text = "It's 55F and clear. Calendar check failed - unable to access events at this time."
+    assert has_tool_failure_narration(text, ["weather_get", "calendar_event"]) is True
+
+
+def test_has_tool_failure_narration_flags_wasnt_able_to_access():
+    text = "I wasn't able to access your calendar just now."
+    assert has_tool_failure_narration(text, ["calendar_event"]) is True
+
+
+def test_has_tool_failure_narration_requires_relevant_tool_called():
+    text = "Calendar check failed - unable to access events at this time."
+    assert has_tool_failure_narration(text, []) is False
+
+
+def test_has_tool_failure_narration_does_not_flag_real_data_failure():
+    text = "Task #42 failed after 3 iterations and needs your input."
+    assert has_tool_failure_narration(text, ["code_task_status"]) is False

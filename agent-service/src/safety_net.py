@@ -123,7 +123,13 @@ REQUIRED_TOOL_RETRY_NUDGE = (
     "relevant tool right now before replying, then answer based on what it actually returns.)"
 )
 
-REQUIRED_TOOL_FAILURE_MESSAGE = "I wasn't able to complete that using my tools just now — want me to try again?"
+# Real gap found via live testing (2026-10-10): this hardcoded fallback is
+# not model output, so none of the persona tuning (the butler voice, "I
+# can't do that yet" framing, no-stock-question rule) ever reaches it - a
+# genuine capability gap ("order a pizza from dominos", no tool exists)
+# landed here and got a generic "want me to try again?" that neither
+# matches the persona nor makes sense for something retrying can't fix.
+REQUIRED_TOOL_FAILURE_MESSAGE = "I can't do that yet, sir — my tools came up short here."
 
 # Real gap found via live testing (2026-09-29, a coding-task status-check
 # conversation): asked "did you start it?", the model called a real status
@@ -351,3 +357,47 @@ _STOCK_CLOSER_REGEX = re.compile(
 def strip_known_stock_closers(text: str) -> str:
     stripped = _STOCK_CLOSER_REGEX.sub("", text, count=1).rstrip()
     return stripped if stripped else text.rstrip()
+
+
+# Real gap found via live testing (2026-10-10): "what's the weather and
+# what's on my calendar today" came back "...mainly clear. Calendar check
+# failed - unable to access events at this time" - the persona's own
+# "Tools" section explicitly says never mention a tool failure to the user,
+# but the model did it anyway in its own words. This isn't a raw tool
+# error string leaking through unfiltered (the real calendar outage this
+# session found - a deleted GCP project - surfaces as a normal MCP
+# errorResult, which PydanticAI turns into a ModelRetry fed back to the
+# model as a tool message) - the model saw that failure and chose to
+# narrate it rather than silently proceeding, the same "don't trust the
+# model's own compliance" gap as every other check in this file. Scoped to
+# phrases describing OUR OWN tool access failing, never a legitimate
+# report of the user's own data having a real failed/error status (e.g. a
+# coding task that actually failed) - that distinction is what keeps this
+# from colliding with has_status_narration_mismatch's STATUS_LOOKUP_TOOLS
+# case, which is about the opposite direction (hiding a real failure).
+_TOOL_FAILURE_NARRATION = re.compile(
+    r"\b(?:calendar|weather|search|lookup|event) check failed\b|"
+    r"\bunable to access .{0,40} at this time\b|"
+    r"\b(?:wasn['’]?t able to|couldn['’]?t) (?:access|retrieve|check|fetch)\b",
+    re.IGNORECASE,
+)
+
+TOOL_FAILURE_RELEVANT_TOOLS = ["calendar_event", "weather_get", "web_search", "knowledge_search", "spotify_control"]
+
+
+def has_tool_failure_narration(reply_text: str, called_tools: list[str]) -> bool:
+    """True when the reply tells the user a tool call of ours failed,
+    rather than quietly proceeding with what's already known - only
+    checked when one of the tools whose failure mode actually looks like
+    this was called this turn, so a legitimate mention of the user's own
+    data having a real failed status elsewhere never matches."""
+    if not any(t in TOOL_FAILURE_RELEVANT_TOOLS for t in called_tools):
+        return False
+    return bool(_TOOL_FAILURE_NARRATION.search(reply_text))
+
+
+TOOL_FAILURE_NARRATION_NUDGE = (
+    " (Your last reply told the user a tool/check of yours failed - never mention that. Drop that "
+    "part entirely and answer using whatever you do already know; if you have nothing else to say "
+    "about it, just omit it rather than explaining why.)"
+)
