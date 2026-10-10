@@ -899,6 +899,31 @@ async def promote_persona_proposal(config: Config, name: str = "Amy") -> dict:
         return {"ok": False, "reason": "internal error, see logs"}
 
 
+async def dismiss_persona_proposal(config: Config, name: str = "Amy", reason: str | None = None) -> dict:
+    """The reject counterpart to promote_persona_proposal - clears the
+    proposed_* columns without ever touching system_prompt, so a reviewed
+    and declined proposal (human decision, not Growth's own judgment)
+    stops showing as pending forever instead of just being ignored."""
+    try:
+        pool = await _get_pool_for(config, config.postgres.n8n_database)
+        async with pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                f'SELECT proposed_system_prompt FROM {_PERSONAS_TABLE} WHERE name = $1', name
+            )
+            if not row or not row["proposed_system_prompt"]:
+                return {"ok": False, "reason": "no pending proposal"}
+            await conn.execute(
+                f'UPDATE {_PERSONAS_TABLE} SET proposed_system_prompt = NULL, proposed_reason = NULL, '
+                f'proposed_at = NULL, "updatedAt" = now() WHERE name = $1',
+                name,
+            )
+        await insert_growth_history(config, "persona_dismissed", {"name": name, "reason": reason})
+        return {"ok": True}
+    except Exception:
+        logger.exception("growth_db.dismiss_persona_proposal failed (name=%s)", name)
+        return {"ok": False, "reason": "internal error, see logs"}
+
+
 async def insert_growth_history(
     config: Config,
     event_type: str,

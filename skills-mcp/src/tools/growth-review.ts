@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Config } from "../config.js";
 import {
   approveProposal,
+  dismissPersonaProposal,
   getPersonaProposal,
   listOpportunities,
   listProposals,
@@ -41,7 +42,15 @@ export function registerGrowthReview(server: McpServer, config: Config): void {
         "or tasks/goals.",
       inputSchema: {
         action: z
-          .enum(["list_opportunities", "list_proposals", "approve", "reject", "persona_proposal", "promote_persona"])
+          .enum([
+            "list_opportunities",
+            "list_proposals",
+            "approve",
+            "reject",
+            "persona_proposal",
+            "promote_persona",
+            "dismiss_persona",
+          ])
           .describe("Which growth-review operation to perform."),
         status: z.string().optional().describe("list_opportunities/list_proposals: filter by status (e.g. 'proposed', 'approved', 'rejected', 'observed', 'scored'). Omit for list_proposals to default to 'proposed'."),
         proposalId: z.coerce.number().int().optional().describe("approve/reject: the proposal's id, from action='list_proposals'. Required for both."),
@@ -106,8 +115,13 @@ export function registerGrowthReview(server: McpServer, config: Config): void {
           });
         }
 
-        // action === "promote_persona"
-        const result = await promotePersonaProposal(config);
+        if (action === "promote_persona") {
+          const result = await promotePersonaProposal(config);
+          return textResult(result);
+        }
+
+        // action === "dismiss_persona"
+        const result = await dismissPersonaProposal(config, "Amy", notes);
         return textResult(result);
       } catch (e) {
         return errorResult(`growth_review failed: ${e instanceof Error ? e.message : String(e)}`);

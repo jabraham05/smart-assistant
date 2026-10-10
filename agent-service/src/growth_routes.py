@@ -95,4 +95,11 @@ def build_router(config: Config) -> APIRouter:
         result = await growth_db.promote_persona_proposal(config, name)
         return {**result, "name": name}
 
+    @router.post("/persona-proposal/dismiss")
+    async def dismiss_persona_proposal(body: dict | None = None):
+        name = (body or {}).get("name") or "Amy"
+        reason = (body or {}).get("reason")
+        result = await growth_db.dismiss_persona_proposal(config, name, reason)
+        return {**result, "name": name}
+
     return router

@@ -101,3 +101,14 @@ export async function promotePersonaProposal(config: Config, name = "Amy"): Prom
   if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
   return res.json();
 }
+
+export async function dismissPersonaProposal(config: Config, name = "Amy", reason?: string): Promise<Record<string, unknown>> {
+  const res = await fetch(new URL("/growth/persona-proposal/dismiss", config.agentServiceUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, reason }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}
