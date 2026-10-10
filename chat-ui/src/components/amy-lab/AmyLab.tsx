@@ -14,6 +14,11 @@ import { UserProfileView, UserInstructionsView } from "@/components/amy-lab/User
 import { FilesView } from "@/components/amy-lab/FilesView";
 import { TimelineView } from "@/components/amy-lab/TimelineView";
 import { SystemPromptView } from "@/components/amy-lab/SystemPromptView";
+import { GrowthOverview } from "@/components/amy-lab/growth/GrowthOverview";
+import { GrowthOpportunities } from "@/components/amy-lab/growth/GrowthOpportunities";
+import { GrowthReviewQueue } from "@/components/amy-lab/growth/GrowthReviewQueue";
+import { GrowthLearningPlans } from "@/components/amy-lab/growth/GrowthLearningPlans";
+import { GrowthHistory } from "@/components/amy-lab/growth/GrowthHistory";
 import type { EventBusEvent } from "@/types/chat";
 
 // Amy Lab Phase 2: restructured from a flat tab bar into a "Memory Library"
@@ -23,12 +28,13 @@ import type { EventBusEvent } from "@/types/chat";
 // Prompt sizes). See the plan doc for the research behind this split -
 // categories only exist here where a real, already-grounded data source
 // backs them.
-const CATEGORIES = ["user", "amy", "projects", "memories", "knowledge", "session"] as const;
+const CATEGORIES = ["user", "amy", "growth", "projects", "memories", "knowledge", "session"] as const;
 type Category = (typeof CATEGORIES)[number];
 
 const CATEGORY_LABELS: Record<Category, string> = {
   user: "User",
   amy: "Amy",
+  growth: "Growth",
   projects: "Projects",
   memories: "Memories",
   knowledge: "Knowledge",
@@ -44,6 +50,13 @@ const SUB_TABS: Record<Category, { key: string; label: string }[]> = {
     { key: "soul", label: "Soul" },
     { key: "learnings", label: "Learnings" },
     { key: "suggested-upgrades", label: "Suggested Upgrades" },
+  ],
+  growth: [
+    { key: "overview", label: "Overview" },
+    { key: "opportunities", label: "Opportunities" },
+    { key: "review-queue", label: "Review Queue" },
+    { key: "learning-plans", label: "Learning Plans" },
+    { key: "history", label: "History" },
   ],
   projects: [
     { key: "entities", label: "Entities" },
@@ -261,6 +274,12 @@ export function AmyLab() {
             />
           )}
           {category === "amy" && subTab === "suggested-upgrades" && <SuggestedUpgrades />}
+
+          {category === "growth" && subTab === "overview" && <GrowthOverview onNavigate={setSubTab} />}
+          {category === "growth" && subTab === "opportunities" && <GrowthOpportunities />}
+          {category === "growth" && subTab === "review-queue" && <GrowthReviewQueue />}
+          {category === "growth" && subTab === "learning-plans" && <GrowthLearningPlans />}
+          {category === "growth" && subTab === "history" && <GrowthHistory />}
 
           {category === "projects" && subTab === "entities" && (
             <EntitiesView

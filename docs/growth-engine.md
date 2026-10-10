@@ -125,4 +125,16 @@ docker compose build agent-service skills-mcp
 docker compose up -d agent-service skills-mcp
 ```
 
-New env vars, all optional with working defaults: `GROWTH_DB_NAME` (growth), `SKILLS_DB_NAME` (skills, agent-service side), `GROWTH_JUDGE_MODEL` (qwen3:14b), `AGENT_SERVICE_URL` (skills-mcp side, `http://agent-service:3010`).
+New env vars, all optional with working defaults: `GROWTH_DB_NAME` (growth), `SKILLS_DB_NAME` (skills, agent-service side), `GROWTH_JUDGE_MODEL` (qwen3:14b), `AGENT_SERVICE_URL` (skills-mcp side and chat-ui side, both default `http://agent-service:3010`).
+
+## The Growth dashboard (Amy Lab)
+
+Conversational review via `growth_review` doesn't scale to overseeing a system that continuously proposes improvements - a dedicated "Growth" category was added to Amy Lab (`chat-ui/src/components/amy-lab/growth/`), five sub-tabs: **Overview** (pending approvals, active learning plans, recent evaluations, failed experiments, recently consolidated - explicitly framed around "fewer repeated mistakes, not more activity," not a raw count dashboard), **Opportunities** (filter/sort, score breakdown, dismiss/defer/promote), **Review Queue** (proposals plus the legacy persona proposal, evidence, "what happens on approval" per category, approve/reject), **Learning Plans** (plans + experiments/evaluations), **History** (the full append-only log).
+
+Backend additions this required, since `growth_db.py` previously had no read path for several tables and no human-override for an opportunity below the auto-promotion threshold: `list_learning_plans`, `list_experiments` (joined with its evaluation), `list_growth_history`, `set_opportunity_status` (dismiss/defer), and `promote_opportunity_to_proposal` (manual override - reuses the exact same proposal-creation path as automatic promotion, including Tier 1 auto-consolidation, via a `_create_proposal_from_opportunity` helper extracted from `_maybe_promote`).
+
+`chat-ui/src/lib/growth-client.ts` calls `agent-service`'s `/growth/*` routes directly (same pattern `skills-registry-client.ts` already uses for skills-mcp) via a new `AGENT_SERVICE_URL` env var on the `chat-ui` container - chat-ui had no direct line to agent-service before this beyond the chat webhook itself.
+
+**Known gap in the Review Queue, not silent**: a proposal only stores `proposed_action`/`rationale` (a description), not the actual generated candidate text - the real persona-edit text or skill instructions are only generated at consolidation time, inside `growth_consolidate.py`, not stored ahead of approval. So the Review Queue shows evidence and a deterministic "what happens on approval" explanation per category, not a true before/after diff preview. The one exception is the legacy persona proposal, which already has its full candidate text available (it predates this distinction) and is shown in full with a current-vs-proposed length comparison.
+
+Verified live with a real headless-browser pass (Playwright) against the actual running stack: all five tabs render correctly against real accumulated data (10 real opportunities from actual usage, the real persona-dismissal history entry), zero console/page errors, and the opportunity-row expand interaction correctly surfaces the score breakdown and action buttons.

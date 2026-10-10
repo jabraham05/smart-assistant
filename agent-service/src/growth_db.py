@@ -248,6 +248,17 @@ async def _maybe_promote(config: Config, opportunity_id: int) -> None:
             )
         return
 
+    await _create_proposal_from_opportunity(config, pool, opp)
+
+
+async def _create_proposal_from_opportunity(config: Config, pool: asyncpg.Pool, opp: asyncpg.Record) -> int:
+    """Shared by the automatic selectivity gate above and
+    promote_opportunity_to_proposal's manual override below - the actual
+    proposal-creation mechanics (insert, history, Graphiti episode, Tier 1
+    auto-consolidation) are identical either way; only how the decision to
+    create one was reached differs."""
+    opportunity_id = opp["id"]
+    score = opp["score"]
     category = opp["category"] or "behavior"
     tier = APPROVAL_TIER_BY_CATEGORY.get(category, "tier2")
     is_tier1 = tier == "tier1"
@@ -273,7 +284,7 @@ async def _maybe_promote(config: Config, opportunity_id: int) -> None:
             "VALUES ($1, $2, 'proposed', $3)",
             opportunity_id,
             row["id"],
-            json.dumps({"category": category, "score": float(score), "tier": tier}),
+            json.dumps({"category": category, "score": float(score) if score is not None else None, "tier": tier}),
         )
     logger.info(
         "growth_db: promoted opportunity %s to proposal %s (score=%s frequency=%s tier=%s)",
@@ -301,6 +312,46 @@ async def _maybe_promote(config: Config, opportunity_id: int) -> None:
         from . import growth_consolidate
 
         await growth_consolidate.consolidate_proposal(config, row["id"])
+
+    return row["id"]
+
+
+async def set_opportunity_status(config: Config, opportunity_id: int, status: str) -> None:
+    """Growth dashboard's dismiss ('rejected') / defer ('dormant') actions -
+    a human deciding an opportunity isn't worth pursuing (or isn't worth
+    pursuing yet) without waiting for it to ever reach the scoring
+    threshold on its own."""
+    try:
+        pool = await _get_pool(config)
+        await pool.execute(
+            "UPDATE growth_opportunities SET status = $2, updated_at = now() WHERE id = $1", opportunity_id, status
+        )
+        await insert_growth_history(config, status, {"manual": True}, opportunity_id=opportunity_id)
+    except Exception:
+        logger.exception("growth_db.set_opportunity_status failed (id=%s, status=%s)", opportunity_id, status)
+
+
+async def promote_opportunity_to_proposal(config: Config, opportunity_id: int) -> int | None:
+    """Growth dashboard's manual 'promote' action - the human override for
+    _maybe_promote's automatic threshold. A human looking at the evidence
+    can judge something is worth proposing before it has recurred enough
+    to clear the score/frequency gate on its own; this bypasses that gate
+    but goes through the exact same creation path (including Tier 1 auto-
+    consolidation, if the category qualifies) so the result is
+    indistinguishable from an automatic promotion."""
+    try:
+        pool = await _get_pool(config)
+        opp = await pool.fetchrow(
+            "SELECT id, title, description, category, frequency, confidence, score, status "
+            "FROM growth_opportunities WHERE id = $1",
+            opportunity_id,
+        )
+        if not opp or opp["status"] in ("proposed", "rejected", "dormant"):
+            return None
+        return await _create_proposal_from_opportunity(config, pool, opp)
+    except Exception:
+        logger.exception("growth_db.promote_opportunity_to_proposal failed (id=%s)", opportunity_id)
+        return None
 
 
 async def record_observation(
@@ -445,6 +496,64 @@ async def set_proposal_status(config: Config, proposal_id: int, status: str, not
         status,
         json.dumps({"notes": notes}),
     )
+
+
+async def list_learning_plans(config: Config, status: str | None = None, limit: int = 50) -> list[dict]:
+    """Growth dashboard's "Learning plans and experiments" section - what
+    Amy is trying to improve and why, joined back to the proposal/
+    opportunity it's acting on so the dashboard can show the full chain
+    without a second round-trip per row."""
+    pool = await _get_pool(config)
+    query = (
+        "SELECT lp.*, p.category AS proposal_category, p.proposed_action, o.title AS opportunity_title "
+        "FROM learning_plans lp "
+        "JOIN growth_proposals p ON p.id = lp.proposal_id "
+        "JOIN growth_opportunities o ON o.id = p.opportunity_id "
+    )
+    if status:
+        query += "WHERE lp.status = $1 ORDER BY lp.created_at DESC LIMIT $2"
+        rows = await pool.fetch(query, status, limit)
+    else:
+        query += "ORDER BY lp.created_at DESC LIMIT $1"
+        rows = await pool.fetch(query, limit)
+    return [dict(r) for r in rows]
+
+
+async def list_experiments(config: Config, limit: int = 50) -> list[dict]:
+    """Experiments joined with their evaluation (one-to-one in practice -
+    every experiment this project creates gets exactly one evaluation
+    recorded against it) so the dashboard can show "what was tested, what
+    happened" in one row instead of two lookups."""
+    pool = await _get_pool(config)
+    rows = await pool.fetch(
+        "SELECT e.*, ev.id AS evaluation_id, ev.metric, ev.baseline_score, ev.candidate_score, "
+        "ev.improved, ev.baseline_results, ev.candidate_results, ev.notes AS evaluation_notes, "
+        "ev.evaluated_at, p.category AS proposal_category, o.title AS opportunity_title "
+        "FROM experiments e "
+        "LEFT JOIN evaluations ev ON ev.experiment_id = e.id "
+        "LEFT JOIN growth_proposals p ON p.id = e.proposal_id "
+        "LEFT JOIN growth_opportunities o ON o.id = p.opportunity_id "
+        "ORDER BY e.created_at DESC LIMIT $1",
+        limit,
+    )
+    return [dict(r) for r in rows]
+
+
+async def list_growth_history(config: Config, limit: int = 100) -> list[dict]:
+    """The durable record the dashboard's "Growth history" section shows -
+    what changed, tied back to the opportunity/proposal it came from.
+    Append-only; nothing in this module ever updates or deletes a row
+    here."""
+    pool = await _get_pool(config)
+    rows = await pool.fetch(
+        "SELECT h.*, o.title AS opportunity_title, p.category AS proposal_category "
+        "FROM growth_history h "
+        "LEFT JOIN growth_opportunities o ON o.id = h.opportunity_id "
+        "LEFT JOIN growth_proposals p ON p.id = h.proposal_id "
+        "ORDER BY h.created_at DESC LIMIT $1",
+        limit,
+    )
+    return [dict(r) for r in rows]
 
 
 async def record_review_score(
