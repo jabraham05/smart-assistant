@@ -51,10 +51,12 @@ from .safety_net import (
     REQUIRED_TOOL_RETRY_NUDGE,
     SEARCH_RETRY_NUDGE,
     STATUS_NARRATION_MISMATCH_NUDGE,
+    TOOL_FAILURE_NARRATION_NUDGE,
     TRAILING_CONFIRMATION_RETRY_NUDGE,
     classify_memory_grounding,
     has_fabricated_id_reference,
     has_status_narration_mismatch,
+    has_tool_failure_narration,
     has_trailing_confirmation_question,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
@@ -534,6 +536,25 @@ async def webhook(request: Request):
                 )
                 retry_text, chunks = await _run_turn(
                     config, session_id, system_prompt, chat_input + STATUS_NARRATION_MISMATCH_NUDGE, bound_tools,
+                    state, emit, message_history,
+                )
+                for c in chunks:
+                    yield c
+                if retry_text.strip():
+                    final_text = retry_text
+
+            if has_tool_failure_narration(final_text, state.called_tools):
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config, "safety_net_failure", "Reply told the user a tool call of ours failed",
+                        {"reason": "tool_failure_narration", "chatInput": chat_input}, session_id=session_id,
+                    )
+                )
+                yield emit(
+                    "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "tool_failure_narration"}
+                )
+                retry_text, chunks = await _run_turn(
+                    config, session_id, system_prompt, chat_input + TOOL_FAILURE_NARRATION_NUDGE, bound_tools,
                     state, emit, message_history,
                 )
                 for c in chunks:
