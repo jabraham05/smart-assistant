@@ -23,6 +23,7 @@ import { registerStatusOverview } from "./tools/status-overview.js";
 import { registerProjectComplete } from "./tools/project-complete.js";
 import { registerCalculate } from "./tools/calculate.js";
 import { registerGrowthReview } from "./tools/growth-review.js";
+import { registerSkillExamples } from "./tools/skill-examples.js";
 
 export interface RequestContext {
   // The n8n Chat workflow's session id, threaded in via the MCP Client
@@ -71,5 +72,6 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerProjectComplete(server, config);
   registerCalculate(server, config);
   registerGrowthReview(server, config);
+  registerSkillExamples(server, config);
   return server;
 }

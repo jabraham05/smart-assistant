@@ -817,6 +817,88 @@ async def finish_learning_plan(config: Config, plan_id: int, status: str) -> Non
         logger.exception("growth_db.finish_learning_plan failed for plan %s", plan_id)
 
 
+async def get_persona_proposal(config: Config, name: str = "Amy") -> dict | None:
+    """Follow-up fix: personas.proposed_system_prompt (postgres/init/25-add-
+    persona-proposal-columns.sql) was only ever readable via raw SQL -
+    including a real, unreviewed proposal from 2026-08-21 that predates
+    the Growth engine entirely. This is what makes it visible through
+    growth_review instead. Reads through the public.personas view (same
+    one db.py's read-only get_persona_system_prompt uses), not the n8n
+    write pool - a plain read needs no write access."""
+    try:
+        pool = await _get_pool_for(config, config.postgres.n8n_database)
+        row = await pool.fetchrow(
+            "SELECT name, system_prompt, proposed_system_prompt, proposed_reason, proposed_at "
+            "FROM public.personas WHERE name = $1",
+            name,
+        )
+        if not row or not row["proposed_system_prompt"]:
+            return None
+        return dict(row)
+    except Exception:
+        logger.exception("growth_db.get_persona_proposal failed (name=%s)", name)
+        return None
+
+
+# Real, live-verified finding: the 2026-08-21 proposal already sitting in
+# this column (written by skill_gap_scanner's old persona-change branch,
+# before this Growth engine existed) turned out to be a short reasoning
+# paragraph about a suggested change, NOT a full drop-in replacement persona
+# - promoting it as-is would have silently destroyed Amy's entire real,
+# tuned system_prompt. Growth's OWN propose_persona_edit always writes a
+# full current-persona-plus-addition text (growth_consolidate.py), so this
+# guard only ever rejects genuinely malformed/legacy data, never Growth's
+# own proposals. A deterministic length ratio, not a judge call - the same
+# "don't trust a default, add a real check" instinct as calculate.ts.
+PERSONA_PROMOTE_MIN_LENGTH_RATIO = 0.5
+
+
+async def promote_persona_proposal(config: Config, name: str = "Amy") -> dict:
+    """The one deliberately manual step in the whole Growth engine
+    (Tier 2, docs/unified-architecture-gap-analysis.md §8: "changing
+    persona behavior" always requires explicit human action) - this makes
+    that action actually reachable conversationally via growth_review
+    instead of requiring raw SQL, without changing the guarantee that it
+    never happens automatically. Clears the proposed_* columns on success
+    so the same proposal can't be promoted twice. Returns a dict rather
+    than a bool so a rejected-for-safety case can explain why, instead of
+    looking identical to "nothing was pending"."""
+    try:
+        pool = await _get_pool_for(config, config.postgres.n8n_database)
+        async with pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                f'SELECT system_prompt, proposed_system_prompt FROM {_PERSONAS_TABLE} WHERE name = $1', name
+            )
+            if not row or not row["proposed_system_prompt"]:
+                return {"ok": False, "reason": "no pending proposal"}
+
+            current = row["system_prompt"] or ""
+            proposed = row["proposed_system_prompt"]
+            if current and len(proposed) < PERSONA_PROMOTE_MIN_LENGTH_RATIO * len(current):
+                return {
+                    "ok": False,
+                    "reason": (
+                        f"refused: proposed text ({len(proposed)} chars) is far shorter than the current "
+                        f"persona ({len(current)} chars) - this looks like a reasoning note about a "
+                        "suggested change, not a full replacement persona, and promoting it would likely "
+                        "destroy most of the real persona. Read it via action='persona_proposal' and "
+                        "resolve this by hand (edit the persona directly) instead."
+                    ),
+                }
+
+            await conn.execute(
+                f'UPDATE {_PERSONAS_TABLE} SET system_prompt = $2, proposed_system_prompt = NULL, '
+                f'proposed_reason = NULL, proposed_at = NULL, "updatedAt" = now() WHERE name = $1',
+                name,
+                proposed,
+            )
+        await insert_growth_history(config, "persona_promoted", {"name": name})
+        return {"ok": True}
+    except Exception:
+        logger.exception("growth_db.promote_persona_proposal failed (name=%s)", name)
+        return {"ok": False, "reason": "internal error, see logs"}
+
+
 async def insert_growth_history(
     config: Config,
     event_type: str,

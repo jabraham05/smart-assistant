@@ -362,6 +362,18 @@ async def webhook(request: Request):
                     knowledge_client.create_entity_from_chat(config, item.type, item.content, session_id=session_id)
                 )
 
+            if classification.is_correction:
+                # Growth engine: the "user corrections" signal the roadmap
+                # named but was never actually captured - classify.py
+                # deliberately excludes a single-turn correction from
+                # behaviorFeedback (that's for a repeated pattern), so this
+                # is the first time it becomes a real Growth observation.
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config, "user_correction", chat_input, {"chatInput": chat_input}, session_id=session_id
+                    )
+                )
+
             yield emit(
                 "trace",
                 trace={

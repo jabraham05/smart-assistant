@@ -82,4 +82,17 @@ def build_router(config: Config) -> APIRouter:
         await growth_db.set_proposal_status(config, proposal_id, "rejected", notes)
         return {"ok": True, "proposalId": proposal_id, "status": "rejected"}
 
+    @router.get("/persona-proposal")
+    async def get_persona_proposal(name: str = "Amy"):
+        row = await growth_db.get_persona_proposal(config, name)
+        if not row:
+            return {"pending": False}
+        return {"pending": True, **_clean_row(row)}
+
+    @router.post("/persona-proposal/promote")
+    async def promote_persona_proposal(body: dict | None = None):
+        name = (body or {}).get("name") or "Amy"
+        result = await growth_db.promote_persona_proposal(config, name)
+        return {**result, "name": name}
+
     return router
