@@ -8,11 +8,16 @@ from src.classify import apply_background_override, expand_groups_to_tools
 
 
 def test_expand_groups_to_tools_always_includes_calculate_and_task_context_manage():
-    assert set(expand_groups_to_tools([])) == {"calculate", "task_context_manage"}
+    assert set(expand_groups_to_tools([])) == {"calculate", "task_context_manage", "skill_examples"}
 
 
 def test_expand_groups_to_tools_maps_single_group():
-    assert set(expand_groups_to_tools(["media"])) == {"calculate", "task_context_manage", "spotify_control"}
+    assert set(expand_groups_to_tools(["media"])) == {
+        "calculate",
+        "task_context_manage",
+        "skill_examples",
+        "spotify_control",
+    }
 
 
 def test_expand_groups_to_tools_dedupes_and_ignores_unknown_groups():
@@ -20,7 +25,9 @@ def test_expand_groups_to_tools_dedupes_and_ignores_unknown_groups():
     assert set(tools) == {
         "calculate",
         "task_context_manage",
+        "skill_examples",
         "skill_propose",
+        "growth_review",
         "code_task",
         "code_task_status",
         "project_propose",
@@ -31,7 +38,13 @@ def test_expand_groups_to_tools_dedupes_and_ignores_unknown_groups():
 
 def test_expand_groups_to_tools_combines_multiple_groups():
     tools = expand_groups_to_tools(["media", "scheduling"])
-    assert set(tools) == {"calculate", "task_context_manage", "spotify_control", "calendar_event"}
+    assert set(tools) == {
+        "calculate",
+        "task_context_manage",
+        "skill_examples",
+        "spotify_control",
+        "calendar_event",
+    }
 
 
 def test_apply_background_override_is_noop_when_background_false():
