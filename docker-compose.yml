@@ -669,6 +669,10 @@ services:
       # registered-tool catalog via its plain GET /tools route, no MCP
       # session or tool call ever made from here.
       SKILLS_MCP_URL: http://skills-mcp:3001
+      # Growth dashboard (Amy Lab -> Growth) - lib/growth-client.ts calls
+      # agent-service's own /growth/* routes directly, same pattern as
+      # SKILLS_MCP_URL/EVENT_BUS_URL above.
+      AGENT_SERVICE_URL: http://agent-service:3010
     depends_on: [agent-service, event-bus, skills-mcp]
     networks: [assistant-net]
 

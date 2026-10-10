@@ -57,6 +57,38 @@ def build_router(config: Config) -> APIRouter:
         rows = await growth_db.list_opportunities(config, status=status, limit=limit)
         return {"opportunities": [_clean_row(r) for r in rows]}
 
+    @router.post("/opportunities/{opportunity_id}/dismiss")
+    async def dismiss_opportunity(opportunity_id: int):
+        await growth_db.set_opportunity_status(config, opportunity_id, "rejected")
+        return {"ok": True, "opportunityId": opportunity_id, "status": "rejected"}
+
+    @router.post("/opportunities/{opportunity_id}/defer")
+    async def defer_opportunity(opportunity_id: int):
+        await growth_db.set_opportunity_status(config, opportunity_id, "dormant")
+        return {"ok": True, "opportunityId": opportunity_id, "status": "dormant"}
+
+    @router.post("/opportunities/{opportunity_id}/promote")
+    async def promote_opportunity(opportunity_id: int):
+        proposal_id = await growth_db.promote_opportunity_to_proposal(config, opportunity_id)
+        if proposal_id is None:
+            return {"ok": False, "error": "opportunity not found or already proposed/rejected/dormant"}
+        return {"ok": True, "opportunityId": opportunity_id, "proposalId": proposal_id}
+
+    @router.get("/learning-plans")
+    async def list_learning_plans(status: str | None = None, limit: int = 50):
+        rows = await growth_db.list_learning_plans(config, status=status, limit=limit)
+        return {"learningPlans": [_clean_row(r) for r in rows]}
+
+    @router.get("/experiments")
+    async def list_experiments(limit: int = 50):
+        rows = await growth_db.list_experiments(config, limit=limit)
+        return {"experiments": [_clean_row(r) for r in rows]}
+
+    @router.get("/history")
+    async def list_history(limit: int = 100):
+        rows = await growth_db.list_growth_history(config, limit=limit)
+        return {"history": [_clean_row(r) for r in rows]}
+
     @router.get("/proposals")
     async def list_proposals(status: str | None = None, limit: int = 50):
         rows = await growth_db.list_proposals(config, status=status, limit=limit)
@@ -93,6 +125,13 @@ def build_router(config: Config) -> APIRouter:
     async def promote_persona_proposal(body: dict | None = None):
         name = (body or {}).get("name") or "Amy"
         result = await growth_db.promote_persona_proposal(config, name)
+        return {**result, "name": name}
+
+    @router.post("/persona-proposal/dismiss")
+    async def dismiss_persona_proposal(body: dict | None = None):
+        name = (body or {}).get("name") or "Amy"
+        reason = (body or {}).get("reason")
+        result = await growth_db.dismiss_persona_proposal(config, name, reason)
         return {**result, "name": name}
 
     return router
