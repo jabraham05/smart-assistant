@@ -53,6 +53,7 @@ from .safety_net import (
     STATUS_NARRATION_MISMATCH_NUDGE,
     TOOL_FAILURE_NARRATION_NUDGE,
     TRAILING_CONFIRMATION_RETRY_NUDGE,
+    UNWARRANTED_CHECKING_OPENER_NUDGE,
     classify_memory_grounding,
     has_fabricated_id_reference,
     has_status_narration_mismatch,
@@ -60,6 +61,7 @@ from .safety_net import (
     has_trailing_confirmation_question,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
+    has_unwarranted_checking_opener,
     is_confabulated_action,
     strip_emoji,
     strip_known_stock_closers,
@@ -536,6 +538,25 @@ async def webhook(request: Request):
                 )
                 retry_text, chunks = await _run_turn(
                     config, session_id, system_prompt, chat_input + STATUS_NARRATION_MISMATCH_NUDGE, bound_tools,
+                    state, emit, message_history,
+                )
+                for c in chunks:
+                    yield c
+                if retry_text.strip():
+                    final_text = retry_text
+
+            if has_unwarranted_checking_opener(final_text, state.called_tools):
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config, "safety_net_failure", "Reply opened with a checking-now acknowledgment but called no tool",
+                        {"reason": "unwarranted_checking_opener", "chatInput": chat_input}, session_id=session_id,
+                    )
+                )
+                yield emit(
+                    "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "unwarranted_checking_opener"}
+                )
+                retry_text, chunks = await _run_turn(
+                    config, session_id, system_prompt, chat_input + UNWARRANTED_CHECKING_OPENER_NUDGE, bound_tools,
                     state, emit, message_history,
                 )
                 for c in chunks:

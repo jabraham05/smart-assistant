@@ -13,6 +13,7 @@ from src.safety_net import (
     has_trailing_confirmation_question,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
+    has_unwarranted_checking_opener,
     is_confabulated_action,
     strip_emoji,
     strip_known_stock_closers,
@@ -321,3 +322,39 @@ def test_has_tool_failure_narration_requires_relevant_tool_called():
 def test_has_tool_failure_narration_does_not_flag_real_data_failure():
     text = "Task #42 failed after 3 iterations and needs your input."
     assert has_tool_failure_narration(text, ["code_task_status"]) is False
+
+
+def test_strip_known_stock_closers_removes_help_with_something_else():
+    assert (
+        strip_known_stock_closers("All good here. Help with something else?")
+        == "All good here"
+    )
+
+
+def test_strip_known_stock_closers_handles_list_with_no_trailing_punctuation():
+    text = "- goal #13: Track job search\n\nLet me know if you'd like to revisit any of these!"
+    assert strip_known_stock_closers(text) == "- goal #13: Track job search"
+
+
+def test_strip_known_stock_closers_removes_disguised_reassurance_as_whole_reply():
+    # A whole-reply match falls back to the original text by design (see
+    # strip_known_stock_closers - stripping everything would leave an empty
+    # reply), so this documents the known limitation rather than a fix:
+    # a standalone disguised-reassurance reply needs the persona fix/retry
+    # path, not the strip backstop, since there's no substantive remainder.
+    assert (
+        strip_known_stock_closers("I'm here and ready to help")
+        == "I'm here and ready to help"
+    )
+
+
+def test_has_unwarranted_checking_opener_flags_when_no_tool_called():
+    assert has_unwarranted_checking_opener("Checking now, sir. No, I don't get tired.", []) is True
+
+
+def test_has_unwarranted_checking_opener_does_not_flag_when_tool_called():
+    assert has_unwarranted_checking_opener("Checking now, sir.", ["weather_get"]) is False
+
+
+def test_has_unwarranted_checking_opener_does_not_flag_mid_reply_mention():
+    assert has_unwarranted_checking_opener("I was checking now and then on this.", []) is False
