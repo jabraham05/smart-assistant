@@ -14,6 +14,7 @@ catalog, never a requirement to register metadata before a skill works -
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 import asyncpg
 
@@ -59,12 +60,23 @@ def _is_relevant(skill_name: str, meta: dict | None, chat_input: str, relevant_g
     return any(t.lower() in lowered for t in triggers) or skill_name.lower() in (g.lower() for g in relevant_groups)
 
 
+@dataclass
+class SelectedSkill:
+    skill: ActiveSkillRow
+    # True for a skill the message/classification actually triggered;
+    # False for one pulled in only because a direct match declared it as a
+    # dependency (Phase 7.2). Distinguishes "the user is asking about this"
+    # from "this is just supporting context" - used below to decide
+    # whether L3 detail is worth the extra tokens.
+    direct_match: bool
+
+
 def discover_relevant_skills(
     active_skills: list[ActiveSkillRow],
     metadata: dict[str, dict],
     chat_input: str,
     relevant_groups: list[str],
-) -> list[ActiveSkillRow]:
+) -> list[SelectedSkill]:
     """Deterministic keyword-trigger filter - same rule-based-over-LLM-call
     preference as the rest of this project's routing logic (classify.py's
     GROUPS, knowledge-engine's router.ts), rather than an extra model call
@@ -72,31 +84,38 @@ def discover_relevant_skills(
     pulled in by a trigger match also pulls in its declared dependencies
     even if they didn't match themselves, capped at one level deep so an
     accidental dependency cycle can't silently pull in the whole catalog."""
-    selected = [s for s in active_skills if _is_relevant(s.name, metadata.get(s.name), chat_input, relevant_groups)]
-    selected_names = {s.name for s in selected}
-    for skill in list(selected):
-        deps = (metadata.get(skill.name) or {}).get("dependencies") or []
+    direct = [s for s in active_skills if _is_relevant(s.name, metadata.get(s.name), chat_input, relevant_groups)]
+    selected = [SelectedSkill(skill=s, direct_match=True) for s in direct]
+    selected_names = {s.name for s in direct}
+    for sel in list(selected):
+        deps = (metadata.get(sel.skill.name) or {}).get("dependencies") or []
         for dep_name in deps:
             if dep_name in selected_names:
                 continue
             dep_skill = next((s for s in active_skills if s.name == dep_name), None)
             if dep_skill:
-                selected.append(dep_skill)
+                selected.append(SelectedSkill(skill=dep_skill, direct_match=False))
                 selected_names.add(dep_name)
     return selected
 
 
-def render_skills_catalog_text(active_skills: list[ActiveSkillRow], metadata: dict[str, dict]) -> str:
+def render_skills_catalog_text(selected: list[SelectedSkill], metadata: dict[str, dict]) -> str:
     """L1 (name/description) + L2 (summary, falling back to the full
     instructions when a skill has no metadata yet) for every selected
-    skill. L3/L4 (detailed procedure/examples) are registered but not yet
-    surfaced here - there's no "drill into this skill" mechanism in a
-    single-pass prompt assembly to make use of them yet; see
-    docs/growth-engine.md for that as explicit follow-up scope, not a
-    silent gap."""
+    skill, plus L3 (`level3_procedure`) for skills that were a *direct*
+    trigger match - a dependency-only pull stays at L2 to avoid stacking
+    detail for something that's only supporting context. L4
+    (`level4_examples`) is deliberately never injected here - examples are
+    typically long, and there's still no "drill into this skill further"
+    mechanism in a single-pass prompt assembly; instead it's retrievable
+    on demand via the `skill_examples` MCP tool (skills-mcp), the natural
+    agentic equivalent of a drill-in request."""
     parts = []
-    for skill in active_skills:
+    for sel in selected:
+        skill = sel.skill
         meta = metadata.get(skill.name)
         body = (meta.get("level2_summary") if meta else None) or skill.instructions
+        if sel.direct_match and meta and meta.get("level3_procedure"):
+            body = f"{body}\n\n### Detailed procedure\n{meta['level3_procedure']}"
         parts.append(f"## {skill.name}\n{skill.description}\n\n{body}")
     return "\n\n".join(parts)

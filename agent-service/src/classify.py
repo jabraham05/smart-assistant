@@ -164,7 +164,15 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "that\", \"change it to 11am today\", \"actually make it Tuesday\", \"delete it\") - classify based "
     "on what the user is actually asking for once resolved, not the prior exchange's own content. A "
     "correction to something just scheduled is still 'scheduling'; a correction to a task just "
-    "created is still whatever category the task itself was."
+    "created is still whatever category the task itself was.\n\n"
+    "- isCorrection: true ONLY when the current message is the user correcting a specific mistake "
+    "Amy's own prior reply just made (wrong detail, wrong action, misunderstood request) - e.g. 'no, "
+    "I meant tomorrow', 'that's not what I asked for', 'you got that wrong'. This is the single-turn "
+    "counterpart to behaviorFeedback above (which is for a REPEATED pattern across conversations, not "
+    "one mistake) - a message can set isCorrection true and leave behaviorFeedbackCategory/Note null, "
+    "or vice versa, but rarely both. false for everything else, including a simple follow-up request "
+    "that doesn't imply Amy got anything wrong ('also check tomorrow'), small talk, or when there's no "
+    "prior exchange shown at all."
 )
 
 
@@ -194,6 +202,7 @@ class ClassifierOutput(BaseModel):
     behavior_feedback_category: str | None = Field(alias="behaviorFeedbackCategory")
     behavior_feedback_note: str | None = Field(alias="behaviorFeedbackNote")
     memorable_items: list[MemorableItemOutput] = Field(alias="memorableItems")
+    is_correction: bool = Field(alias="isCorrection")
 
     model_config = {"populate_by_name": True}
 
@@ -218,6 +227,7 @@ class ClassificationResult(BaseModel):
     knowledge_gap_topic: str | None
     behavior_feedback: BehaviorFeedback | None
     memorable_items: list[MemorableItem]
+    is_correction: bool
 
 
 def expand_groups_to_tools(relevant_groups: list[str]) -> list[str]:
@@ -225,8 +235,12 @@ def expand_groups_to_tools(relevant_groups: list[str]) -> list[str]:
     classification - calculate because a classifier miss can't be allowed to
     silently drop arithmetic/date-resolution, and task_context_manage because
     an open cross-session task can be resumed by a message that doesn't
-    obviously name any capability at all."""
-    tools: set[str] = {"calculate", "task_context_manage"}
+    obviously name any capability at all. 'skill_examples' is always exposed
+    too, same reasoning as memory_recall being force-added for relevant/
+    required memoryPolicy below - it's a drill-in for whichever skill ends
+    up actually bound this turn (Skills v2, see skills_discovery.py), not
+    tied to any one classifier group."""
+    tools: set[str] = {"calculate", "task_context_manage", "skill_examples"}
     for group in relevant_groups:
         for member in GROUPS.get(group, []):
             tools.add(member)
@@ -291,6 +305,7 @@ def _fallback_result() -> ClassificationResult:
         knowledge_gap_topic=None,
         behavior_feedback=None,
         memorable_items=[],
+        is_correction=False,
     )
 
 
@@ -343,6 +358,14 @@ async def classify_relevant_tools(
             if item.type in MEMORABLE_ITEM_TYPES and item.content and item.content.strip()
         ]
 
+        # Deterministic guard, not just trusting the model: a correction is
+        # inherently about the immediately preceding turn, so it's
+        # impossible without one - same "don't trust the model to be
+        # disciplined when a deterministic constraint can enforce it
+        # instead" lesson as calculate.ts/safety-net.ts's tool-policy
+        # enforcement.
+        is_correction = bool(parsed.is_correction and recent_context)
+
         return ClassificationResult(
             relevant_groups=relevant_groups,
             relevant_tools=relevant_tools,
@@ -353,6 +376,7 @@ async def classify_relevant_tools(
             knowledge_gap_topic=knowledge_gap_topic,
             behavior_feedback=behavior_feedback,
             memorable_items=memorable_items,
+            is_correction=is_correction,
         )
     except Exception:
         logger.exception("classify_relevant_tools failed, falling back to calculate-only")

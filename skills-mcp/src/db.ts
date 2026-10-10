@@ -68,6 +68,19 @@ export async function getSkillProposal(config: Config, id: number): Promise<Skil
   return result.rows[0];
 }
 
+// skill_metadata (postgres/init/26-create-skill-metadata-table.sql) lives
+// in this same `skills` database - L4 examples on demand, the natural
+// agentic equivalent of "drill into this skill further" now that there's
+// no single-pass way to inject every level for every matched skill (see
+// agent-service/src/skills_discovery.py).
+export async function getSkillExamples(config: Config, skillName: string): Promise<string | undefined> {
+  const result = await getPool(config).query<{ level4_examples: string | null }>(
+    `SELECT level4_examples FROM skill_metadata WHERE skill_name = $1`,
+    [skillName],
+  );
+  return result.rows[0]?.level4_examples ?? undefined;
+}
+
 export async function updateSkillProposalStatus(
   config: Config,
   id: number,

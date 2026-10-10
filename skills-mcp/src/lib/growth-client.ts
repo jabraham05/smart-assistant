@@ -69,3 +69,35 @@ export async function rejectProposal(config: Config, proposalId: number, notes?:
   if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
   return res.json();
 }
+
+export interface PersonaProposal {
+  pending: boolean;
+  name?: string;
+  system_prompt?: string;
+  proposed_system_prompt?: string;
+  proposed_reason?: string;
+  proposed_at?: string;
+}
+
+// Follow-up fix: personas.proposed_system_prompt was only ever readable/
+// applicable via raw SQL - including a real proposal from 2026-08-21 that
+// predates the Growth engine. This is what makes it reachable
+// conversationally instead.
+export async function getPersonaProposal(config: Config, name = "Amy"): Promise<PersonaProposal> {
+  const url = new URL("/growth/persona-proposal", config.agentServiceUrl);
+  url.searchParams.set("name", name);
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}
+
+export async function promotePersonaProposal(config: Config, name = "Amy"): Promise<Record<string, unknown>> {
+  const res = await fetch(new URL("/growth/persona-proposal/promote", config.agentServiceUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}

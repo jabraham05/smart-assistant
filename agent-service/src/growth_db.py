@@ -18,12 +18,15 @@ autonomously, so it needs no approval-tier gating of its own.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
+from datetime import datetime, timezone
 
 import asyncpg
 
+from . import growth_graphiti
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -153,6 +156,25 @@ PROPOSAL_MIN_FREQUENCY = 2
 PROPOSAL_HIGH_CONFIDENCE = 4.5
 PROPOSAL_HIGH_CONFIDENCE_SCORE_THRESHOLD = 5.0
 
+# The autonomy model (docs/unified-architecture-gap-analysis.md §8), made
+# real instead of every proposal defaulting to tier2 regardless of
+# category. §8's Tier 1 list includes "learn factual knowledge" - a
+# knowledge-category proposal is exactly that, so it auto-approves and
+# auto-consolidates with no human in the loop. Every other category
+# matches §8's Tier 2 list verbatim ("activating a new skill," "changing
+# persona behavior," - and 'tool' proposals are treated the same way since
+# they still mean "installing/adding capabilities" even though they only
+# ever land in an existing human-review queue). Tier 3 isn't represented
+# here at all: nothing in the Growth engine ever touches identity/safety/
+# permissions/tool-access tables, so there's no code path that could reach
+# tier3 regardless of this map.
+APPROVAL_TIER_BY_CATEGORY: dict[str, str] = {
+    "knowledge": "tier1",
+    "skill": "tier2",
+    "tool": "tier2",
+    "behavior": "tier2",
+}
+
 
 def classify_category(source: str, behavior_feedback_category: str | None = None) -> str | None:
     if source == "behavior_feedback" and behavior_feedback_category:
@@ -227,15 +249,21 @@ async def _maybe_promote(config: Config, opportunity_id: int) -> None:
         return
 
     category = opp["category"] or "behavior"
+    tier = APPROVAL_TIER_BY_CATEGORY.get(category, "tier2")
+    is_tier1 = tier == "tier1"
     proposed_action, rationale = _draft_proposal_text(opp)
     async with pool.acquire() as conn, conn.transaction():
         row = await conn.fetchrow(
-            "INSERT INTO growth_proposals (opportunity_id, category, proposed_action, rationale, approval_tier) "
-            "VALUES ($1, $2, $3, $4, 'tier2') RETURNING id",
+            "INSERT INTO growth_proposals (opportunity_id, category, proposed_action, rationale, approval_tier, status, reviewed_at, reviewer_notes) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
             opportunity_id,
             category,
             proposed_action,
             rationale,
+            tier,
+            "approved" if is_tier1 else "proposed",
+            datetime.now(timezone.utc) if is_tier1 else None,
+            "auto-approved: Tier 1 (knowledge) per the autonomy model" if is_tier1 else None,
         )
         await conn.execute(
             "UPDATE growth_opportunities SET status = 'proposed', updated_at = now() WHERE id = $1", opportunity_id
@@ -245,15 +273,34 @@ async def _maybe_promote(config: Config, opportunity_id: int) -> None:
             "VALUES ($1, $2, 'proposed', $3)",
             opportunity_id,
             row["id"],
-            json.dumps({"category": category, "score": float(score)}),
+            json.dumps({"category": category, "score": float(score), "tier": tier}),
         )
     logger.info(
-        "growth_db: promoted opportunity %s to proposal %s (score=%s frequency=%s)",
+        "growth_db: promoted opportunity %s to proposal %s (score=%s frequency=%s tier=%s)",
         opportunity_id,
         row["id"],
         score,
         opp["frequency"],
+        tier,
     )
+    asyncio.create_task(
+        growth_graphiti.add_episode(
+            config,
+            f"growth-proposal-{row['id']}",
+            f"Amy's Growth engine proposed a {category} improvement: {opp['title']}. {rationale}",
+            "growth_engine proposed event",
+        )
+    )
+
+    if is_tier1:
+        # Deferred import - growth_consolidate imports this module, so this
+        # has to be a late binding to avoid a circular import. Tier 1 means
+        # "no human in the loop," so the auto-approval above goes straight
+        # to consolidation in the same call rather than waiting for
+        # anything else to notice the 'approved' status.
+        from . import growth_consolidate
+
+        await growth_consolidate.consolidate_proposal(config, row["id"])
 
 
 async def record_observation(
@@ -678,6 +725,178 @@ async def create_tool_idea_proposal(
         )
     except Exception:
         logger.exception("growth_db.create_tool_idea_proposal failed (name=%s)", name)
+
+
+# ============================================================
+# Learning Plans - the missing step between an approved proposal
+# and its experiment/consolidation (roadmap: Proposal -> Learning
+# Plan -> Experiment -> Evaluation -> Approval/Decision -> Consolidation)
+# ============================================================
+
+# Deterministic per-category step templates - same rule-based-over-LLM-call
+# preference as everywhere else in this module. A learning plan's steps are
+# a fixed JSONB array, not a child table: plans are read/updated as a
+# whole, never queried step-by-step.
+LEARNING_PLAN_TEMPLATES: dict[str, list[str]] = {
+    "knowledge": [
+        "Confirm the fact/learning is accurate and self-contained",
+        "Record it as a durable entity",
+    ],
+    "skill": [
+        "Draft skill instructions from the opportunity's evidence",
+        "Evaluate the draft against the opportunity's linked observations",
+        "Write the skill if the evaluation looks sound",
+    ],
+    "behavior": [
+        "Draft a candidate persona edit",
+        "Run the golden-transcript regression check",
+        "Submit the candidate for manual promotion",
+    ],
+    "tool": [
+        "Draft a tool/integration idea",
+        "Queue it for human review via skill_proposals",
+    ],
+}
+
+
+async def list_observations_for_opportunity(config: Config, opportunity_id: int) -> list[dict]:
+    pool = await _get_pool(config)
+    rows = await pool.fetch(
+        "SELECT * FROM growth_observations WHERE opportunity_id = $1 ORDER BY id", opportunity_id
+    )
+    return [dict(r) for r in rows]
+
+
+async def create_learning_plan(config: Config, proposal_id: int, category: str) -> int | None:
+    """Creates a plan from the fixed per-category template the moment a
+    proposal is approved - this is what makes the roadmap's Learning Plan
+    stage real instead of skipped straight from Proposal to Consolidation."""
+    try:
+        pool = await _get_pool(config)
+        steps = [{"description": d, "status": "pending"} for d in LEARNING_PLAN_TEMPLATES.get(category, [])]
+        goal = f"Act on an approved {category} proposal"
+        row = await pool.fetchrow(
+            "INSERT INTO learning_plans (proposal_id, goal, steps, status) VALUES ($1, $2, $3, 'active') RETURNING id",
+            proposal_id,
+            goal,
+            json.dumps(steps),
+        )
+        await insert_growth_history(config, "learning_plan_created", {"planId": row["id"], "category": category}, proposal_id=proposal_id)
+        return row["id"]
+    except Exception:
+        logger.exception("growth_db.create_learning_plan failed for proposal %s", proposal_id)
+        return None
+
+
+async def advance_learning_plan_step(config: Config, plan_id: int, step_index: int, status: str) -> None:
+    """Read-modify-write on the steps JSONB array - plans are small (a
+    handful of steps), so this is simpler and safer than a child table for
+    something nothing ever needs to query by step across plans."""
+    try:
+        pool = await _get_pool(config)
+        row = await pool.fetchrow("SELECT steps FROM learning_plans WHERE id = $1", plan_id)
+        if not row:
+            return
+        steps = json.loads(row["steps"]) if isinstance(row["steps"], str) else row["steps"]
+        if 0 <= step_index < len(steps):
+            steps[step_index]["status"] = status
+        await pool.execute(
+            "UPDATE learning_plans SET steps = $2, updated_at = now() WHERE id = $1", plan_id, json.dumps(steps)
+        )
+    except Exception:
+        logger.exception("growth_db.advance_learning_plan_step failed for plan %s", plan_id)
+
+
+async def finish_learning_plan(config: Config, plan_id: int, status: str) -> None:
+    try:
+        pool = await _get_pool(config)
+        await pool.execute(
+            "UPDATE learning_plans SET status = $2, updated_at = now() WHERE id = $1", plan_id, status
+        )
+    except Exception:
+        logger.exception("growth_db.finish_learning_plan failed for plan %s", plan_id)
+
+
+async def get_persona_proposal(config: Config, name: str = "Amy") -> dict | None:
+    """Follow-up fix: personas.proposed_system_prompt (postgres/init/25-add-
+    persona-proposal-columns.sql) was only ever readable via raw SQL -
+    including a real, unreviewed proposal from 2026-08-21 that predates
+    the Growth engine entirely. This is what makes it visible through
+    growth_review instead. Reads through the public.personas view (same
+    one db.py's read-only get_persona_system_prompt uses), not the n8n
+    write pool - a plain read needs no write access."""
+    try:
+        pool = await _get_pool_for(config, config.postgres.n8n_database)
+        row = await pool.fetchrow(
+            "SELECT name, system_prompt, proposed_system_prompt, proposed_reason, proposed_at "
+            "FROM public.personas WHERE name = $1",
+            name,
+        )
+        if not row or not row["proposed_system_prompt"]:
+            return None
+        return dict(row)
+    except Exception:
+        logger.exception("growth_db.get_persona_proposal failed (name=%s)", name)
+        return None
+
+
+# Real, live-verified finding: the 2026-08-21 proposal already sitting in
+# this column (written by skill_gap_scanner's old persona-change branch,
+# before this Growth engine existed) turned out to be a short reasoning
+# paragraph about a suggested change, NOT a full drop-in replacement persona
+# - promoting it as-is would have silently destroyed Amy's entire real,
+# tuned system_prompt. Growth's OWN propose_persona_edit always writes a
+# full current-persona-plus-addition text (growth_consolidate.py), so this
+# guard only ever rejects genuinely malformed/legacy data, never Growth's
+# own proposals. A deterministic length ratio, not a judge call - the same
+# "don't trust a default, add a real check" instinct as calculate.ts.
+PERSONA_PROMOTE_MIN_LENGTH_RATIO = 0.5
+
+
+async def promote_persona_proposal(config: Config, name: str = "Amy") -> dict:
+    """The one deliberately manual step in the whole Growth engine
+    (Tier 2, docs/unified-architecture-gap-analysis.md §8: "changing
+    persona behavior" always requires explicit human action) - this makes
+    that action actually reachable conversationally via growth_review
+    instead of requiring raw SQL, without changing the guarantee that it
+    never happens automatically. Clears the proposed_* columns on success
+    so the same proposal can't be promoted twice. Returns a dict rather
+    than a bool so a rejected-for-safety case can explain why, instead of
+    looking identical to "nothing was pending"."""
+    try:
+        pool = await _get_pool_for(config, config.postgres.n8n_database)
+        async with pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                f'SELECT system_prompt, proposed_system_prompt FROM {_PERSONAS_TABLE} WHERE name = $1', name
+            )
+            if not row or not row["proposed_system_prompt"]:
+                return {"ok": False, "reason": "no pending proposal"}
+
+            current = row["system_prompt"] or ""
+            proposed = row["proposed_system_prompt"]
+            if current and len(proposed) < PERSONA_PROMOTE_MIN_LENGTH_RATIO * len(current):
+                return {
+                    "ok": False,
+                    "reason": (
+                        f"refused: proposed text ({len(proposed)} chars) is far shorter than the current "
+                        f"persona ({len(current)} chars) - this looks like a reasoning note about a "
+                        "suggested change, not a full replacement persona, and promoting it would likely "
+                        "destroy most of the real persona. Read it via action='persona_proposal' and "
+                        "resolve this by hand (edit the persona directly) instead."
+                    ),
+                }
+
+            await conn.execute(
+                f'UPDATE {_PERSONAS_TABLE} SET system_prompt = $2, proposed_system_prompt = NULL, '
+                f'proposed_reason = NULL, proposed_at = NULL, "updatedAt" = now() WHERE name = $1',
+                name,
+                proposed,
+            )
+        await insert_growth_history(config, "persona_promoted", {"name": name})
+        return {"ok": True}
+    except Exception:
+        logger.exception("growth_db.promote_persona_proposal failed (name=%s)", name)
+        return {"ok": False, "reason": "internal error, see logs"}
 
 
 async def insert_growth_history(
