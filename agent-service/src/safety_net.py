@@ -309,14 +309,41 @@ def strip_emoji(text: str) -> str:
 
 
 # Deliberately narrow - matches only the exact phrases the persona's own
-# "How you talk" section names, and only as the trailing sentence/clause
-# ($ anchor), same "catches the real observed case, not a general closer-
-# detector" conservatism as _UNFULFILLED_SEARCH_INTENT above. A false
-# positive here would delete legitimate trailing content, so this only
-# fires on an exact, named phrase.
+# "How you talk" section names (plus real paraphrases actually observed
+# live, see below), and only as the trailing sentence/clause ($ anchor),
+# same "catches the real observed case, not a general closer-detector"
+# conservatism as _UNFULFILLED_SEARCH_INTENT above. A false positive here
+# would delete legitimate trailing content, so this only fires on a
+# named/observed phrase, never a generic "sounds like an offer" heuristic.
+#
+# Real gap found via live review_turns evidence (toolPolicy='required'
+# turns skip has_trailing_confirmation_question entirely by design, so
+# this backstop is the only thing that should have caught it): a real
+# weather+calendar reply ended "Let me know if you'd like help with
+# anything else!" - a paraphrase of the persona's own named example that
+# the original three-phrase list didn't cover, and phrased as a statement
+# ("...else!") rather than a question, which _TRAILING_CONFIRMATION_QUESTION
+# (below) doesn't catch since it requires a trailing "?" by design (it's
+# specifically a confirmation-*question* detector). Added the paraphrase
+# variants actually seen, not a general pattern.
+#
+# Second real gap (2026-10-10, live test): a plain "hey, how's it going"
+# got back "All systems go! What's on your mind?" - a third distinct
+# category neither of the other two checks catch. It's not a yes/no
+# confirmation question (_TRAILING_CONFIRMATION_QUESTION's "Do you
+# need/want.../Should I...?" shape), and it's not a reassurance statement
+# (the original phrases above) - it's the model fishing for the next task
+# on a turn that was never asking for one. Same fix as a stock closer:
+# strip the trailing clause, not the whole reply.
 _STOCK_CLOSER_REGEX = re.compile(
-    r"(?:^|[.!?]\s+)[^.!?]*?(?:let me know if you need anything|no pressure|"
-    r"I['’]m here when you['’]re ready)[^.!?]*[.!?]?\s*$",
+    r"(?:^|[.!?]\s+)[^.!?]*?(?:let me know if you need anything|"
+    r"let me know if you['’]?d? ?(?:like|want)|"
+    r"(?:is there |let me know if there['’]?s )?anything else (?:you need|i can help with|you['’]?d like)|"
+    r"no pressure|I['’]m here when you['’]re ready|"
+    r"what['’]?s on your mind|"
+    r"what (?:can|do) I (?:help (?:you )?with|do for you)|"
+    r"how can I (?:help|assist)(?: you)?|"
+    r"what do you need(?: help with)?)[^.!?]*[.!?]?\s*$",
     re.IGNORECASE,
 )
 

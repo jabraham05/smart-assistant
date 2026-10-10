@@ -62,5 +62,17 @@ def build_agent(config: Config, session_id: str, system_prompt: str) -> Agent[Ag
         # pre/post-tool iterations at the model_settings level the way the
         # hand-rolled TS loop does, so this applies uniformly - acceptable
         # since it only raises the ceiling, never lowers reliability.
-        model_settings={"timeout": config.post_tool_timeout_seconds},
+        #
+        # Real bug found via live review_turns evidence (a literal "/think"
+        # token leaking into a user-visible reply, plus a cluster of
+        # persona_alignment complaints about rambling, unconsolidated
+        # replies): unlike classify.py and growth_judge.py, this agent
+        # never disabled Ollama's thinking mode, and unlike this Python
+        # port, the original chat-orchestrator/src/ollama.ts defaulted
+        # `think: false` everywhere. This was dropped during the Phase 1
+        # PydanticAI port, not an intentional choice - qwen3 defaults
+        # thinking ON, and safety-net.ts documents Ollama sometimes
+        # dropping tool_calls entirely on a thinking response, so this
+        # plausibly cost tool-calling reliability too, not just tone.
+        model_settings={"timeout": config.post_tool_timeout_seconds, "thinking": False},
     )
