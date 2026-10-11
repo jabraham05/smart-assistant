@@ -77,6 +77,32 @@ export function ScoreTag({ score }: { score: number | null }) {
   return <span className={`font-mono text-[11px] ${tone}`}>score {score.toFixed(1)}</span>;
 }
 
+// Renders a unified diff (as produced by Python's difflib.unified_diff)
+// with +/- line coloring - used wherever a Growth proposal's real
+// current-vs-proposed candidate text needs to be shown before approval.
+export function DiffView({ diff }: { diff: string[] }) {
+  if (!diff.length) return null;
+  return (
+    <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/20 p-2 text-[11px] leading-snug">
+      {diff.map((line, i) => {
+        const tone =
+          line.startsWith("+") && !line.startsWith("+++")
+            ? "text-emerald-400"
+            : line.startsWith("-") && !line.startsWith("---")
+              ? "text-rose-400"
+              : line.startsWith("@@")
+                ? "text-indigo-400"
+                : "text-zinc-500";
+        return (
+          <div key={i} className={tone}>
+            {line || " "}
+          </div>
+        );
+      })}
+    </pre>
+  );
+}
+
 export function formatDate(iso: string | null | undefined) {
   if (!iso) return "";
   return new Date(iso).toLocaleString(undefined, {

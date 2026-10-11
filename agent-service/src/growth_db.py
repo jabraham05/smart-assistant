@@ -475,11 +475,36 @@ async def list_proposals(config: Config, status: str | None = None, limit: int =
 async def get_proposal(config: Config, proposal_id: int) -> dict | None:
     pool = await _get_pool(config)
     row = await pool.fetchrow(
-        "SELECT p.*, o.title AS opportunity_title, o.description AS opportunity_description "
+        "SELECT p.*, o.title AS opportunity_title, o.description AS opportunity_description, "
+        "o.confidence AS opportunity_confidence, o.score AS opportunity_score, "
+        "o.frequency AS opportunity_frequency "
         "FROM growth_proposals p JOIN growth_opportunities o ON o.id = p.opportunity_id WHERE p.id = $1",
         proposal_id,
     )
     return dict(row) if row else None
+
+
+async def save_proposal_preview(
+    config: Config,
+    proposal_id: int,
+    current_text: str,
+    proposed_text: str,
+    evaluation: dict | None,
+) -> None:
+    """Persists what preview_proposal() computed so (1) a human reviewing the
+    Review Queue sees real candidate text instead of just a rationale, and
+    (2) consolidate_proposal() can reuse it instead of regenerating - what
+    gets approved is exactly what was previewed, not a second, possibly
+    different LLM generation."""
+    pool = await _get_pool(config)
+    await pool.execute(
+        "UPDATE growth_proposals SET current_text = $2, proposed_text = $3, "
+        "preview_evaluation = $4, previewed_at = now() WHERE id = $1",
+        proposal_id,
+        current_text,
+        proposed_text,
+        json.dumps(evaluation) if evaluation is not None else None,
+    )
 
 
 async def set_proposal_status(config: Config, proposal_id: int, status: str, notes: str | None = None) -> None:

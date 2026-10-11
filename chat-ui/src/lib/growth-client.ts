@@ -39,6 +39,12 @@ export interface GrowthProposal {
   reviewer_notes: string | null;
   opportunity_title?: string;
   opportunity_description?: string;
+  opportunity_confidence?: number | null;
+  opportunity_score?: number | null;
+  opportunity_frequency?: number | null;
+  current_text?: string | null;
+  proposed_text?: string | null;
+  preview_evaluation?: Record<string, unknown> | null;
 }
 
 export interface LearningPlanStep {
@@ -95,6 +101,18 @@ export interface GrowthHistoryEntry {
   proposal_category?: string;
 }
 
+export interface ProposalPreview {
+  ok: boolean;
+  error?: string;
+  category: "knowledge" | "skill" | "behavior" | "tool";
+  currentText: string;
+  proposedText: string;
+  diff: string[];
+  evaluation: Record<string, unknown> | null;
+  observations: { summary: string; source: string }[];
+  opportunity: { confidence: number | null; score: number | null; frequency: number | null };
+}
+
 export interface PersonaProposal {
   pending: boolean;
   name?: string;
@@ -102,6 +120,7 @@ export interface PersonaProposal {
   proposed_system_prompt?: string;
   proposed_reason?: string;
   proposed_at?: string;
+  diff?: string[];
 }
 
 async function getJson<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
@@ -155,6 +174,10 @@ export async function listGrowthProposals(status?: string): Promise<GrowthPropos
 
 export async function getGrowthProposal(id: number): Promise<GrowthProposal> {
   return getJson<GrowthProposal>(`/growth/proposals/${id}`);
+}
+
+export async function previewGrowthProposal(id: number): Promise<ProposalPreview> {
+  return postJson<ProposalPreview>(`/growth/proposals/${id}/preview`);
 }
 
 export async function approveGrowthProposal(id: number, notes?: string) {

@@ -23,7 +23,7 @@ _JSON_FIELDS = (
     "evidence", "raw_judge_output", "detail", "baseline_definition", "candidate_definition",
     "baseline_results", "candidate_results", "baseline_scores", "candidate_scores", "steps",
     "expected_attribution", "expected_min_scores", "turn_ids", "tool_calls",
-    "user_card_snapshot", "user_card_for_amy_snapshot",
+    "user_card_snapshot", "user_card_for_amy_snapshot", "preview_evaluation",
 )
 
 
@@ -101,6 +101,11 @@ def build_router(config: Config) -> APIRouter:
             return {"error": "not found"}
         return _clean_row(row)
 
+    @router.post("/proposals/{proposal_id}/preview")
+    async def preview_proposal(proposal_id: int):
+        preview = await growth_consolidate.preview_proposal(config, proposal_id)
+        return _clean_row(preview) if isinstance(preview, dict) else preview
+
     @router.post("/proposals/{proposal_id}/approve")
     async def approve_proposal(proposal_id: int, body: dict | None = None):
         notes = (body or {}).get("notes")
@@ -119,7 +124,8 @@ def build_router(config: Config) -> APIRouter:
         row = await growth_db.get_persona_proposal(config, name)
         if not row:
             return {"pending": False}
-        return {"pending": True, **_clean_row(row)}
+        diff = growth_consolidate.unified_diff(row.get("system_prompt") or "", row.get("proposed_system_prompt") or "")
+        return {"pending": True, "diff": diff, **_clean_row(row)}
 
     @router.post("/persona-proposal/promote")
     async def promote_persona_proposal(body: dict | None = None):
