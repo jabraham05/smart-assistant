@@ -446,3 +446,43 @@ UNWARRANTED_CHECKING_OPENER_NUDGE = (
     "this turn - that opener is only for when you're about to call a tool. Just answer directly "
     "instead, with no opener at all.)"
 )
+
+# Real gap found via live testing (2026-10-11): a standing-instruction
+# correction given mid-task ("from now on always check my constraints "
+# first... apply this every time I give you a vague goal") got only a
+# verbal "I'll follow that rule moving forward" - no teaching_session_manage
+# call, no observation, nothing persisted anywhere. classify.py's own
+# category-boundary fix (self-growth now co-occurs with 'goals'/other
+# categories) got teaching_session_manage bound, but binding it wasn't
+# enough - juggling "respond to the correction," "keep doing the task,"
+# and "log a durable lesson" in one turn, the model kept dropping the
+# third. Same "model's own compliance" gap as every other check here, just
+# for a promise instead of a claimed action. Gated on self-growth actually
+# being matched (so the tool is guaranteed bound - a nudge can't make the
+# model call a tool that was never exposed this turn) and on the user's
+# message, not the reply, since this is about what was asked for, not what
+# was claimed.
+_STANDING_INSTRUCTION_INTENT = re.compile(
+    r"\b(from now on|remember this|every time|going forward|that['’]?s the rule|apply this (rule|"
+    r"from now on)|i prefer|i want you to (always|never)|always do this|never do this)\b",
+    re.IGNORECASE,
+)
+
+
+def has_unaddressed_teaching_intent(chat_input: str, relevant_groups: list[str], called_tools: list[str]) -> bool:
+    """True when the user's message carries a standing-instruction/teaching
+    cue, self-growth was matched (teaching_session_manage is bound), but it
+    was never actually called this turn."""
+    if "self-growth" not in relevant_groups:
+        return False
+    if "teaching_session_manage" in called_tools:
+        return False
+    return bool(_STANDING_INSTRUCTION_INTENT.search(chat_input))
+
+
+TEACHING_INTENT_RETRY_NUDGE = (
+    " (You were just given a standing instruction or lasting preference to remember for the future - "
+    "promising to follow it isn't enough, it has to actually be persisted. Call teaching_session_manage "
+    "right now (action='start', finalizeImmediately=true for a one-shot statement like this) before "
+    "replying, then answer normally.)"
+)
