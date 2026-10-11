@@ -188,6 +188,18 @@ export async function finalizeTeachingSession(
   return res.json();
 }
 
+export async function abandonTeachingSession(
+  config: Config,
+  teachingSessionId: number,
+): Promise<{ ok: boolean; teachingSessionId: number; status: string }> {
+  const res = await fetch(new URL(`/growth/teaching-sessions/${teachingSessionId}/abandon`, config.agentServiceUrl), {
+    method: "POST",
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}
+
 export async function getTeachingSession(config: Config, teachingSessionId: number): Promise<TeachingSession> {
   const res = await fetch(new URL(`/growth/teaching-sessions/${teachingSessionId}`, config.agentServiceUrl), {
     signal: AbortSignal.timeout(10_000),

@@ -24,14 +24,22 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from . import event_bus_client, honcho_client, knowledge_client, memory_client, session_memory, skills_discovery
-from .classify import ClassificationResult, classify_relevant_tools
+from . import event_bus_client, growth_db, honcho_client, knowledge_client, memory_client, session_memory, skills_discovery
+from .classify import GROUPS, ClassificationResult, classify_relevant_tools
 from .config import Config
 from .db import get_active_instruction_skills, get_persona_system_prompt
 from .event_bus_client import GoalSummary, TaskContextSummary
 from .knowledge_client import OpenProjectSummary
 from .memory_client import MemorySearchResult
-from .system_prompt import OpenProject, OpenTask, RelevantGoal, RelevantMemory, SystemPromptInput, build_system_prompt
+from .system_prompt import (
+    OpenProject,
+    OpenTask,
+    OpenTeachingSession,
+    RelevantGoal,
+    RelevantMemory,
+    SystemPromptInput,
+    build_system_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +71,7 @@ async def build_context(
         open_tasks,
         relevant_goals,
         open_projects,
+        open_teaching_session,
     ) = await asyncio.gather(
         classify_relevant_tools(config.ollama_host, config.classifier_model, chat_input, recent_context),
         get_persona_system_prompt(config),
@@ -72,12 +81,29 @@ async def build_context(
         event_bus_client.match_task_contexts(config, chat_input),
         event_bus_client.match_goals(config, chat_input),
         knowledge_client.list_open_projects(config),
+        growth_db.get_open_teaching_session(config, session_id),
     )
     # Real, live-verified finding (unchanged from before this extraction):
     # this gather's wall time is almost entirely classify_relevant_tools's
     # own LLM call - every other item here finishes in well under half a
     # second.
     logger.info("TIMING classify+context-gather session=%s took=%.2fs", session_id, time.monotonic() - _t)
+
+    # Real gap found via live testing (2026-10-11): a teaching-session
+    # continuation turn ("Also - if you find conflicting info...") has no
+    # standing-instruction trigger phrase of its own, so neither the model
+    # nor classify.py's own deterministic STANDING_INSTRUCTION_INTENT guard
+    # recognized it as teaching - even though a session was already open
+    # for this exact conversation. Fixed the same way open_tasks already
+    # persists across turns: query real state, not re-detect it from text.
+    # An open teaching session for this session_id always forces
+    # self-growth/teaching_session_manage bound, full stop - no regex
+    # needed once a session actually exists.
+    if open_teaching_session and "self-growth" not in classification.relevant_groups:
+        classification.relevant_groups.append("self-growth")
+        classification.relevant_tools = list(
+            dict.fromkeys([*classification.relevant_tools, *GROUPS["self-growth"]])
+        )
 
     # 'web' deliberately does NOT solo-trigger this - see main.py's git
     # history for the live-verified reasoning (a bare web lookup is a
@@ -134,6 +160,15 @@ async def build_context(
             open_tasks=[OpenTask(id=t.id, objective=t.objective, status=t.status) for t in open_tasks],
             relevant_goals=[RelevantGoal(id=g.id, title=g.title, status=g.status) for g in relevant_goals],
             open_projects=[OpenProject(id=p.id, title=p.title, status=p.status) for p in open_projects],
+            open_teaching_session=(
+                OpenTeachingSession(
+                    id=open_teaching_session["id"],
+                    mode=open_teaching_session["mode"],
+                    captured_preview=open_teaching_session["captured_content"][:200],
+                )
+                if open_teaching_session
+                else None
+            ),
             needs_planning_nudge=classification.needs_planning,
             narrate_before_slow_answer=should_acknowledge,
         )

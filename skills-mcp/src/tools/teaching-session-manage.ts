@@ -1,7 +1,13 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Config } from "../config.js";
-import { captureTeachingContent, finalizeTeachingSession, getTeachingSession, startTeachingSession } from "../lib/growth-client.js";
+import {
+  abandonTeachingSession,
+  captureTeachingContent,
+  finalizeTeachingSession,
+  getTeachingSession,
+  startTeachingSession,
+} from "../lib/growth-client.js";
 import { errorResult, textResult } from "../types.js";
 
 // Phase 10 (Teaching layer, docs/unified-architecture-gap-analysis.md §7) -
@@ -40,10 +46,15 @@ export function registerTeachingSessionManage(server: McpServer, config: Config,
         "result, so don't guess it. For 'demonstration'/'guided_practice' (where more turns of " +
         "capture are genuinely expected), start WITHOUT finalizeImmediately, use action='capture' with " +
         "the teachingSessionId from start's result as the conversation continues, then call " +
-        "action='finalize' with that same id once the user signals they're done. action='status' " +
-        "checks a session's current classification/routing.",
+        "action='finalize' with that same id once the user signals they're done. IMPORTANT: if a " +
+        "teaching session is already open for this conversation, the system prompt will tell you its " +
+        "id directly - use that exact id for capture/finalize/abandon, never guess or recall one from " +
+        "earlier in the conversation yourself. action='abandon' closes a session without routing it " +
+        "anywhere (use when the conversation has clearly moved on and the teaching was never " +
+        "completed) - this is different from action='finalize', which still tries to classify and use " +
+        "whatever was captured. action='status' checks a session's current classification/routing.",
       inputSchema: {
-        action: z.enum(["start", "capture", "finalize", "status"]).describe("Which teaching-session operation to perform."),
+        action: z.enum(["start", "capture", "finalize", "abandon", "status"]).describe("Which teaching-session operation to perform."),
         mode: z
           .enum(["demonstration", "guided_practice", "explain_and_build"])
           .optional()
@@ -55,7 +66,7 @@ export function registerTeachingSessionManage(server: McpServer, config: Config,
           .string()
           .optional()
           .describe("start/capture: the captured text - what the user said/demonstrated/corrected. Required for both."),
-        teachingSessionId: z.coerce.number().int().optional().describe("capture/finalize/status: the session's id, from action='start'. Required for all three."),
+        teachingSessionId: z.coerce.number().int().optional().describe("capture/finalize/abandon/status: the session's id - from action='start', or from the system prompt if one is already open. Required for all four."),
         finalizeImmediately: z
           .boolean()
           .optional()
@@ -85,6 +96,12 @@ export function registerTeachingSessionManage(server: McpServer, config: Config,
         if (action === "finalize") {
           if (!teachingSessionId) return errorResult("teachingSessionId is required for action='finalize'.");
           const result = await finalizeTeachingSession(config, teachingSessionId);
+          return textResult(result);
+        }
+
+        if (action === "abandon") {
+          if (!teachingSessionId) return errorResult("teachingSessionId is required for action='abandon'.");
+          const result = await abandonTeachingSession(config, teachingSessionId);
           return textResult(result);
         }
 

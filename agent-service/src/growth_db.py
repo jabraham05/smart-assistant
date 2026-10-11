@@ -1136,6 +1136,26 @@ async def get_teaching_session(config: Config, teaching_session_id: int) -> dict
     return dict(row) if row else None
 
 
+async def get_open_teaching_session(config: Config, session_id: str | None) -> dict | None:
+    """The actual state behind "teaching mode is open for this
+    conversation" - a 'capturing' row for this session_id. Queried every
+    turn (context_builder.py) so a continuation with no trigger phrase of
+    its own (a real gap found via live testing - 'Also, if you find
+    conflicting info...' with no 'from now on'/'every time' etc.) can
+    still be recognized deterministically, the same way an open task
+    context persists across turns without the model needing to re-detect
+    it each time."""
+    if not session_id:
+        return None
+    pool = await _get_pool(config)
+    row = await pool.fetchrow(
+        "SELECT * FROM teaching_sessions WHERE session_id = $1 AND status = 'capturing' "
+        "ORDER BY created_at DESC LIMIT 1",
+        session_id,
+    )
+    return dict(row) if row else None
+
+
 async def get_teaching_session_by_opportunity(config: Config, opportunity_id: int) -> dict | None:
     """So a skill proposal that originated from teaching can draft from the
     judge's already-extracted procedure/rules instead of the raw captured
@@ -1182,6 +1202,16 @@ async def set_teaching_session_classification(
         rules,
         examples,
         open_questions,
+    )
+
+
+async def abandon_teaching_session(config: Config, teaching_session_id: int) -> None:
+    """Lets a dropped teaching thread (conversation moved on without ever
+    finishing) close out explicitly, instead of sitting in 'capturing'
+    forever and keeping self-growth force-bound for that conversation."""
+    pool = await _get_pool(config)
+    await pool.execute(
+        "UPDATE teaching_sessions SET status = 'abandoned', updated_at = now() WHERE id = $1", teaching_session_id
     )
 
 

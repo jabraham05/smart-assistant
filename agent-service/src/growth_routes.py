@@ -170,6 +170,11 @@ def build_router(config: Config) -> APIRouter:
         result = await growth_teaching.finalize_teaching_session(config, teaching_session_id)
         return _clean_row(result) if isinstance(result, dict) else result
 
+    @router.post("/teaching-sessions/{teaching_session_id}/abandon")
+    async def abandon_teaching_session(teaching_session_id: int):
+        await growth_db.abandon_teaching_session(config, teaching_session_id)
+        return {"ok": True, "teachingSessionId": teaching_session_id, "status": "abandoned"}
+
     @router.get("/teaching-sessions")
     async def list_teaching_sessions(status: str | None = None, limit: int = 50):
         rows = await growth_db.list_teaching_sessions(config, status=status, limit=limit)
