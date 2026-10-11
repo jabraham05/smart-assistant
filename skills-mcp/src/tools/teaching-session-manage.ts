@@ -18,12 +18,16 @@ export function registerTeachingSessionManage(server: McpServer, config: Config,
       title: "Capture and route a direct teaching moment from the user",
       description:
         "Use when the user is directly teaching you something - demonstrating a task step by step, " +
-        "correcting your attempt at one, or explaining a procedure/rules/examples outright so you can " +
-        "do it again later. This is NOT for an ordinary single correction ('no, I meant tomorrow') or " +
-        "a repeated-behavior complaint (that's growth_review's domain) - it's for when the user is " +
-        "clearly in 'teaching mode'. action='start' begins a session with `mode` ('demonstration' for " +
-        "the user performing+narrating, 'guided_practice' for you attempting it with the user " +
-        "correcting you, 'explain_and_build' for the user describing the procedure directly) and the " +
+        "correcting your attempt at one, explaining a procedure/rules/examples outright, OR STATING A " +
+        "LASTING PREFERENCE OR STANDING INSTRUCTION for how you should behave or respond going forward " +
+        "(this is the most common case, not an edge case - 'I prefer direct answers', 'remember this " +
+        "preference', 'from now on, always/never do X', 'I want you to work this way with me' are ALL " +
+        "teaching, even though they don't look like a step-by-step procedure). This is NOT for an " +
+        "ordinary single correction ('no, I meant tomorrow') - it's for anything meant to last beyond " +
+        "this one turn. action='start' begins a session with `mode` ('demonstration' for the user " +
+        "performing+narrating a task, 'guided_practice' for you attempting a task with the user " +
+        "correcting you, 'explain_and_build' for the user describing a procedure OR a preference/rule " +
+        "directly - use explain_and_build for a plain preference statement) and the " +
         "initial captured text; returns teachingSessionId. action='capture' appends more captured text " +
         "(e.g. each correction during guided_practice) to an existing session via `teachingSessionId`. " +
         "action='finalize' classifies what was captured (not everything taught becomes a skill - it " +
@@ -40,7 +44,10 @@ export function registerTeachingSessionManage(server: McpServer, config: Config,
         mode: z
           .enum(["demonstration", "guided_practice", "explain_and_build"])
           .optional()
-          .describe("start: which teaching mode this is. Required for action='start'."),
+          .describe(
+            "start: which teaching mode this is. 'explain_and_build' covers both a described " +
+              "procedure AND a plain stated preference/standing instruction. Required for action='start'.",
+          ),
         content: z
           .string()
           .optional()
