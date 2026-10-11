@@ -16,7 +16,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter
 
-from . import growth_consolidate, growth_db
+from . import growth_consolidate, growth_db, growth_teaching
 from .config import Config
 
 _JSON_FIELDS = (
@@ -139,5 +139,40 @@ def build_router(config: Config) -> APIRouter:
         reason = (body or {}).get("reason")
         result = await growth_db.dismiss_persona_proposal(config, name, reason)
         return {**result, "name": name}
+
+    @router.post("/teaching-sessions")
+    async def start_teaching_session(body: dict):
+        mode = body.get("mode")
+        if mode not in ("demonstration", "guided_practice", "explain_and_build"):
+            return {"ok": False, "error": "mode must be one of demonstration/guided_practice/explain_and_build"}
+        session_id = body.get("sessionId")
+        content = body.get("content") or ""
+        teaching_session_id = await growth_db.create_teaching_session(config, mode, session_id, content)
+        return {"ok": True, "teachingSessionId": teaching_session_id}
+
+    @router.post("/teaching-sessions/{teaching_session_id}/capture")
+    async def capture_teaching_content(teaching_session_id: int, body: dict):
+        content = body.get("content")
+        if not content:
+            return {"ok": False, "error": "content is required"}
+        await growth_db.append_teaching_content(config, teaching_session_id, content)
+        return {"ok": True, "teachingSessionId": teaching_session_id}
+
+    @router.post("/teaching-sessions/{teaching_session_id}/finalize")
+    async def finalize_teaching_session(teaching_session_id: int):
+        result = await growth_teaching.finalize_teaching_session(config, teaching_session_id)
+        return _clean_row(result) if isinstance(result, dict) else result
+
+    @router.get("/teaching-sessions")
+    async def list_teaching_sessions(status: str | None = None, limit: int = 50):
+        rows = await growth_db.list_teaching_sessions(config, status=status, limit=limit)
+        return {"teachingSessions": [_clean_row(r) for r in rows]}
+
+    @router.get("/teaching-sessions/{teaching_session_id}")
+    async def get_teaching_session(teaching_session_id: int):
+        row = await growth_db.get_teaching_session(config, teaching_session_id)
+        if not row:
+            return {"error": "not found"}
+        return _clean_row(row)
 
     return router

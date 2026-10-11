@@ -23,6 +23,7 @@ import { registerStatusOverview } from "./tools/status-overview.js";
 import { registerProjectComplete } from "./tools/project-complete.js";
 import { registerCalculate } from "./tools/calculate.js";
 import { registerGrowthReview } from "./tools/growth-review.js";
+import { registerTeachingSessionManage } from "./tools/teaching-session-manage.js";
 import { registerSkillExamples } from "./tools/skill-examples.js";
 
 export interface RequestContext {
@@ -72,6 +73,7 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerProjectComplete(server, config);
   registerCalculate(server, config);
   registerGrowthReview(server, config);
+  registerTeachingSessionManage(server, config, context.chatSessionId);
   registerSkillExamples(server, config);
   return server;
 }

@@ -119,6 +119,15 @@ _SOURCE_DEFAULTS: dict[str, dict[str, float]] = {
     "idle_reflection": {"usefulness": 2, "confidence": 2, "reuse_potential": 2, "improvement_value": 2, "effort": 2, "interruption_cost": 2},
     "skill_gap_scan": {"usefulness": 3, "confidence": 3, "reuse_potential": 3, "improvement_value": 3, "effort": 3, "interruption_cost": 2},
     "review_score": {"usefulness": 3, "confidence": 3, "reuse_potential": 2, "improvement_value": 3, "effort": 3, "interruption_cost": 2},
+    # Phase 10 (Teaching layer): 'teaching_session' covers demonstration/
+    # guided_practice - genuine evidence, but not deliberately complete, so
+    # it needs a second occurrence (PROPOSAL_MIN_FREQUENCY) like any other
+    # observed signal. 'teaching_session_explicit' is explain_and_build
+    # specifically - the user gave a complete, deliberate procedure, which
+    # is exactly the kind of single-occurrence evidence the high-confidence
+    # shortcut (PROPOSAL_HIGH_CONFIDENCE/_SCORE_THRESHOLD below) exists for.
+    "teaching_session": {"usefulness": 4, "confidence": 3, "reuse_potential": 3, "improvement_value": 3, "effort": 2, "interruption_cost": 2},
+    "teaching_session_explicit": {"usefulness": 4, "confidence": 5, "reuse_potential": 3, "improvement_value": 4, "effort": 2, "interruption_cost": 1},
 }
 _DEFAULT_SCORE_DIMENSIONS = {
     "usefulness": 2, "confidence": 2, "reuse_potential": 2, "improvement_value": 2, "effort": 2, "interruption_cost": 2,
@@ -505,6 +514,15 @@ async def save_proposal_preview(
         proposed_text,
         json.dumps(evaluation) if evaluation is not None else None,
     )
+
+
+async def get_proposal_by_opportunity(config: Config, opportunity_id: int) -> dict | None:
+    pool = await _get_pool(config)
+    row = await pool.fetchrow(
+        "SELECT * FROM growth_proposals WHERE opportunity_id = $1 ORDER BY created_at DESC LIMIT 1",
+        opportunity_id,
+    )
+    return dict(row) if row else None
 
 
 async def set_proposal_status(config: Config, proposal_id: int, status: str, notes: str | None = None) -> None:
@@ -1074,5 +1092,101 @@ async def insert_growth_history(
         proposal_id,
         event_type,
         json.dumps(detail),
+        entity_id,
+    )
+
+
+# ============================================================
+# Phase 10: Teaching sessions - one shared lifecycle for all three
+# teaching modes (demonstration/guided_practice/explain_and_build). A
+# teaching session captures raw instruction, gets classified, and is
+# routed into the SAME record_observation()/growth_proposals pipeline
+# every other signal uses (see growth_teaching.py) - this module only
+# owns the raw capture + bookkeeping, same split as everywhere else here.
+# ============================================================
+
+
+async def create_teaching_session(
+    config: Config, mode: str, session_id: str | None, initial_content: str
+) -> int:
+    pool = await _get_pool(config)
+    row = await pool.fetchrow(
+        "INSERT INTO teaching_sessions (session_id, mode, captured_content) VALUES ($1, $2, $3) RETURNING id",
+        session_id,
+        mode,
+        initial_content,
+    )
+    await insert_growth_history(config, "teaching_session_started", {"mode": mode})
+    return row["id"]
+
+
+async def append_teaching_content(config: Config, teaching_session_id: int, text: str) -> None:
+    pool = await _get_pool(config)
+    await pool.execute(
+        "UPDATE teaching_sessions SET captured_content = captured_content || E'\\n' || $2, updated_at = now() "
+        "WHERE id = $1",
+        teaching_session_id,
+        text,
+    )
+
+
+async def get_teaching_session(config: Config, teaching_session_id: int) -> dict | None:
+    pool = await _get_pool(config)
+    row = await pool.fetchrow("SELECT * FROM teaching_sessions WHERE id = $1", teaching_session_id)
+    return dict(row) if row else None
+
+
+async def list_teaching_sessions(config: Config, status: str | None = None, limit: int = 50) -> list[dict]:
+    pool = await _get_pool(config)
+    if status:
+        rows = await pool.fetch(
+            "SELECT * FROM teaching_sessions WHERE status = $1 ORDER BY created_at DESC LIMIT $2", status, limit
+        )
+    else:
+        rows = await pool.fetch("SELECT * FROM teaching_sessions ORDER BY created_at DESC LIMIT $1", limit)
+    return [dict(r) for r in rows]
+
+
+async def set_teaching_session_classification(
+    config: Config,
+    teaching_session_id: int,
+    category: str,
+    reasoning: str,
+    procedure: str | None,
+    rules: str | None,
+    examples: str | None,
+    open_questions: str | None,
+) -> None:
+    pool = await _get_pool(config)
+    await pool.execute(
+        "UPDATE teaching_sessions SET status = 'classified', category = $2, classification_reasoning = $3, "
+        "extracted_procedure = $4, extracted_rules = $5, extracted_examples = $6, open_questions = $7, "
+        "updated_at = now() WHERE id = $1",
+        teaching_session_id,
+        category,
+        reasoning,
+        procedure,
+        rules,
+        examples,
+        open_questions,
+    )
+
+
+async def set_teaching_session_routing(
+    config: Config,
+    teaching_session_id: int,
+    status: str,
+    opportunity_id: int | None = None,
+    proposal_id: int | None = None,
+    entity_id: str | None = None,
+) -> None:
+    pool = await _get_pool(config)
+    await pool.execute(
+        "UPDATE teaching_sessions SET status = $2, opportunity_id = $3, proposal_id = $4, entity_id = $5, "
+        "updated_at = now() WHERE id = $1",
+        teaching_session_id,
+        status,
+        opportunity_id,
+        proposal_id,
         entity_id,
     )

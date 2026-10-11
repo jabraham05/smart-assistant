@@ -52,6 +52,7 @@ GROUPS: dict[str, list[str]] = {
     "self-growth": [
         "skill_propose",
         "growth_review",
+        "teaching_session_manage",
         "code_task",
         "code_task_status",
         "project_propose",
@@ -83,10 +84,14 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "- their traits, likes, past statements - never a document, manual, or reference material), "
     "'self-growth' (proposing a new skill/tool, starting a coding task on a repo, checking on a "
     "coding task's progress, proposing a longer-term coding project for approval before work "
-    "starts, OR the user wants something Amy has no existing tool for, where a new skill or tool "
+    "starts, the user wants something Amy has no existing tool for, where a new skill or tool "
     "could plausibly be built - a missing integration, a new device/service to control - NOT "
     "something inherently requiring a human or physical action like ordering physical goods or "
-    "signing something, where no software assistant could ever do it), 'dashboard' (moving, "
+    "signing something, where no software assistant could ever do it, OR the user is directly "
+    "teaching Amy something - demonstrating a task step by step, correcting her attempt at one, "
+    "or explaining a procedure/rules/examples outright so she can do it again later - e.g. 'let me "
+    "show you how I do X', 'no, the right way is Y, here's why', 'here's the procedure for X: "
+    "step one...'), 'dashboard' (moving, "
     "resizing, showing, or hiding widgets on the smart-mirror "
     "dashboard), 'web' (searching the live web for current information, news, or facts that could "
     "have changed since training, OR looking something up online in general such as finding "

@@ -113,6 +113,23 @@ export interface ProposalPreview {
   opportunity: { confidence: number | null; score: number | null; frequency: number | null };
 }
 
+export interface TeachingSession {
+  id: number;
+  session_id: string | null;
+  mode: "demonstration" | "guided_practice" | "explain_and_build";
+  status: "capturing" | "classified" | "routed" | "consolidated" | "abandoned";
+  captured_content: string;
+  category: "knowledge" | "skill" | "behavior" | "tool" | null;
+  classification_reasoning: string | null;
+  extracted_procedure: string | null;
+  extracted_rules: string | null;
+  extracted_examples: string | null;
+  open_questions: string | null;
+  opportunity_id: number | null;
+  proposal_id: number | null;
+  created_at: string;
+}
+
 export interface PersonaProposal {
   pending: boolean;
   name?: string;
@@ -201,6 +218,11 @@ export async function listGrowthExperiments(): Promise<GrowthExperiment[]> {
 export async function listGrowthHistory(limit?: number): Promise<GrowthHistoryEntry[]> {
   const data = await getJson<{ history: GrowthHistoryEntry[] }>("/growth/history", { limit });
   return data.history;
+}
+
+export async function listTeachingSessions(status?: string): Promise<TeachingSession[]> {
+  const data = await getJson<{ teachingSessions: TeachingSession[] }>("/growth/teaching-sessions", { status });
+  return data.teachingSessions;
 }
 
 export async function getPersonaProposal(): Promise<PersonaProposal> {

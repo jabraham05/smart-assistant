@@ -112,3 +112,79 @@ export async function dismissPersonaProposal(config: Config, name = "Amy", reaso
   if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
   return res.json();
 }
+
+// Phase 10 (Teaching layer) - growth_teaching.py / the /growth/teaching-
+// sessions routes in growth_routes.py. This is the actual capture hook:
+// Amy calls this herself when she recognizes the user is teaching her
+// something, the same "model-invoked mid-conversation" idiom skill_propose
+// already uses, rather than a new field on the per-turn classifier.
+export interface TeachingSession {
+  id: number;
+  session_id: string | null;
+  mode: "demonstration" | "guided_practice" | "explain_and_build";
+  status: "capturing" | "classified" | "routed" | "consolidated" | "abandoned";
+  captured_content: string;
+  category: string | null;
+  classification_reasoning: string | null;
+  extracted_procedure: string | null;
+  extracted_rules: string | null;
+  extracted_examples: string | null;
+  open_questions: string | null;
+  opportunity_id: number | null;
+  proposal_id: number | null;
+  created_at: string;
+}
+
+export async function startTeachingSession(
+  config: Config,
+  mode: TeachingSession["mode"],
+  content: string,
+  sessionId?: string,
+): Promise<{ ok: boolean; teachingSessionId?: number; error?: string }> {
+  const res = await fetch(new URL("/growth/teaching-sessions", config.agentServiceUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode, content, sessionId }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}
+
+export async function captureTeachingContent(
+  config: Config,
+  teachingSessionId: number,
+  content: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(new URL(`/growth/teaching-sessions/${teachingSessionId}/capture`, config.agentServiceUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}
+
+export async function finalizeTeachingSession(
+  config: Config,
+  teachingSessionId: number,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(new URL(`/growth/teaching-sessions/${teachingSessionId}/finalize`, config.agentServiceUrl), {
+    method: "POST",
+    // Runs a judge classification call, and - for skill/behavior categories
+    // that clear the proposal threshold - a plausibility/regression check
+    // too (same cost shape approve already has).
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}
+
+export async function getTeachingSession(config: Config, teachingSessionId: number): Promise<TeachingSession> {
+  const res = await fetch(new URL(`/growth/teaching-sessions/${teachingSessionId}`, config.agentServiceUrl), {
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}
