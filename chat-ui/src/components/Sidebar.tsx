@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { LogoutButton } from "./LogoutButton";
 
 function HomeIcon() {
   return (
@@ -37,6 +38,15 @@ function LabIcon() {
       <path d="M9.5 3h5" />
       <path d="M10.5 3v6.2L5.3 18.4A1.8 1.8 0 0 0 6.85 21h10.3a1.8 1.8 0 0 0 1.55-2.6L13.5 9.2V3" />
       <path d="M7.5 15h9" />
+    </svg>
+  );
+}
+
+function LogoutIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]">
+      <path d="M15 4H6.5A1.5 1.5 0 0 0 5 5.5v13A1.5 1.5 0 0 0 6.5 20H15" />
+      <path d="M10 12h10M17 8.5 20.5 12 17 15.5" />
     </svg>
   );
 }
@@ -89,8 +99,13 @@ export function Sidebar() {
           })}
         </div>
 
-        <div className="border-t border-white/10 px-5 py-3">
+        <div className="flex items-center justify-between border-t border-white/10 px-5 py-3">
           <p className="font-mono text-[10px] tracking-wide text-zinc-600">smart-assistant</p>
+          {pathname !== "/login" && (
+            <LogoutButton className="text-[11px] text-zinc-500 transition-colors hover:text-zinc-300">
+              Log out
+            </LogoutButton>
+          )}
         </div>
       </nav>
 
@@ -114,6 +129,12 @@ export function Sidebar() {
             </Link>
           );
         })}
+        {pathname !== "/login" && (
+          <LogoutButton className="flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] text-zinc-500 transition-colors">
+            <LogoutIcon />
+            Log out
+          </LogoutButton>
+        )}
       </nav>
     </>
   );
