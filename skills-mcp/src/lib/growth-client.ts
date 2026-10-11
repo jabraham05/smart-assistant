@@ -140,12 +140,19 @@ export async function startTeachingSession(
   mode: TeachingSession["mode"],
   content: string,
   sessionId?: string,
-): Promise<{ ok: boolean; teachingSessionId?: number; error?: string }> {
+  finalizeImmediately?: boolean,
+): Promise<Record<string, unknown>> {
   const res = await fetch(new URL("/growth/teaching-sessions", config.agentServiceUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, content, sessionId }),
-    signal: AbortSignal.timeout(10_000),
+    body: JSON.stringify({ mode, content, sessionId, finalizeImmediately }),
+    // finalizeImmediately chains a judge classification call AND, for
+    // skill/behavior, a plausibility/regression check - two sequential
+    // judge calls in one request. Live-tested and found 60s insufficient
+    // under load (a real ReadTimeout, not just the model declining to call
+    // this tool) - same generous ceiling approve already uses for its own
+    // regression check.
+    signal: AbortSignal.timeout(finalizeImmediately ? 120_000 : 10_000),
   });
   if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
   return res.json();

@@ -148,7 +148,14 @@ def build_router(config: Config) -> APIRouter:
         session_id = body.get("sessionId")
         content = body.get("content") or ""
         teaching_session_id = await growth_db.create_teaching_session(config, mode, session_id, content)
-        return {"ok": True, "teachingSessionId": teaching_session_id}
+        if not body.get("finalizeImmediately"):
+            return {"ok": True, "teachingSessionId": teaching_session_id}
+        # One-shot path: avoids a model needing to reference a
+        # teachingSessionId it can only know from THIS call's own result -
+        # live-tested and found to fail (a model emitting both tool calls
+        # before seeing the first result guessed the wrong id).
+        result = await growth_teaching.finalize_teaching_session(config, teaching_session_id)
+        return {**_clean_row(result), "teachingSessionId": teaching_session_id}
 
     @router.post("/teaching-sessions/{teaching_session_id}/capture")
     async def capture_teaching_content(teaching_session_id: int, body: dict):

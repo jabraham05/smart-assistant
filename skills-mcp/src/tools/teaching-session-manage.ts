@@ -33,12 +33,15 @@ export function registerTeachingSessionManage(server: McpServer, config: Config,
         "action='finalize' classifies what was captured (not everything taught becomes a skill - it " +
         "might be a fact, a behavior preference, or a procedure) and routes it into the same Growth " +
         "pipeline growth_review surfaces - call this once the teaching is actually complete, not after " +
-        "every single message. IMPORTANT: for mode='explain_and_build', the user's message IS usually " +
-        "the complete teaching already - call action='start' and then action='finalize' in the SAME " +
-        "turn right after, don't wait for a followup that may never come. For 'demonstration'/" +
-        "'guided_practice', wait and call action='finalize' once the user signals they're done (or the " +
-        "task/correction cycle has clearly ended). action='status' checks a session's current " +
-        "classification/routing.",
+        "every single message. IMPORTANT for mode='explain_and_build': the user's message IS usually " +
+        "the complete teaching already, so pass `finalizeImmediately: true` on the SAME start call " +
+        "instead of calling action='finalize' separately afterward - you cannot know the real " +
+        "teachingSessionId a separate finalize call would need until you've actually seen this call's " +
+        "result, so don't guess it. For 'demonstration'/'guided_practice' (where more turns of " +
+        "capture are genuinely expected), start WITHOUT finalizeImmediately, use action='capture' with " +
+        "the teachingSessionId from start's result as the conversation continues, then call " +
+        "action='finalize' with that same id once the user signals they're done. action='status' " +
+        "checks a session's current classification/routing.",
       inputSchema: {
         action: z.enum(["start", "capture", "finalize", "status"]).describe("Which teaching-session operation to perform."),
         mode: z
@@ -53,14 +56,22 @@ export function registerTeachingSessionManage(server: McpServer, config: Config,
           .optional()
           .describe("start/capture: the captured text - what the user said/demonstrated/corrected. Required for both."),
         teachingSessionId: z.coerce.number().int().optional().describe("capture/finalize/status: the session's id, from action='start'. Required for all three."),
+        finalizeImmediately: z
+          .boolean()
+          .optional()
+          .describe(
+            "start only: set true when the teaching is already complete in this one message (the " +
+              "normal case for explain_and_build) - classifies and routes in this same call, instead " +
+              "of a separate action='finalize' call that would need an id you can't know yet.",
+          ),
       },
     },
-    async ({ action, mode, content, teachingSessionId }) => {
+    async ({ action, mode, content, teachingSessionId, finalizeImmediately }) => {
       try {
         if (action === "start") {
           if (!mode) return errorResult("mode is required for action='start'.");
           if (!content) return errorResult("content is required for action='start'.");
-          const result = await startTeachingSession(config, mode, content, chatSessionId);
+          const result = await startTeachingSession(config, mode, content, chatSessionId, finalizeImmediately);
           return textResult(result);
         }
 
