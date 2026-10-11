@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Sidebar } from "@/components/Sidebar";
+import { AppDrawer } from "@/components/AppDrawer";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
+import { ActiveSessionProvider } from "@/contexts/ActiveSessionContext";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -38,12 +39,12 @@ export default function RootLayout({
     >
       <body className="flex h-full flex-col">
         <ConnectionBanner />
-        <div className="flex min-h-0 flex-1">
-          <Sidebar />
-          <div className="min-h-0 min-w-0 flex-1 pb-[calc(3.75rem+env(safe-area-inset-bottom))] md:pb-0">
-            {children}
+        <ActiveSessionProvider>
+          <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+            <AppDrawer />
+            <div className="min-h-0 min-w-0 flex-1">{children}</div>
           </div>
-        </div>
+        </ActiveSessionProvider>
       </body>
     </html>
   );

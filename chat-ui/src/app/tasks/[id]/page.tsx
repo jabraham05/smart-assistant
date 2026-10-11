@@ -16,7 +16,7 @@ export default async function TaskDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
-      <Link href="/" className="text-xs text-indigo-400 hover:text-indigo-300">
+      <Link href="/home" className="text-xs text-indigo-400 hover:text-indigo-300">
         ← Home
       </Link>
       <p className="mt-4 text-xs font-medium text-zinc-500">Task</p>
