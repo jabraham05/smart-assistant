@@ -48,44 +48,73 @@ const LINKS: { href: string; label: string; icon: () => ReactNode }[] = [
   { href: "/amy-lab", label: "Amy Lab", icon: LabIcon },
 ];
 
+function isActive(pathname: string, href: string) {
+  return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <nav className="flex h-full w-60 shrink-0 flex-col border-r border-white/10 bg-zinc-950/70 backdrop-blur-sm">
-      <div className="flex items-center gap-2 px-5 py-5">
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-75" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-400" />
-        </span>
-        <span className="text-sm font-semibold tracking-wide text-zinc-100">Amy</span>
-      </div>
+    <>
+      {/* Desktop/tablet: fixed left column. */}
+      <nav className="hidden h-full w-60 shrink-0 flex-col border-r border-white/10 bg-zinc-950/70 backdrop-blur-sm md:flex">
+        <div className="flex items-center gap-2 px-5 py-5">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-400" />
+          </span>
+          <span className="text-sm font-semibold tracking-wide text-zinc-100">Amy</span>
+        </div>
 
-      <div className="flex-1 space-y-0.5 px-3">
+        <div className="flex-1 space-y-0.5 px-3">
+          {LINKS.map(({ href, label, icon: Icon }) => {
+            const active = isActive(pathname, href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={`group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
+                  active
+                    ? "bg-indigo-500/10 font-medium text-indigo-300"
+                    : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+                }`}
+              >
+                <span className={active ? "text-indigo-400" : "text-zinc-500 group-hover:text-zinc-300"}>
+                  <Icon />
+                </span>
+                {label}
+              </Link>
+            );
+          })}
+        </div>
+
+        <div className="border-t border-white/10 px-5 py-3">
+          <p className="font-mono text-[10px] tracking-wide text-zinc-600">smart-assistant</p>
+        </div>
+      </nav>
+
+      {/* Mobile: fixed bottom tab bar, inset for the iPhone home indicator. */}
+      <nav
+        className="fixed inset-x-0 bottom-0 z-20 flex border-t border-white/10 bg-zinc-950/90 backdrop-blur-sm md:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
         {LINKS.map(({ href, label, icon: Icon }) => {
-          const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+          const active = isActive(pathname, href);
           return (
             <Link
               key={href}
               href={href}
-              className={`group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
-                active
-                  ? "bg-indigo-500/10 font-medium text-indigo-300"
-                  : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+              className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] transition-colors ${
+                active ? "text-indigo-300" : "text-zinc-500"
               }`}
             >
-              <span className={active ? "text-indigo-400" : "text-zinc-500 group-hover:text-zinc-300"}>
-                <Icon />
-              </span>
+              <Icon />
               {label}
             </Link>
           );
         })}
-      </div>
-
-      <div className="border-t border-white/10 px-5 py-3">
-        <p className="font-mono text-[10px] tracking-wide text-zinc-600">smart-assistant</p>
-      </div>
-    </nav>
+      </nav>
+    </>
   );
 }

@@ -21,6 +21,7 @@ export function ChatWindow() {
   const { messages, isSending, isLoadingHistory, sendMessage } = useChat(activeSessionId);
   const [sidePanel, setSidePanel] = useState<SidePanel>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
+  const [showSessions, setShowSessions] = useState(false);
   // Scoped to the active session - this is the per-conversation activity
   // sidebar (tool calls, research pulled, goals/tasks created), not the
   // global feed Home's Recent Activity card shows.
@@ -64,34 +65,72 @@ export function ChatWindow() {
 
   return (
     <div className="flex h-full w-full">
-      <SessionList
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        onSelect={setActiveSessionId}
-        onNewSession={startNewSession}
-        isLoading={isLoading}
-      />
-      <div className="flex flex-1 flex-col">
-        <div className="flex items-center justify-end gap-4 border-b border-white/10 px-4 py-2.5">
-          <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-            <input
-              type="checkbox"
-              checked={sidePanel === "registry"}
-              onChange={() => toggleSidePanel("registry")}
-              className="accent-indigo-500"
+      <div className="hidden md:flex md:h-full">
+        <SessionList
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelect={setActiveSessionId}
+          onNewSession={startNewSession}
+          isLoading={isLoading}
+        />
+      </div>
+
+      {showSessions && (
+        <div className="fixed inset-0 z-30 flex md:hidden">
+          <div className="w-72 max-w-[85vw] bg-zinc-950">
+            <SessionList
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSelect={(id) => {
+                setActiveSessionId(id);
+                setShowSessions(false);
+              }}
+              onNewSession={() => {
+                startNewSession();
+                setShowSessions(false);
+              }}
+              isLoading={isLoading}
             />
-            agent registry
-          </label>
-          <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-            <input
-              type="checkbox"
-              checked={sidePanel === "events"}
-              onChange={() => toggleSidePanel("events")}
-              className="accent-indigo-500"
-            />
-            session activity
-          </label>
-          <span className="text-xs text-zinc-600">Click a message for turn detail</span>
+          </div>
+          <button
+            type="button"
+            aria-label="Close session list"
+            className="flex-1 bg-black/50"
+            onClick={() => setShowSessions(false)}
+          />
+        </div>
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-2.5 md:justify-end">
+          <button
+            type="button"
+            onClick={() => setShowSessions(true)}
+            className="text-xs text-zinc-400 md:hidden"
+          >
+            ☰ Sessions
+          </button>
+          <div className="hidden items-center gap-4 md:flex">
+            <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+              <input
+                type="checkbox"
+                checked={sidePanel === "registry"}
+                onChange={() => toggleSidePanel("registry")}
+                className="accent-indigo-500"
+              />
+              agent registry
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+              <input
+                type="checkbox"
+                checked={sidePanel === "events"}
+                onChange={() => toggleSidePanel("events")}
+                className="accent-indigo-500"
+              />
+              session activity
+            </label>
+            <span className="text-xs text-zinc-600">Click a message for turn detail</span>
+          </div>
         </div>
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
           {isLoadingHistory && <p className="text-center text-xs text-zinc-600">Loading conversation…</p>}
@@ -110,28 +149,34 @@ export function ChatWindow() {
         <InputBar onSend={handleSend} disabled={isSending} />
       </div>
       {selectedAssistant && (
-        <TurnDebugPanel
-          userMessage={selectedUser}
-          assistantMessage={selectedAssistant}
-          onClose={() => setSelectedTurnId(null)}
-        />
+        <div className="hidden md:flex">
+          <TurnDebugPanel
+            userMessage={selectedUser}
+            assistantMessage={selectedAssistant}
+            onClose={() => setSelectedTurnId(null)}
+          />
+        </div>
       )}
       {!selectedAssistant && sidePanel === "registry" && (
-        <AgentRegistryPanel
-          tools={registryState.tools}
-          isLoading={registryState.isLoading}
-          error={registryState.error}
-          onRefresh={registryState.refresh}
-        />
+        <div className="hidden md:flex">
+          <AgentRegistryPanel
+            tools={registryState.tools}
+            isLoading={registryState.isLoading}
+            error={registryState.error}
+            onRefresh={registryState.refresh}
+          />
+        </div>
       )}
       {!selectedAssistant && sidePanel === "events" && (
-        <EventLogPanel
-          events={eventsState.events}
-          isLoading={eventsState.isLoading}
-          error={eventsState.error}
-          onRefresh={eventsState.refresh}
-          title="this session's activity"
-        />
+        <div className="hidden md:flex">
+          <EventLogPanel
+            events={eventsState.events}
+            isLoading={eventsState.isLoading}
+            error={eventsState.error}
+            onRefresh={eventsState.refresh}
+            title="this session's activity"
+          />
+        </div>
       )}
     </div>
   );
