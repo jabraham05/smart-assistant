@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ChatMessage, HonchoMessage, N8nStreamEvent } from "@/types/chat";
 import { isRetryEvent, reduceMessage as reduceMessageEvent } from "@/lib/message-reducer";
+import { randomUUID } from "@/lib/uuid";
 
 function honchoMessagesToChat(messages: HonchoMessage[]): ChatMessage[] {
   return messages.map((m) => ({
@@ -38,8 +39,8 @@ export function useChat(sessionId: string) {
 
   const sendMessage = useCallback(
     async (content: string) => {
-      const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content };
-      const assistantMessageId = crypto.randomUUID();
+      const userMessage: ChatMessage = { id: randomUUID(), role: "user", content };
+      const assistantMessageId = randomUUID();
       const assistantMessage: ChatMessage = {
         id: assistantMessageId,
         role: "assistant",

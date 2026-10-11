@@ -1,10 +1,8 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -23,8 +21,15 @@ export default function LoginPage() {
         setError("Incorrect password.");
         return;
       }
+      // Hard navigation, not router.replace(): any page visited while
+      // logged out (redirected to /login) gets cached as "redirect to
+      // login" in Next's client Router Cache - static pages (this app's
+      // top-level routes all prerender as static) default to a 5-minute
+      // stale time there. A soft client-side transition would keep
+      // reusing that stale result after login; a full page load discards
+      // the in-memory Router Cache entirely.
       const from = new URLSearchParams(window.location.search).get("from");
-      router.replace(from && from.startsWith("/") ? from : "/");
+      window.location.href = from && from.startsWith("/") ? from : "/";
     } catch {
       setError("Couldn't reach Amy.");
     } finally {
