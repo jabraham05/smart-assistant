@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import re
 
+from .classify import STANDING_INSTRUCTION_INTENT
+
 # Same tool list as the old "confabulated action" backstop - tools whose
 # whole point is performing a real side effect, where a claim of success
 # with no matching call is worth catching.
@@ -452,21 +454,17 @@ UNWARRANTED_CHECKING_OPENER_NUDGE = (
 # first... apply this every time I give you a vague goal") got only a
 # verbal "I'll follow that rule moving forward" - no teaching_session_manage
 # call, no observation, nothing persisted anywhere. classify.py's own
-# category-boundary fix (self-growth now co-occurs with 'goals'/other
-# categories) got teaching_session_manage bound, but binding it wasn't
-# enough - juggling "respond to the correction," "keep doing the task,"
-# and "log a durable lesson" in one turn, the model kept dropping the
-# third. Same "model's own compliance" gap as every other check here, just
-# for a promise instead of a claimed action. Gated on self-growth actually
-# being matched (so the tool is guaranteed bound - a nudge can't make the
-# model call a tool that was never exposed this turn) and on the user's
-# message, not the reply, since this is about what was asked for, not what
-# was claimed.
-_STANDING_INSTRUCTION_INTENT = re.compile(
-    r"\b(from now on|remember this|every time|going forward|that['’]?s the rule|apply this (rule|"
-    r"from now on)|i prefer|i want you to (always|never)|always do this|never do this)\b",
-    re.IGNORECASE,
-)
+# deterministic STANDING_INSTRUCTION_INTENT guard (see its comment there)
+# now forces self-growth into relevant_groups whenever this regex matches,
+# regardless of what other category the model matched - reused here rather
+# than duplicated, since both checks need to agree on exactly what counts
+# as a standing-instruction cue. This check is the backstop for the one
+# case the classifier-level guard can't reach: self-growth correctly
+# bound, but the model still didn't call the tool - juggling "respond to
+# the correction," "keep doing the task," and "log a durable lesson" in
+# one turn, it kept dropping the third. Same "model's own compliance" gap
+# as every other check here, just for a promise instead of a claimed
+# action.
 
 
 def has_unaddressed_teaching_intent(chat_input: str, relevant_groups: list[str], called_tools: list[str]) -> bool:
@@ -477,7 +475,7 @@ def has_unaddressed_teaching_intent(chat_input: str, relevant_groups: list[str],
         return False
     if "teaching_session_manage" in called_tools:
         return False
-    return bool(_STANDING_INSTRUCTION_INTENT.search(chat_input))
+    return bool(STANDING_INSTRUCTION_INTENT.search(chat_input))
 
 
 def teaching_intent_retry_nudge(chat_input: str) -> str:

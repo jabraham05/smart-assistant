@@ -16,6 +16,7 @@ rather than just requested.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -65,6 +66,24 @@ GROUPS: dict[str, list[str]] = {
     "research": ["research_task", "research_task_status", "status_overview", "project_complete"],
     "goals": ["goal_manage", "project_propose", "status_overview", "project_complete"],
 }
+
+# Real gap found via live testing (2026-10-11): the prompt's own "include
+# self-growth EVEN IF another category also matches" reminder (added for
+# 'goals') turned out unreliable depending on which OTHER category
+# co-occurred - verified working when paired with 'goals', verified NOT
+# working when paired with 'web' on an otherwise-identical standing-
+# instruction message. Rather than chasing every possible category pairing
+# with another prompt example (doesn't scale), safety_net.py's own
+# has_unaddressed_teaching_intent reuses this same regex as a backstop,
+# but the real fix is here: don't trust the model to remember the
+# reminder, enforce it deterministically - same "don't trust the model to
+# be disciplined when a deterministic constraint can enforce it instead"
+# lesson as the is_correction guard below.
+STANDING_INSTRUCTION_INTENT = re.compile(
+    r"\b(from now on|remember this|every time|going forward|that['’]?s the rule|apply this (rule|"
+    r"from now on)|i prefer|i want you to (always|never)|always do this|never do this)\b",
+    re.IGNORECASE,
+)
 
 BEHAVIOR_FEEDBACK_CATEGORIES = [
     "communication",
@@ -344,6 +363,15 @@ async def classify_relevant_tools(
         parsed = result.output
 
         relevant_groups = [g for g in parsed.relevant_groups if g in TOOL_GROUPS]
+
+        # Deterministic guard: a standing-instruction/teaching cue always
+        # gets self-growth (so teaching_session_manage is bound),
+        # regardless of what other category the model also matched - see
+        # STANDING_INSTRUCTION_INTENT's comment above for why this can't
+        # just be a prompt reminder.
+        if "self-growth" not in relevant_groups and STANDING_INSTRUCTION_INTENT.search(chat_input):
+            relevant_groups.append("self-growth")
+
         background, tools_after_background = apply_background_override(
             parsed.background, relevant_groups, expand_groups_to_tools(relevant_groups)
         )
