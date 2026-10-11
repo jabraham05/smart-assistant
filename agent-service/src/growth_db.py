@@ -1136,6 +1136,19 @@ async def get_teaching_session(config: Config, teaching_session_id: int) -> dict
     return dict(row) if row else None
 
 
+async def get_teaching_session_by_opportunity(config: Config, opportunity_id: int) -> dict | None:
+    """So a skill proposal that originated from teaching can draft from the
+    judge's already-extracted procedure/rules instead of the raw captured
+    text every other skill proposal falls back to - see
+    growth_consolidate._build_skill_draft."""
+    pool = await _get_pool(config)
+    row = await pool.fetchrow(
+        "SELECT * FROM teaching_sessions WHERE opportunity_id = $1 ORDER BY created_at DESC LIMIT 1",
+        opportunity_id,
+    )
+    return dict(row) if row else None
+
+
 async def list_teaching_sessions(config: Config, status: str | None = None, limit: int = 50) -> list[dict]:
     pool = await _get_pool(config)
     if status:

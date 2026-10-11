@@ -29,7 +29,12 @@ export function registerTeachingSessionManage(server: McpServer, config: Config,
         "action='finalize' classifies what was captured (not everything taught becomes a skill - it " +
         "might be a fact, a behavior preference, or a procedure) and routes it into the same Growth " +
         "pipeline growth_review surfaces - call this once the teaching is actually complete, not after " +
-        "every single message. action='status' checks a session's current classification/routing.",
+        "every single message. IMPORTANT: for mode='explain_and_build', the user's message IS usually " +
+        "the complete teaching already - call action='start' and then action='finalize' in the SAME " +
+        "turn right after, don't wait for a followup that may never come. For 'demonstration'/" +
+        "'guided_practice', wait and call action='finalize' once the user signals they're done (or the " +
+        "task/correction cycle has clearly ended). action='status' checks a session's current " +
+        "classification/routing.",
       inputSchema: {
         action: z.enum(["start", "capture", "finalize", "status"]).describe("Which teaching-session operation to perform."),
         mode: z

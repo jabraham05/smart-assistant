@@ -48,6 +48,30 @@ def _draft_skill_instructions(description: str, rationale: str) -> str:
     )
 
 
+async def _build_skill_draft(config: Config, opportunity_id: int, description: str, rationale: str) -> str:
+    """A teaching-sourced skill proposal already has a judge-extracted
+    procedure/rules/examples (growth_judge.classify_teaching_content) - use
+    that structured extraction instead of falling back to the raw captured
+    text + generic boilerplate every other skill proposal uses. Found live
+    while testing Phase 10: without this, a teaching session's nicely
+    parsed steps got discarded in favor of dumping the whole paragraph back
+    out, making the "drafted automatically" skill look no better than one
+    sourced from an ordinary recurring-failure signal."""
+    session = await growth_db.get_teaching_session_by_opportunity(config, opportunity_id)
+    if not session or not session.get("extracted_procedure"):
+        return _draft_skill_instructions(description, rationale)
+
+    parts = [f"Procedure:\n{session['extracted_procedure']}"]
+    if session.get("extracted_rules"):
+        parts.append(f"Rules:\n{session['extracted_rules']}")
+    if session.get("extracted_examples"):
+        parts.append(f"Examples:\n{session['extracted_examples']}")
+    parts.append(
+        "(Drafted from a teaching session - review and refine before relying on it heavily.)"
+    )
+    return "\n\n".join(parts)
+
+
 def _build_candidate_persona(current_persona: str, proposal_id: int, title: str, description: str) -> str:
     return (
         f"{current_persona}\n\n"
@@ -96,7 +120,7 @@ async def preview_proposal(config: Config, proposal_id: int) -> dict:
     }
 
     if category == "skill":
-        draft_instructions = _draft_skill_instructions(description, rationale)
+        draft_instructions = await _build_skill_draft(config, opportunity_id, description, rationale)
         evidence_text = "\n".join(f"- {o['summary']}" for o in observations) or description
         evaluation = await growth_judge.evaluate_skill_plausibility(config, evidence_text, draft_instructions)
         evaluation_dict = (
@@ -175,7 +199,7 @@ async def consolidate_proposal(config: Config, proposal_id: int) -> dict:
                 eval_effectiveness = cached_eval.get("effectivenessScore")
                 eval_reasoning = cached_eval.get("reasoning")
             else:
-                draft_instructions = _draft_skill_instructions(description, rationale)
+                draft_instructions = await _build_skill_draft(config, opportunity_id, description, rationale)
                 observations = await growth_db.list_observations_for_opportunity(config, opportunity_id)
                 evidence_text = "\n".join(f"- {o['summary']}" for o in observations) or description
                 evaluation = await growth_judge.evaluate_skill_plausibility(config, evidence_text, draft_instructions)
