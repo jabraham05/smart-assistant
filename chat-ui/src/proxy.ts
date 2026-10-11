@@ -21,7 +21,13 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (PUBLIC_PATHS.has(pathname)) return NextResponse.next();
 
-  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  // Browser clients (the PWA) carry the session as a cookie. Native
+  // clients have no cookie jar to speak of, so they send the same token
+  // as a bearer header instead - same isValidSessionToken check either
+  // way, the token format doesn't care how it was transmitted.
+  const authHeader = request.headers.get("authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : undefined;
+  const token = bearerToken ?? request.cookies.get(SESSION_COOKIE_NAME)?.value;
   if (isValidSessionToken(token)) return NextResponse.next();
 
   if (pathname.startsWith("/api/")) {

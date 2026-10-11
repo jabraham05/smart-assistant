@@ -23,8 +23,13 @@ export async function POST(request: Request) {
   // reverse proxy's x-forwarded-proto, falls back to the request's own.
   const proto = request.headers.get("x-forwarded-proto") ?? new URL(request.url).protocol.replace(":", "");
 
-  const res = NextResponse.json({ ok: true });
-  res.cookies.set(SESSION_COOKIE_NAME, createSessionToken(), {
+  // Token returned in the body too, for a native client with no cookie
+  // jar to store (Keychain) and send back as `Authorization: Bearer
+  // <token>` - see proxy.ts. The browser PWA ignores the extra field and
+  // relies on the cookie as before.
+  const token = createSessionToken();
+  const res = NextResponse.json({ ok: true, token });
+  res.cookies.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     secure: proto === "https",
     sameSite: "lax",
