@@ -51,7 +51,6 @@ from .safety_net import (
     REQUIRED_TOOL_RETRY_NUDGE,
     SEARCH_RETRY_NUDGE,
     STATUS_NARRATION_MISMATCH_NUDGE,
-    TEACHING_INTENT_RETRY_NUDGE,
     TOOL_FAILURE_NARRATION_NUDGE,
     TRAILING_CONFIRMATION_RETRY_NUDGE,
     UNWARRANTED_CHECKING_OPENER_NUDGE,
@@ -67,6 +66,7 @@ from .safety_net import (
     is_confabulated_action,
     strip_emoji,
     strip_known_stock_closers,
+    teaching_intent_retry_nudge,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -627,8 +627,8 @@ async def webhook(request: Request):
                     "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "unaddressed_teaching_intent"}
                 )
                 retry_text, chunks = await _run_turn(
-                    config, session_id, system_prompt, chat_input + TEACHING_INTENT_RETRY_NUDGE, bound_tools,
-                    state, emit, message_history,
+                    config, session_id, system_prompt, chat_input + teaching_intent_retry_nudge(chat_input),
+                    bound_tools, state, emit, message_history,
                 )
                 for c in chunks:
                     yield c

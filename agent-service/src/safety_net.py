@@ -480,9 +480,22 @@ def has_unaddressed_teaching_intent(chat_input: str, relevant_groups: list[str],
     return bool(_STANDING_INSTRUCTION_INTENT.search(chat_input))
 
 
-TEACHING_INTENT_RETRY_NUDGE = (
-    " (You were just given a standing instruction or lasting preference to remember for the future - "
-    "promising to follow it isn't enough, it has to actually be persisted. Call teaching_session_manage "
-    "right now (action='start', finalizeImmediately=true for a one-shot statement like this) before "
-    "replying, then answer normally.)"
-)
+def teaching_intent_retry_nudge(chat_input: str) -> str:
+    """Real bug found live-testing this exact retry (2026-10-11): a static
+    nudge let the model compose teaching_session_manage's `content` arg
+    from its own memory of the conversation, and it grabbed an earlier,
+    unrelated message instead of the actual correction it was just given -
+    a content-fidelity failure, not a routing one (self-growth was matched,
+    the tool was called, just with the wrong text). Fixed by quoting the
+    literal current message in the nudge itself and telling the model to
+    copy it verbatim, removing the need for the model to "find" the right
+    text in context at all - same dynamic-nudge pattern main.py's own
+    tool_error retry already uses (embedding the real tool name/error
+    inline rather than a generic static string)."""
+    return (
+        " (You were just given a standing instruction or lasting preference to remember for the "
+        "future - promising to follow it isn't enough, it has to actually be persisted. Call "
+        "teaching_session_manage right now (action='start', finalizeImmediately=true) with `content` "
+        f"set to EXACTLY this text, word for word - not a summary, not something from earlier in the "
+        f'conversation: "{chat_input}" - then answer normally.)'
+    )
