@@ -140,14 +140,28 @@ struct APIClient: Sendable {
 
     /// Mutations are never auto-retried after the request may have been
     /// sent - only when the connection was never made.
-    private func write(_ path: String, method: String, body: [String: JSONScalar]) async throws {
+    func write(_ path: String, method: String, body: [String: JSONScalar]) async throws {
         var req = request(path: path, method: method)
         req.httpBody = try JSONEncoder().encode(body)
         let (_, response) = try await send(req, retryable: false)
         try check(response)
     }
 
-    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
+    /// A read that has to be a POST (e.g. a search with a JSON body).
+    /// Never auto-retried once sent, same as mutations.
+    func post<B: Encodable, T: Decodable>(_ path: String, body: B) async throws -> T {
+        var req = request(path: path, method: "POST")
+        req.httpBody = try JSONEncoder().encode(body)
+        let (data, response) = try await send(req, retryable: false)
+        try check(response)
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch let error as DecodingError {
+            throw APIError.decoding(path: path, detail: describe(error))
+        }
+    }
+
+    func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
         let (data, response) = try await send(request(path: path, query: query), retryable: true)
         try check(response)
         do {

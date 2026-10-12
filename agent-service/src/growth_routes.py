@@ -16,7 +16,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter
 
-from . import growth_consolidate, growth_db, growth_teaching
+from . import db, growth_consolidate, growth_db, growth_teaching
 from .config import Config
 
 _JSON_FIELDS = (
@@ -51,6 +51,12 @@ def _clean_row(row: dict) -> dict:
 
 def build_router(config: Config) -> APIRouter:
     router = APIRouter(prefix="/growth")
+
+    @router.get("/skills")
+    async def list_skills():
+        # Read-only: what Amy can do today. Adding skills still goes through
+        # the approval pipelines (skill_proposals / growth proposals).
+        return {"skills": await db.list_skills(config)}
 
     @router.get("/opportunities")
     async def list_opportunities(status: str | None = None, limit: int = 50):

@@ -225,6 +225,21 @@ export async function listTeachingSessions(status?: string): Promise<TeachingSes
   return data.teachingSessions;
 }
 
+// A skill Amy has - content comes from its SKILL.md when one exists (see
+// agent-service skills_library.py), else the legacy Postgres instructions.
+export interface Skill {
+  name: string;
+  description: string;
+  kind: "instruction" | "tool_idea" | string;
+  status: string; // active | inactive | ...
+  instructions: string | null;
+}
+
+export async function listSkills(): Promise<Skill[]> {
+  const data = await getJson<{ skills: Skill[] }>("/growth/skills");
+  return data.skills;
+}
+
 export async function getPersonaProposal(): Promise<PersonaProposal> {
   return getJson<PersonaProposal>("/growth/persona-proposal");
 }
