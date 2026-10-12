@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 @MainActor
 @Observable
@@ -19,6 +20,11 @@ final class ChatViewModel {
     var errorText: String?
 
     private var nextPage = 1
+    /// A turn whose stream was cut before it finished. agent-service runs
+    /// turns to completion regardless of the connection, so the reply will
+    /// show up in history - this is what we're waiting to see land.
+    private var interrupted: (userText: String, sentAt: Date)?
+    var isAwaitingInterruptedReply: Bool { interrupted != nil }
 
     init(sessionId: String) {
         self.sessionId = sessionId
@@ -77,18 +83,36 @@ final class ChatViewModel {
         isSending = true
         defer { isSending = false }
 
-        messages.append(ChatMessage(id: UUID().uuidString, role: .user, content: trimmed))
+        let sentAt = Date()
+        messages.append(ChatMessage(id: UUID().uuidString, role: .user, content: trimmed, createdAt: sentAt))
         var reducer = ChatReducer(messageId: UUID().uuidString)
         messages.append(reducer.message)
         let index = messages.count - 1
 
+        // Ask iOS for the usual grace period so switching apps mid-reply
+        // doesn't suspend us and cut the stream straight away.
+        let background = UIApplication.shared.beginBackgroundTask(withName: "amy-reply")
+        defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
+
+        var streamStarted = false
         do {
             for try await event in try await client.chat(message: trimmed, sessionId: sessionId) {
+                streamStarted = true
                 reducer.apply(event)
                 messages[index] = reducer.message
             }
             reducer.finish()
             messages[index] = reducer.message
+        } catch where streamStarted && Self.isConnectionCut(error) {
+            // At least one event arrived, so the server has the turn - and
+            // it runs to completion regardless of us (detached turns). Show
+            // what arrived and wait for the full reply to land in history.
+            // (A failure before any event may mean the request never got
+            // there; that's a plain error below, not something to wait on.)
+            var partial = reducer.message
+            partial.isPending = true
+            messages[index] = partial
+            interrupted = (trimmed, sentAt)
         } catch {
             onError(error)
             if reducer.message.content.isEmpty {
@@ -97,6 +121,73 @@ final class ChatViewModel {
                 messages[index] = reducer.message
             }
             errorText = "Message failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Re-reads the latest page and makes the tail of the thread match the
+    /// server: picks up a reply that finished while the stream was cut, and
+    /// anything else that landed while the app was away.
+    func syncLatest(client: APIClient, onError: (Error) -> Void) async {
+        guard didLoadInitial, !isSending else { return }
+        let page: [HistoryMessage]
+        do {
+            page = try await client.messages(sessionId: sessionId, page: 1, size: Self.pageSize)
+        } catch {
+            onError(error)
+            return
+        }
+        let latest = page.map {
+            ChatMessage(id: $0.id, role: $0.peerId == "user" ? .user : .assistant,
+                        content: $0.content, createdAt: ISODate.parse($0.createdAt) ?? .distantPast)
+        }.sorted { $0.createdAt < $1.createdAt }
+        guard let oldestLatest = latest.first?.createdAt else { return }
+
+        // Keep older pages already scrolled into view; the server's copy
+        // replaces everything from the latest page's start onward.
+        let older = messages.filter { $0.createdAt < oldestLatest && !$0.isPending }
+        var merged = older + latest
+
+        if let pending = interrupted {
+            // store_turn writes the user message and reply together, so the
+            // turn has landed once our message shows up in history.
+            let landed = latest.contains {
+                $0.role == .user && $0.content == pending.userText && $0.createdAt >= pending.sentAt.addingTimeInterval(-120)
+            }
+            if landed {
+                interrupted = nil
+            } else {
+                // Not stored yet - keep the local message + placeholder at the end.
+                merged += messages.suffix(2)
+            }
+        }
+        messages = merged
+    }
+
+    /// Polls for an interrupted turn's reply while the app is in the
+    /// foreground. Slow turns (research, coding) can take a few minutes.
+    func awaitInterruptedReply(client: APIClient, onError: (Error) -> Void) async {
+        let deadline = Date().addingTimeInterval(300)
+        while interrupted != nil && Date() < deadline && !Task.isCancelled {
+            await syncLatest(client: client, onError: onError)
+            if interrupted == nil { return }
+            try? await Task.sleep(for: .seconds(4))
+        }
+        if interrupted != nil {
+            interrupted = nil
+            for i in messages.indices where messages[i].isPending { messages[i].isPending = false }
+            errorText = "Amy's reply didn't arrive. Pull to refresh, or ask again."
+        }
+    }
+
+    private static func isConnectionCut(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .networkConnectionLost, .notConnectedToInternet, .cancelled, .timedOut,
+             .backgroundSessionWasDisconnected:
+            return true
+        default:
+            return false
         }
     }
 }

@@ -44,6 +44,7 @@ from . import (
     session_memory,
 )
 from .agent import AgentDeps, build_agent
+from .detached_stream import detach
 from .config import Config, load_config
 from .safety_net import (
     FABRICATED_ID_NUDGE,
@@ -725,4 +726,6 @@ async def webhook(request: Request):
             logger.exception("chat turn failed for session %s", session_id)
             yield emit("error", str(e))
 
-    return StreamingResponse(stream(), media_type="application/x-ndjson")
+    # Detached: the turn (and its post-turn writes) runs to completion even
+    # if the client disconnects mid-reply - see detached_stream.py.
+    return StreamingResponse(detach(stream(), name=f"chat-turn:{session_id}"), media_type="application/x-ndjson")
