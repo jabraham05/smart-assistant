@@ -13,8 +13,10 @@ export interface Config {
     user: string;
     password: string;
   };
-  googleCalendarKeyFile?: string;
   googleCalendarId?: string;
+  googleOauthClientId?: string;
+  googleOauthClientSecret?: string;
+  googleRefreshToken?: string;
   spotifyClientId?: string;
   spotifyClientSecret?: string;
   spotifyRefreshToken?: string;
@@ -83,12 +85,19 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
       user: env.POSTGRES_USER || "assistant",
       password: postgresPassword,
     },
-    // Optional, not required at startup: calendar tools return a clear
-    // config-missing error at call time (see lib/google-calendar.ts)
-    // rather than crashing the whole server for users who haven't set this
-    // up yet, matching how HOME_LOCATION/HOME_LATITUDE/HOME_LONGITUDE work.
-    googleCalendarKeyFile: env.GOOGLE_CALENDAR_KEY_FILE || undefined,
+    // Optional, not required at startup: calendar/drive tools return a
+    // clear config-missing error at call time (see lib/google-oauth.ts)
+    // rather than crashing the whole server for users who haven't set
+    // this up yet, matching how HOME_LOCATION/HOME_LATITUDE/HOME_LONGITUDE
+    // work. GOOGLE_REFRESH_TOKEN comes from the one-time
+    // scripts/google-auth.mjs bootstrap, same pattern as
+    // SPOTIFY_REFRESH_TOKEN below - replaces a now-dead service-account
+    // key (its backing Google Cloud project was deleted) that also
+    // couldn't have covered Drive access in the first place.
     googleCalendarId: env.GOOGLE_CALENDAR_ID || undefined,
+    googleOauthClientId: env.GOOGLE_OAUTH_CLIENT_ID || undefined,
+    googleOauthClientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET || undefined,
+    googleRefreshToken: env.GOOGLE_REFRESH_TOKEN || undefined,
     // Optional, not required at startup: spotify_control returns a clear
     // config-missing error at call time (see lib/spotify.ts), same
     // pattern as the calendar tools. SPOTIFY_REFRESH_TOKEN is obtained

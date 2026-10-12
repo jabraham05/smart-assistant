@@ -203,21 +203,22 @@ eventually tested) on its own.
    node scripts/set-peer-cards.mjs`. Not required — both cards start empty
    and fill in over time via Honcho's automatic dreaming — but this skips
    the cold-start gap.
-10. Optionally set up `calendar_event` (Google Calendar). Create a Google
-    Cloud project, enable the Calendar API, create a service account
-    (IAM & Admin → Service Accounts → Create), generate a JSON key for it
-    (Keys tab → Add Key → Create new key → JSON), and save that file as
-    `skills-mcp/secrets/google-calendar-key.json` (gitignored) — **baked
-    into the image at build time, not bind-mounted** (see
-    [`docs/known-gotchas.md`](docs/known-gotchas.md)), so run `docker
-    compose up -d --build skills-mcp` after adding it, a plain restart
-    won't pick it up. Share the target calendar with the service
-    account's `client_email` (Google Calendar → calendar settings →
-    "Share with specific people" → "Make changes to events"), then set
-    `GOOGLE_CALENDAR_ID` in `.env` (your Gmail address for your primary
-    calendar, or the calendar's ID from "Integrate calendar"). Without
-    this, `calendar_event` returns a clear "not configured" error rather
-    than breaking anything.
+10. Optionally set up `calendar_event` (Google Calendar) and `drive_search`
+    (Google Drive) — one Google OAuth consent covers both, as the user
+    (not a service account, which only sees resources explicitly shared
+    with its own robot email — doesn't scale to "the user's own Drive").
+    Create a Google Cloud project, enable the Calendar API and Drive API,
+    create an OAuth client (APIs & Services → Credentials → Create
+    Credentials → OAuth client ID, type "Desktop app" — no redirect URI
+    needs to be pre-registered for that type), then run
+    `GOOGLE_OAUTH_CLIENT_ID=... GOOGLE_OAUTH_CLIENT_SECRET=... node
+    scripts/google-auth.mjs`, open the printed URL, and authorize with the
+    Google account to connect. Add the three values it prints
+    (`GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`/
+    `GOOGLE_REFRESH_TOKEN`) plus `GOOGLE_CALENDAR_ID` (your Gmail address
+    for your primary calendar, or the calendar's ID from "Integrate
+    calendar") to `.env`. Without this, `calendar_event`/`drive_search`
+    return a clear "not configured" error rather than breaking anything.
 11. Optionally start Home Assistant for phone-presence tracking — see
     [`docs/home-assistant.md`](docs/home-assistant.md).
 

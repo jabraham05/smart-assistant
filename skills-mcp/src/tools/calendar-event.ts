@@ -82,7 +82,7 @@ registerVerifier("calendar_event", (args, result) => {
 
 function notConfiguredResult() {
   return errorResult(
-    "Google Calendar is not configured (GOOGLE_CALENDAR_KEY_FILE / GOOGLE_CALENDAR_ID not set).",
+    "Google Calendar is not configured (GOOGLE_REFRESH_TOKEN / GOOGLE_CALENDAR_ID not set).",
   );
 }
 
@@ -171,7 +171,7 @@ export function registerCalendarEvent(server: McpServer, config: Config): void {
       },
     },
     async ({ action, timeMin, timeMax, maxResults, eventId, summary, start, end, description, location }) => {
-      if (!config.googleCalendarKeyFile || !config.googleCalendarId) return notConfiguredResult();
+      if (!config.googleRefreshToken || !config.googleCalendarId) return notConfiguredResult();
 
       try {
         if (action === "list") {

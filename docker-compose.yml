@@ -172,14 +172,17 @@ services:
       # postgres/init/21-create-skills-db.sql).
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       SKILLS_DB_NAME: skills
-      # Calendar tools are optional — if GOOGLE_CALENDAR_ID is unset, they
-      # return a clear error instead of the server failing to start. The key
-      # file is baked into the image at build time (see skills-mcp/Dockerfile)
-      # rather than bind-mounted — a runtime bind mount for this single file
-      # got stuck as a directory on this machine's Docker Desktop, persisting
-      # across container recreation.
+      # Calendar + Drive tools are optional — if unset, they return a clear
+      # error instead of the server failing to start. GOOGLE_REFRESH_TOKEN
+      # comes from the one-time scripts/google-auth.mjs bootstrap (see
+      # .env.example) - replaces a now-dead service-account key (its
+      # backing Google Cloud project was deleted) that also couldn't have
+      # covered Drive access in the first place, since a service account
+      # only sees resources explicitly shared with its own robot email.
       GOOGLE_CALENDAR_ID: ${GOOGLE_CALENDAR_ID}
-      GOOGLE_CALENDAR_KEY_FILE: /run/secrets/google-calendar-key.json
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
+      GOOGLE_REFRESH_TOKEN: ${GOOGLE_REFRESH_TOKEN}
       # code_task_run_command/code_task_get_diff talk to sandbox-runner
       # directly (not through an n8n webhook) — always-on internal infra,
       # not a per-user optional integration, so no config-missing path.

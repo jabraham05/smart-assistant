@@ -25,6 +25,7 @@ import { registerCalculate } from "./tools/calculate.js";
 import { registerGrowthReview } from "./tools/growth-review.js";
 import { registerTeachingSessionManage } from "./tools/teaching-session-manage.js";
 import { registerSkillExamples } from "./tools/skill-examples.js";
+import { registerDriveSearch } from "./tools/drive-search.js";
 
 export interface RequestContext {
   // The n8n Chat workflow's session id, threaded in via the MCP Client
@@ -75,5 +76,6 @@ export function createServer(config: Config, context: RequestContext = {}): McpS
   registerGrowthReview(server, config);
   registerTeachingSessionManage(server, config, context.chatSessionId);
   registerSkillExamples(server, config);
+  registerDriveSearch(server, config);
   return server;
 }
