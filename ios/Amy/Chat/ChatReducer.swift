@@ -18,6 +18,9 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     /// The stream was cut (app backgrounded, network dropped) while the
     /// server keeps working on the turn - waiting for it to land in history.
     var isPending = false
+    /// The backend is retrying this reply (e.g. it failed a check); the
+    /// previous attempt stays on screen until the new one starts arriving.
+    var isRevising = false
 }
 
 /// Port of chat-ui/src/lib/message-reducer.ts's *logic* (not its code).
@@ -27,6 +30,8 @@ struct ChatReducer {
     private var openSteps: [String: Int] = [:]
     /// The slow-turn opener, kept so a retry can restore it.
     private var ackText = ""
+    /// Set by a retry: the next reply text replaces the previous attempt.
+    private var replaceOnNextText = false
     private(set) var message: ChatMessage
 
     init(messageId: String) {
@@ -40,19 +45,30 @@ struct ChatReducer {
             // server-sent opener for slow turns) renders as the start of the
             // same reply, exactly as the web client does.
             if event.metadata?.nodeName == "AI Agent", let content = event.content {
+                if event.type == .ack {
+                    ackText += content
+                } else if replaceOnNextText {
+                    // First text of the retried attempt: swap it in for the
+                    // previous attempt now, not when the retry was announced.
+                    message.content = ackText
+                    replaceOnNextText = false
+                    message.isRevising = false
+                }
                 message.content += content
-                if event.type == .ack { ackText += content }
             }
 
         case .trace:
             switch event.trace {
             case .retry:
-                // The backend discards the previous attempt's text on retry,
-                // but already streamed it - drop it here too or the two
-                // attempts render as one garbled double reply. The ack is
-                // not part of an attempt, so it survives (seen live: wiping
-                // it made the opener vanish mid-turn).
-                message.content = ackText
+                // The backend discards the previous attempt's text and
+                // retries. Wiping it immediately left the bubble blank (or
+                // just the ack) for however long the retry took - seen live
+                // as a reply that "disappears, then comes back". Keep it on
+                // screen, marked as being revised, and replace it when the
+                // retry's first text arrives. If the retry produces nothing,
+                // the server keeps the first attempt too, so it stays.
+                replaceOnNextText = true
+                message.isRevising = true
             case let .toolCall(attempt, iteration, name):
                 let key = "\(attempt):\(iteration):\(name)"
                 openSteps[key] = message.steps.count
@@ -77,6 +93,8 @@ struct ChatReducer {
     /// Called once the stream closes. A turn can legitimately end with zero
     /// AI Agent tokens (known backend gap) - show something, not a blank bubble.
     mutating func finish() {
+        message.isRevising = false
+        replaceOnNextText = false
         if message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             message.content = "No response was generated for that message — try asking again."
             message.isEmpty = true

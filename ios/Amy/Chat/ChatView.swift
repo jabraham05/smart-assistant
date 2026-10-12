@@ -154,8 +154,17 @@ private struct MessageBubble: View {
                 } else if !message.content.isEmpty {
                     Text(Self.render(message.content))
                         .textSelection(.enabled)
-                        .foregroundStyle(message.isEmpty ? .secondary : .primary)
+                        .foregroundStyle(message.isEmpty || message.isRevising ? .secondary : .primary)
                         .italic(message.isEmpty)
+                        .animation(.easeInOut(duration: 0.2), value: message.isRevising)
+                }
+                if message.isRevising {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text("Amy is double-checking this reply…")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
                 if message.isPending {
                     HStack(spacing: 6) {

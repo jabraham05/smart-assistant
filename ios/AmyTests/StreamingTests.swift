@@ -96,6 +96,43 @@ private func event(_ json: String) throws -> StreamEvent {
         #expect(r.message.content == "Give me a moment.\n\ngood")
     }
 
+    /// A retry must not blank the bubble while the next attempt runs.
+    @Test func retryKeepsThePreviousAttemptVisibleUntilNewTextArrives() throws {
+        var r = ChatReducer(messageId: "m")
+        r.apply(try event(#"{"type":"item","content":"First try.","metadata":\#(meta())}"#))
+        r.apply(try event(#"{"type":"trace","trace":{"kind":"retry","attempt":2,"reason":"confabulation"},"metadata":\#(meta())}"#))
+        #expect(r.message.content == "First try.")
+        #expect(r.message.isRevising)
+        // Tool activity during the retry doesn't replace the text either.
+        r.apply(try event(#"{"type":"trace","trace":{"kind":"tool_call","attempt":2,"iteration":1,"name":"web_search","args":{}},"metadata":\#(meta())}"#))
+        #expect(r.message.content == "First try.")
+        r.apply(try event(#"{"type":"item","content":"Second","metadata":\#(meta())}"#))
+        #expect(r.message.content == "Second")
+        #expect(!r.message.isRevising)
+        r.apply(try event(#"{"type":"item","content":" try.","metadata":\#(meta())}"#))
+        #expect(r.message.content == "Second try.")
+    }
+
+    /// When the retry yields nothing the server keeps the first attempt - so does the app.
+    @Test func aRetryWithNoNewTextKeepsTheFirstAttempt() throws {
+        var r = ChatReducer(messageId: "m")
+        r.apply(try event(#"{"type":"item","content":"Only answer.","metadata":\#(meta())}"#))
+        r.apply(try event(#"{"type":"trace","trace":{"kind":"retry","attempt":2,"reason":"search_intent"},"metadata":\#(meta())}"#))
+        r.finish()
+        #expect(r.message.content == "Only answer.")
+        #expect(!r.message.isRevising)
+        #expect(!r.message.isEmpty)
+    }
+
+    /// tone_backstop: retry + the cleaned full text in one item.
+    @Test func toneBackstopReplacesWithTheCleanedText() throws {
+        var r = ChatReducer(messageId: "m")
+        r.apply(try event(#"{"type":"item","content":"Done! Let me know if you need anything else.","metadata":\#(meta())}"#))
+        r.apply(try event(#"{"type":"trace","trace":{"kind":"retry","attempt":2,"reason":"tone_backstop"},"metadata":\#(meta())}"#))
+        r.apply(try event(#"{"type":"item","content":"Done!","metadata":\#(meta())}"#))
+        #expect(r.message.content == "Done!")
+    }
+
     @Test func toolResultClosesItsOwnCall() throws {
         var r = ChatReducer(messageId: "m")
         r.apply(try event(#"{"type":"trace","trace":{"kind":"tool_call","attempt":0,"iteration":0,"name":"web_search","args":{"q":"x"}},"metadata":\#(meta())}"#))
