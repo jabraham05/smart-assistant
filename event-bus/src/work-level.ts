@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import "./pg-types.js"; // BIGINT ids/counts as numbers, not strings
 import type { Config } from "./config.js";
 
 // event-bus opens read-only pools into two databases it doesn't otherwise
@@ -51,14 +52,14 @@ export interface WorkLevel {
 // this query was silently reporting 0 unconditionally until this fix.
 export async function getWorkLevel(config: Config): Promise<WorkLevel> {
   const [codingResult, researchResult] = await Promise.all([
-    getCodingTasksPool(config).query<{ count: string }>(`SELECT count(*) FROM coding_tasks WHERE status = 'running'`),
-    getResearchPool(config).query<{ count: string }>(
+    getCodingTasksPool(config).query<{ count: number }>(`SELECT count(*) FROM coding_tasks WHERE status = 'running'`),
+    getResearchPool(config).query<{ count: number }>(
       `SELECT count(*) FROM research_sessions WHERE status = 'running'`,
     ),
   ]);
 
-  const codingActive = Number(codingResult.rows[0].count);
-  const researchActive = Number(researchResult.rows[0].count);
+  const codingActive = codingResult.rows[0].count;
+  const researchActive = researchResult.rows[0].count;
 
   return {
     codingActive,

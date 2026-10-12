@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import "./pg-types.js"; // BIGINT ids/counts as numbers, not strings
 import type { Config } from "./config.js";
 
 // Reads only, against a schema-configurable view of the persona/skills

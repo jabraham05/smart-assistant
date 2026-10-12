@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import "./pg-types.js"; // BIGINT ids/counts as numbers, not strings
 import type { Config } from "./config.js";
 
 export interface EventRow {
@@ -564,11 +565,11 @@ export async function getScannerLastRun(config: Config, key: string): Promise<Da
 }
 
 export async function countEventsSince(config: Config, source: string, type: string, since: Date): Promise<number> {
-  const result = await getPool(config).query<{ count: string }>(
+  const result = await getPool(config).query<{ count: number }>(
     `SELECT count(*) FROM events WHERE source = $1 AND type = $2 AND occurred_at > $3`,
     [source, type, since.toISOString()],
   );
-  return Number(result.rows[0].count);
+  return result.rows[0].count;
 }
 
 export async function touchScannerLastRun(config: Config, key: string): Promise<void> {

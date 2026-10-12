@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import "./pg-types.js"; // BIGINT ids/counts as numbers, not strings
 import type { Config } from "./config.js";
 import { getCodingTask } from "./lib/coding-orchestrator-client.js";
 
@@ -514,10 +515,10 @@ export interface ResearchQueueRow {
 }
 
 export async function countPendingResearchQueue(config: Config): Promise<number> {
-  const result = await getPool(config).query<{ count: string }>(
+  const result = await getPool(config).query<{ count: number }>(
     `SELECT COUNT(*) FROM research_queue WHERE status IN ('pending', 'researching')`,
   );
-  return Number(result.rows[0].count);
+  return result.rows[0].count;
 }
 
 // Fast, always-correct backstop for short/single-word topics where the

@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import "./pg-types.js"; // BIGINT ids/counts as numbers, not strings
 import type { Config } from "./config.js";
 
 export interface SkillProposalRow {
