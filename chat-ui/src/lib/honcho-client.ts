@@ -1,4 +1,5 @@
 import type { EnrichedSession, HonchoMessage, HonchoSession, SessionOrigin } from "@/types/chat";
+import type { MessagePage } from "@/lib/message-paging";
 
 // Server-side only: the API key never reaches the browser.
 const HONCHO_API_KEY = process.env.HONCHO_API_KEY;
@@ -51,9 +52,12 @@ export async function listSessions(): Promise<HonchoSession[]> {
   return data.items;
 }
 
-export async function getSessionMessages(sessionId: string): Promise<HonchoMessage[]> {
+// With `paging`, returns that page newest-first (reverse=true) - see
+// lib/message-paging.ts. Without it, the original oldest-first first page.
+export async function getSessionMessages(sessionId: string, paging?: MessagePage | null): Promise<HonchoMessage[]> {
+  const query = paging ? `?reverse=true&size=${paging.size}&page=${paging.page}` : "";
   const data = await honchoPost<{ items: HonchoMessage[] }>(
-    `/workspaces/${HONCHO_WORKSPACE_ID}/sessions/${sessionId}/messages/list`,
+    `/workspaces/${HONCHO_WORKSPACE_ID}/sessions/${sessionId}/messages/list${query}`,
     {}
   );
   return data.items;
