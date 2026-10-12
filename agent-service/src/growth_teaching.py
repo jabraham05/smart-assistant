@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 
-from . import growth_db, growth_judge
+from . import growth_db, growth_judge, skills_library
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,12 @@ async def finalize_teaching_session(config: Config, teaching_session_id: int) ->
     if classification is None:
         return {"ok": False, "error": "classification failed, see logs"}
 
+    # Slugified here, once, so the exact same name is stored on the
+    # teaching session, used by growth_consolidate.py's SKILL.md file path,
+    # and the Postgres skills-index row - never recomputed or re-derived
+    # differently in more than one place.
+    skill_name = skills_library.slugify(classification.skill_name) if classification.skill_name else None
+
     await growth_db.set_teaching_session_classification(
         config,
         teaching_session_id,
@@ -44,6 +50,8 @@ async def finalize_teaching_session(config: Config, teaching_session_id: int) ->
         classification.rules,
         classification.examples,
         classification.open_questions,
+        skill_name,
+        classification.discovery_description,
     )
 
     # explain_and_build is a deliberate, complete lesson - exactly the kind
@@ -79,6 +87,8 @@ async def finalize_teaching_session(config: Config, teaching_session_id: int) ->
             classification.rules,
             classification.examples,
             classification.open_questions,
+            skill_name,
+            classification.discovery_description,
         )
         return {
             "ok": True,

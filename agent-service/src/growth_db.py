@@ -1189,12 +1189,14 @@ async def set_teaching_session_classification(
     rules: str | None,
     examples: str | None,
     open_questions: str | None,
+    skill_name: str | None = None,
+    discovery_description: str | None = None,
 ) -> None:
     pool = await _get_pool(config)
     await pool.execute(
         "UPDATE teaching_sessions SET status = 'classified', category = $2, classification_reasoning = $3, "
         "extracted_procedure = $4, extracted_rules = $5, extracted_examples = $6, open_questions = $7, "
-        "updated_at = now() WHERE id = $1",
+        "skill_name = $8, discovery_description = $9, updated_at = now() WHERE id = $1",
         teaching_session_id,
         category,
         reasoning,
@@ -1202,6 +1204,8 @@ async def set_teaching_session_classification(
         rules,
         examples,
         open_questions,
+        skill_name,
+        discovery_description,
     )
 
 

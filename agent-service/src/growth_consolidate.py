@@ -33,8 +33,9 @@ import asyncio
 import difflib
 import json
 import logging
+from datetime import datetime, timezone
 
-from . import db, growth_db, growth_graphiti, growth_judge, knowledge_client
+from . import db, growth_db, growth_graphiti, growth_judge, knowledge_client, skills_library
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,23 @@ async def _build_skill_draft(config: Config, opportunity_id: int, description: s
         "(Drafted from a teaching session - review and refine before relying on it heavily.)"
     )
     return "\n\n".join(parts)
+
+
+async def _build_skill_metadata(config: Config, opportunity_id: int, title: str, description: str) -> tuple[str, str]:
+    """A skill's name/description now have to satisfy the Agent Skills
+    spec (https://agentskills.io/specification) - kebab-case name, a real
+    discovery description ("what it does + when to use it") - not the raw
+    truncated opportunity title/description every skill used to get stuck
+    with (we found this live: the stored name for one was literally "Thats
+    a decent start, but here is the rule..."). A teaching-sourced proposal
+    already has a judge-generated skillName/discoveryDescription
+    (growth_judge.classify_teaching_content); anything else (skill_gap_scan,
+    behaviorFeedback) falls back to slugifying the opportunity title - not
+    as good, but still spec-valid, which raw prose never was."""
+    session = await growth_db.get_teaching_session_by_opportunity(config, opportunity_id)
+    if session and session.get("skill_name"):
+        return session["skill_name"], session.get("discovery_description") or description[:500]
+    return skills_library.slugify(title), description[:500]
 
 
 def _build_candidate_persona(current_persona: str, proposal_id: int, title: str, description: str) -> str:
@@ -120,6 +138,7 @@ async def preview_proposal(config: Config, proposal_id: int) -> dict:
     }
 
     if category == "skill":
+        skill_name, skill_description = await _build_skill_metadata(config, opportunity_id, title, description)
         draft_instructions = await _build_skill_draft(config, opportunity_id, description, rationale)
         evidence_text = "\n".join(f"- {o['summary']}" for o in observations) or description
         evaluation = await growth_judge.evaluate_skill_plausibility(config, evidence_text, draft_instructions)
@@ -128,6 +147,8 @@ async def preview_proposal(config: Config, proposal_id: int) -> dict:
             if evaluation
             else None
         )
+        result["skillName"] = skill_name
+        result["skillDescription"] = skill_description
         result["currentText"] = ""
         result["proposedText"] = draft_instructions
         result["diff"] = unified_diff("", draft_instructions)
@@ -233,10 +254,25 @@ async def consolidate_proposal(config: Config, proposal_id: int) -> dict:
             if not passed:
                 eval_note = eval_reasoning or "evaluation could not be run"
                 reason = f"⚠️ LOW-CONFIDENCE evaluation ({eval_note}): {rationale}"
-            await growth_db.consolidate_skill(config, title[:100], description[:500], draft_instructions, reason)
+
+            skill_name, skill_description = await _build_skill_metadata(config, opportunity_id, title, description)
+            skills_library.write_skill(
+                config,
+                skill_name,
+                skill_description,
+                draft_instructions,
+                {
+                    "source": "growth_engine",
+                    "proposalId": str(proposal_id),
+                    "opportunityId": str(opportunity_id),
+                    "consolidatedAt": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            await growth_db.consolidate_skill(config, skill_name, skill_description, draft_instructions, reason)
             if plan_id:
                 await growth_db.advance_learning_plan_step(config, plan_id, 2, "completed")
             result["destination"] = "skills (active instruction skill)"
+            result["skillName"] = skill_name
             result["evaluation"] = {"effectivenessScore": eval_effectiveness, "passed": passed}
 
         elif category == "tool":

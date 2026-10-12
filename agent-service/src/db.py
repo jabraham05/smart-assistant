@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import asyncpg
 
+from . import skills_library
 from .config import Config
 
 _pool: asyncpg.Pool | None = None
@@ -58,4 +59,16 @@ async def get_active_instruction_skills(config: Config) -> list[ActiveSkillRow]:
         f"SELECT name, description, instructions FROM {_qualify(config.db_schema, 'skills')} "
         "WHERE status = 'active' AND kind = 'instruction'"
     )
-    return [ActiveSkillRow(name=r["name"], description=r["description"], instructions=r["instructions"]) for r in rows]
+    # A real SKILL.md file (skills_library.py) is the source of truth for a
+    # skill's content when one exists - Postgres's own `instructions`
+    # column is only still read as a fallback for a legacy skill (written
+    # by skill_propose/skill_gap_scanner before this module existed) that
+    # was never migrated to a file.
+    return [
+        ActiveSkillRow(
+            name=r["name"],
+            description=r["description"],
+            instructions=skills_library.read_skill_body(config, r["name"]) or r["instructions"],
+        )
+        for r in rows
+    ]
