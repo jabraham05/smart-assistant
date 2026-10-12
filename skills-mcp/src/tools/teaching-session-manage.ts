@@ -28,9 +28,16 @@ export function registerTeachingSessionManage(server: McpServer, config: Config,
         "LASTING PREFERENCE OR STANDING INSTRUCTION for how you should behave or respond going forward " +
         "(this is the most common case, not an edge case - 'I prefer direct answers', 'remember this " +
         "preference', 'from now on, always/never do X', 'I want you to work this way with me' are ALL " +
-        "teaching, even though they don't look like a step-by-step procedure). This is NOT for an " +
+        "teaching, even though they don't look like a step-by-step procedure). THIS IS THE RIGHT TOOL " +
+        "whenever the user frames themselves as teaching you, even if they explicitly say 'I want to " +
+        "teach you a new skill' or similar - use this instead of skill_propose, which is only for a " +
+        "gap YOU discover on your own, not something the user asked you to learn. This is NOT for an " +
         "ordinary single correction ('no, I meant tomorrow') - it's for anything meant to last beyond " +
-        "this one turn. action='start' begins a session with `mode` ('demonstration' for the user " +
+        "this one turn. IMPORTANT: call action='start' as soon as the user begins teaching, even if " +
+        "they say not to finalize yet or want to go step-by-step first - starting only CAPTURES, it " +
+        "doesn't commit to anything; only action='finalize' does that. Don't wait to start just " +
+        "because the teaching will take several turns. action='start' begins a session with `mode` " +
+        "('demonstration' for the user " +
         "performing+narrating a task, 'guided_practice' for you attempting a task with the user " +
         "correcting you, 'explain_and_build' for the user describing a procedure OR a preference/rule " +
         "directly - use explain_and_build for a plain preference statement) and the " +
