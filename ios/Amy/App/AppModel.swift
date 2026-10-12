@@ -11,11 +11,10 @@ final class AppModel {
     /// from anywhere the phone's Tailscale is connected; nothing is exposed
     /// to the public internet.
     static let defaultServerURL = "https://john-pc.tail69c697.ts.net"
-    private static let serverURLKey = "serverURL"
 
     private(set) var token: String?
     var serverURL: String {
-        didSet { UserDefaults.standard.set(serverURL, forKey: Self.serverURLKey) }
+        didSet { ServerURLPreference.save(serverURL, default: Self.defaultServerURL) }
     }
     /// Set when a Keychain read/write fails, so it's visible instead of silent.
     var keychainError: String?
@@ -24,7 +23,7 @@ final class AppModel {
 
     init(keychain: KeychainStore = .token) {
         self.keychain = keychain
-        serverURL = UserDefaults.standard.string(forKey: Self.serverURLKey) ?? Self.defaultServerURL
+        serverURL = ServerURLPreference.load(default: Self.defaultServerURL)
         do {
             token = try keychain.read()
         } catch {
