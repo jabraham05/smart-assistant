@@ -1,29 +1,18 @@
-import { GoogleAuth } from "google-auth-library";
 import type { Config } from "../config.js";
+import { getGoogleAccessToken } from "./google-oauth.js";
 
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
-const SCOPES = ["https://www.googleapis.com/auth/calendar"];
 
-// Cached at module scope, not per-request: GoogleAuth internally caches and
-// refreshes the minted access token on the same client instance, so reusing
-// one client across calls avoids re-authenticating on every tool call.
-let cachedAuth: GoogleAuth | null = null;
-
-function getAuth(config: Config): GoogleAuth {
-  if (!config.googleCalendarKeyFile) {
-    throw new Error(
-      "Google Calendar is not configured (GOOGLE_CALENDAR_KEY_FILE not set).",
-    );
-  }
-  if (!cachedAuth) {
-    cachedAuth = new GoogleAuth({
-      keyFile: config.googleCalendarKeyFile,
-      scopes: SCOPES,
-    });
-  }
-  return cachedAuth;
-}
-
+// Real incident (2026-10-12): the Google Cloud project backing the old
+// service-account key was deleted - every call failed with a 403
+// "Project #... has been deleted", unrelated to anything in this file.
+// Migrated off service-account auth entirely (it also couldn't have
+// covered the Drive access being added alongside this - a service
+// account only sees resources explicitly shared with its own robot
+// email, which doesn't scale to "the user's own Drive"). Now uses the
+// same user-delegated OAuth2 flow google-drive.ts and scripts/
+// google-auth.mjs use, via the shared cached-token helper in
+// google-oauth.ts.
 async function calendarFetch(
   config: Config,
   path: string,
@@ -32,17 +21,12 @@ async function calendarFetch(
   if (!config.googleCalendarId) {
     throw new Error("Google Calendar is not configured (GOOGLE_CALENDAR_ID not set).");
   }
-  const auth = getAuth(config);
-  const client = await auth.getClient();
-  const accessToken = await client.getAccessToken();
-  if (!accessToken.token) {
-    throw new Error("Failed to obtain a Google Calendar access token.");
-  }
+  const accessToken = await getGoogleAccessToken(config);
 
   const res = await fetch(`${CALENDAR_API_BASE}${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${accessToken.token}`,
+      Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
       ...init?.headers,
     },

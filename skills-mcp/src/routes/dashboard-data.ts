@@ -85,7 +85,7 @@ interface CalendarEventData {
 }
 
 async function fetchCalendar(config: Config): Promise<CalendarEventData[]> {
-  if (!config.googleCalendarKeyFile || !config.googleCalendarId) return [];
+  if (!config.googleRefreshToken || !config.googleCalendarId) return [];
 
   const now = new Date();
   const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);

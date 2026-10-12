@@ -10,7 +10,7 @@ import { listEvents, type CalendarEvent } from "../lib/google-calendar.js";
 // fetchCalendar() already reusing listEvents() in-process.
 export function registerCalendarEventsRoute(app: Express, config: Config): void {
   app.get("/internal/calendar-events", async (req, res) => {
-    if (!config.googleCalendarKeyFile || !config.googleCalendarId) {
+    if (!config.googleRefreshToken || !config.googleCalendarId) {
       return res.json({ configured: false, events: [] });
     }
 

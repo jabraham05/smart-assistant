@@ -62,7 +62,7 @@ GROUPS: dict[str, list[str]] = {
     ],
     "dashboard": ["dashboard_control"],
     "web": ["web_search"],
-    "knowledge": ["knowledge_search", "knowledge_ingest"],
+    "knowledge": ["knowledge_search", "knowledge_ingest", "drive_search"],
     "research": ["research_task", "research_task_status", "status_overview", "project_complete"],
     "goals": ["goal_manage", "project_propose", "status_overview", "project_complete"],
 }
@@ -131,7 +131,9 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "has stored, or anything else already saved in Amy's knowledge base/past research - e.g. 'do you "
     "have the manual for my car', 'what does the guide say about X', 'look up Y in what we saved', "
     "'what have you already learned about X' where X is a topic and not the user themselves - or "
-    "saving a specific web page for later recall), 'research' (starting in-depth background research "
+    "saving a specific web page for later recall - ALSO include 'knowledge' for finding or reading "
+    "something from the user's own Google Drive, e.g. 'find my resume in Drive', 'what's in that "
+    "Google Doc about X', 'look up Y in my Drive'), 'research' (starting in-depth background research "
     "on a topic not already known, that should be saved for later, OR checking on/asking about "
     "findings from research that may have already happened - 'what have you found out about X', 'any "
     "updates on the research', 'how's that going' - include 'research' for these EVEN IF X also "
