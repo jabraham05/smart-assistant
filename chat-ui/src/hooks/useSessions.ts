@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { EnrichedSession } from "@/types/chat";
+import { randomUUID } from "@/lib/uuid";
 
 export function useSessions() {
   const [sessions, setSessions] = useState<EnrichedSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => crypto.randomUUID());
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => randomUUID());
   const [isLoading, setIsLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -28,7 +29,7 @@ export function useSessions() {
   }, [refresh]);
 
   const startNewSession = useCallback(() => {
-    setActiveSessionId(crypto.randomUUID());
+    setActiveSessionId(randomUUID());
   }, []);
 
   return {

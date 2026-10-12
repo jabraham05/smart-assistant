@@ -665,6 +665,12 @@ services:
       # n8n's own Chat workflow at
       # http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat).
       N8N_WEBHOOK_URL: http://agent-service:3010/webhook
+      # Single shared-secret login (src/lib/auth.ts, src/proxy.ts) - every
+      # route except /login, /api/auth/login, /api/health, and the PWA
+      # install assets requires this password, since chat-ui is about to
+      # be reachable beyond localhost (Tailscale) and currently has no
+      # auth at all. Single-user system, so one password, not a user table.
+      AMY_AUTH_PASSWORD: ${AMY_AUTH_PASSWORD}
       HONCHO_API_KEY: ${HONCHO_API_KEY}
       HONCHO_WORKSPACE_ID: smart-assistant
       # Read-only event-bus visibility panel (see the "event-bus" toggle

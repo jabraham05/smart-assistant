@@ -3,12 +3,11 @@
 import { useEffect, useState } from "react";
 import type { ChatMessage } from "@/types/chat";
 import { useChat } from "@/hooks/useChat";
-import { useSessions } from "@/hooks/useSessions";
+import { useActiveSession } from "@/contexts/ActiveSessionContext";
 import { useEvents } from "@/hooks/useEvents";
 import { useRegistry } from "@/hooks/useRegistry";
 import { MessageBubble } from "./MessageBubble";
 import { InputBar } from "./InputBar";
-import { SessionList } from "./SessionList";
 import { EventLogPanel } from "./EventLogPanel";
 import { TurnDebugPanel } from "./TurnDebugPanel";
 import { AgentRegistryPanel } from "./AgentRegistryPanel";
@@ -16,8 +15,9 @@ import { AgentRegistryPanel } from "./AgentRegistryPanel";
 type SidePanel = "events" | "registry" | null;
 
 export function ChatWindow() {
-  const { sessions, activeSessionId, setActiveSessionId, startNewSession, isLoading, refresh } =
-    useSessions();
+  // Session list/switching now lives in the global AppDrawer (the "☰" menu
+  // on every page) - this just reads the conversation the drawer selected.
+  const { sessions, activeSessionId, refresh } = useActiveSession();
   const { messages, isSending, isLoadingHistory, sendMessage } = useChat(activeSessionId);
   const [sidePanel, setSidePanel] = useState<SidePanel>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
@@ -64,15 +64,8 @@ export function ChatWindow() {
 
   return (
     <div className="flex h-full w-full">
-      <SessionList
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        onSelect={setActiveSessionId}
-        onNewSession={startNewSession}
-        isLoading={isLoading}
-      />
-      <div className="flex flex-1 flex-col">
-        <div className="flex items-center justify-end gap-4 border-b border-white/10 px-4 py-2.5">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="hidden items-center justify-end gap-4 border-b border-white/10 px-4 py-2.5 md:flex">
           <label className="flex items-center gap-1.5 text-xs text-zinc-500">
             <input
               type="checkbox"
@@ -110,28 +103,34 @@ export function ChatWindow() {
         <InputBar onSend={handleSend} disabled={isSending} />
       </div>
       {selectedAssistant && (
-        <TurnDebugPanel
-          userMessage={selectedUser}
-          assistantMessage={selectedAssistant}
-          onClose={() => setSelectedTurnId(null)}
-        />
+        <div className="hidden md:flex">
+          <TurnDebugPanel
+            userMessage={selectedUser}
+            assistantMessage={selectedAssistant}
+            onClose={() => setSelectedTurnId(null)}
+          />
+        </div>
       )}
       {!selectedAssistant && sidePanel === "registry" && (
-        <AgentRegistryPanel
-          tools={registryState.tools}
-          isLoading={registryState.isLoading}
-          error={registryState.error}
-          onRefresh={registryState.refresh}
-        />
+        <div className="hidden md:flex">
+          <AgentRegistryPanel
+            tools={registryState.tools}
+            isLoading={registryState.isLoading}
+            error={registryState.error}
+            onRefresh={registryState.refresh}
+          />
+        </div>
       )}
       {!selectedAssistant && sidePanel === "events" && (
-        <EventLogPanel
-          events={eventsState.events}
-          isLoading={eventsState.isLoading}
-          error={eventsState.error}
-          onRefresh={eventsState.refresh}
-          title="this session's activity"
-        />
+        <div className="hidden md:flex">
+          <EventLogPanel
+            events={eventsState.events}
+            isLoading={eventsState.isLoading}
+            error={eventsState.error}
+            onRefresh={eventsState.refresh}
+            title="this session's activity"
+          />
+        </div>
       )}
     </div>
   );

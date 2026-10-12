@@ -225,20 +225,22 @@ export function AmyLab() {
 
   return (
     <div className="flex h-full w-full">
-      <SessionList
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        onSelect={setActiveSessionId}
-        onNewSession={startNewSession}
-        isLoading={isLoading}
-      />
-      <div className="flex flex-1 flex-col">
-        <div className="flex items-center gap-1 border-b border-white/10 px-4 py-2">
+      <div className="hidden md:flex md:h-full">
+        <SessionList
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelect={setActiveSessionId}
+          onNewSession={startNewSession}
+          isLoading={isLoading}
+        />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-white/10 px-4 py-2">
           {CATEGORIES.map((c) => (
             <button
               key={c}
               onClick={() => selectCategory(c)}
-              className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
+              className={`shrink-0 rounded-lg px-3 py-1.5 text-sm transition-colors ${
                 category === c ? "bg-indigo-500/10 font-medium text-indigo-300" : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
               }`}
             >
@@ -246,12 +248,12 @@ export function AmyLab() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-1 border-b border-white/10 px-4 py-1.5">
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-white/10 px-4 py-1.5">
           {SUB_TABS[category].map((t) => (
             <button
               key={t.key}
               onClick={() => setSubTab(t.key)}
-              className={`rounded-lg px-2.5 py-1 text-xs transition-colors ${
+              className={`shrink-0 rounded-lg px-2.5 py-1 text-xs transition-colors ${
                 subTab === t.key ? "bg-white/10 font-medium text-zinc-200" : "text-zinc-600 hover:bg-white/5 hover:text-zinc-400"
               }`}
             >
@@ -327,7 +329,7 @@ export function AmyLab() {
           {category === "session" && subTab === "system-prompt" && <SystemPromptView />}
         </div>
       </div>
-      <div className="flex h-full w-96 flex-col border-l border-white/10">
+      <div className="hidden h-full w-96 flex-col border-l border-white/10 md:flex">
         <FeedbackForm sessionId={activeSessionId} />
         <div className="flex-1 overflow-hidden">
           <EventLogPanel
