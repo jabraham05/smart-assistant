@@ -193,7 +193,11 @@ def _build_skill_eval_agent(config: Config) -> Agent[None, SkillEvaluationOutput
         ),
         output_type=NativeOutput(SkillEvaluationOutput),
         instructions=_SKILL_EVAL_SYSTEM_PROMPT,
-        model_settings={"thinking": False, "timeout": 60},
+        # Real timeout found live-testing against genuinely long captured
+        # teaching content under real concurrent load: 60s consistently
+        # wasn't enough. 120s matches post_tool_timeout_seconds's existing
+        # ceiling for the same class of "judge call needs more time" problem.
+        model_settings={"thinking": False, "timeout": 120},
     )
 
 
@@ -325,7 +329,11 @@ def _build_teaching_classify_agent(config: Config) -> Agent[None, TeachingClassi
         ),
         output_type=NativeOutput(TeachingClassificationOutput),
         instructions=_TEACHING_CLASSIFY_SYSTEM_PROMPT,
-        model_settings={"thinking": False, "timeout": 60},
+        # Real timeout found live-testing against genuinely long captured
+        # teaching content under real concurrent load: 60s consistently
+        # wasn't enough. 120s matches post_tool_timeout_seconds's existing
+        # ceiling for the same class of "judge call needs more time" problem.
+        model_settings={"thinking": False, "timeout": 120},
     )
 
 

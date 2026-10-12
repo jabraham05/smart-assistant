@@ -12,13 +12,22 @@ export function registerSkillPropose(server: McpServer, config: Config): void {
     {
       title: "Propose new skill",
       description:
-        "Propose a new skill or tool for yourself when you find you can't help with " +
-        "something the user reasonably expects, and neither an existing tool, an " +
-        "already-active skill, nor your own knowledge covers it. Before calling this, check: " +
-        "could you already answer or handle this directly right now? If so, just do that — " +
-        "this is for genuine, present gaps, not something to reach for routinely. This never " +
-        "applies automatically — a human reviews and approves every proposal before anything " +
-        "changes, so there's no cost to proposing when you're genuinely stuck. Use " +
+        "Propose a new skill or tool for yourself when YOU discover, mid-task, that you " +
+        "can't help with something the user reasonably expects, and neither an existing " +
+        "tool, an already-active skill, nor your own knowledge covers it - this is for your " +
+        "own self-initiated gap-discovery, not something the user asked you to create. NOT " +
+        "for when the user is directly teaching, demonstrating, or dictating a skill/" +
+        "procedure to you themselves (e.g. 'I want to teach you a skill...', 'let me show " +
+        "you how I do X') - that's teaching_session_manage's job, which captures their actual " +
+        "explanation faithfully and classifies what kind of lesson it is (not everything " +
+        "taught is even a skill). Also NOT for answering a question about your own " +
+        "capabilities ('can you create skills', 'are you able to do X') - just answer that " +
+        "directly and honestly, never call this tool just to respond to a question. Before " +
+        "calling this, check: could you already answer or handle this directly right now? If " +
+        "so, just do that — this is for genuine, present gaps, not something to reach for " +
+        "routinely. This never applies automatically — a human reviews and approves every " +
+        "proposal before anything changes, so there's no cost to proposing when you're " +
+        "genuinely stuck. Use " +
         "kind='instruction' for something you could fully write out as a procedure right now " +
         "using tools/knowledge you already have (a recipe, not a new capability) — describe " +
         "the actual steps in `instructions`. Use kind='tool_idea' only when no combination of " +
