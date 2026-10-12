@@ -64,9 +64,10 @@ real container (not just `next dev`):
 
 ## API contract (verified against source, not assumed)
 
-Base URL during development: `http://<mac-or-host-LAN-IP>:3000` (or `:3002`
-if testing against the side-by-side container this session used - ask
-before assuming either is still running). Every request below needs
+Base URL: the real docker-compose `chat-ui` at `http://<host-LAN-IP>:3000`
+(the app's default; changeable in Settings). The ad-hoc `:3002` test
+container used during the PWA work is retired - the app talks to the actual
+Amy, nothing else. Every request below needs
 `Authorization: Bearer <token>` once logged in, except login itself.
 
 | Area | Route | Notes |

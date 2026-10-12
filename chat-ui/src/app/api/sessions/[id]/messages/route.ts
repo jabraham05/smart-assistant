@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionMessages } from "@/lib/honcho-client";
+import { parseMessagePage } from "@/lib/message-paging";
 
 // Same "clear degradation, not a crash" reasoning as /api/sessions - a
 // transient Honcho outage (real, live-verified this session: a
@@ -9,12 +10,12 @@ import { getSessionMessages } from "@/lib/honcho-client";
 // correctly (a fresh-looking conversation), which is a far better failure
 // mode than a crash.
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: RouteContext<"/api/sessions/[id]/messages">
 ) {
   const { id } = await ctx.params;
   try {
-    const messages = await getSessionMessages(id);
+    const messages = await getSessionMessages(id, parseMessagePage(new URL(req.url).searchParams));
     return NextResponse.json(messages);
   } catch (e) {
     console.error(`failed to load messages for session ${id}:`, e);
