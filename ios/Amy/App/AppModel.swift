@@ -6,7 +6,8 @@ import Observation
 @MainActor
 @Observable
 final class AppModel {
-    static let defaultServerURL = "http://192.168.86.24:3002"
+    /// The real chat-ui deployment (docker-compose `chat-ui`), not a test copy.
+    static let defaultServerURL = "http://192.168.86.24:3000"
     private static let serverURLKey = "serverURL"
 
     private(set) var token: String?

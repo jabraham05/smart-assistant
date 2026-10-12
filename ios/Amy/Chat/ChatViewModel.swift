@@ -46,23 +46,24 @@ final class ChatViewModel {
         isLoadingHistory = true
         defer { isLoadingHistory = false }
         do {
-            let page = try await client.messages(sessionId: sessionId, page: nextPage, size: Self.pageSize)
-            nextPage += 1
-            let known = Set(messages.map(\.id))
-            // Order by timestamp, never by server order: a server without
-            // the newest-first paging change returns oldest-first and
-            // ignores page/size (seen live: the thread rendered backwards).
-            let older = page
-                .filter { !known.contains($0.id) }
-                .map {
-                    ChatMessage(id: $0.id, role: $0.peerId == "user" ? .user : .assistant,
-                                content: $0.content, createdAt: ISODate.parse($0.createdAt) ?? .distantPast)
-                }
-                .sorted { $0.createdAt < $1.createdAt }
-            // A full page with nothing new means the server isn't paging -
-            // stop asking rather than refetch the same page forever.
-            hasEarlier = page.count == Self.pageSize && !older.isEmpty
-            messages.insert(contentsOf: older, at: 0)
+            var older: [ChatMessage] = []
+            // Pages are newest-first by page number, so every message sent
+            // since the first load shifts older pages down by one - a page
+            // can come back entirely made of messages already on screen.
+            // Keep going until something new turns up or history ends.
+            while older.isEmpty && hasEarlier {
+                let page = try await client.messages(sessionId: sessionId, page: nextPage, size: Self.pageSize)
+                nextPage += 1
+                hasEarlier = page.count == Self.pageSize
+                let known = Set(messages.map(\.id))
+                older = page
+                    .filter { !known.contains($0.id) }
+                    .map {
+                        ChatMessage(id: $0.id, role: $0.peerId == "user" ? .user : .assistant,
+                                    content: $0.content, createdAt: ISODate.parse($0.createdAt) ?? .distantPast)
+                    }
+            }
+            messages.insert(contentsOf: older.sorted { $0.createdAt < $1.createdAt }, at: 0)
         } catch {
             onError(error)
             errorText = "Couldn't load messages: \(error.localizedDescription)"
