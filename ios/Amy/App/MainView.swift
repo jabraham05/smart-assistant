@@ -88,7 +88,7 @@ struct MainView: View {
         case .chat: ChatView(viewModel: thread)
         case .home: HomeView()
         case .lab: AmyLabView()
-        case .memory: ComingSoonView(section: .memory, detail: "What Amy knows - people, places and knowledge search.")
+        case .memory: MemoryView()
         case .settings: SettingsView()
         }
     }
@@ -147,12 +147,3 @@ private struct SideMenu: View {
     }
 }
 
-private struct ComingSoonView: View {
-    let section: AppSection
-    let detail: String
-
-    var body: some View {
-        ContentUnavailableView(section.title, systemImage: section.icon,
-                               description: Text("\(detail)\nComing soon."))
-    }
-}
