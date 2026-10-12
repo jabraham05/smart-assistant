@@ -9,6 +9,10 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
+    # Personal (free) team - automatic signing for installing on a real
+    # iPhone. Free-team installs expire after 7 days; rebuild to renew.
+    DEVELOPMENT_TEAM: 929HM4K559
+    CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
 targets:
