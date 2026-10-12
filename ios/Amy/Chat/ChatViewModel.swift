@@ -62,14 +62,9 @@ final class ChatViewModel {
                 nextPage += 1
                 hasEarlier = page.count == Self.pageSize
                 let known = Set(messages.map(\.id))
-                older = page
-                    .filter { !known.contains($0.id) }
-                    .map {
-                        ChatMessage(id: $0.id, role: $0.peerId == "user" ? .user : .assistant,
-                                    content: $0.content, createdAt: ISODate.parse($0.createdAt) ?? .distantPast)
-                    }
+                older = Self.chronological(page).filter { !known.contains($0.id) }
             }
-            messages.insert(contentsOf: older.sorted { $0.createdAt < $1.createdAt }, at: 0)
+            messages.insert(contentsOf: older, at: 0)
         } catch {
             onError(error)
             errorText = "Couldn't load messages: \(error.localizedDescription)"
@@ -136,15 +131,17 @@ final class ChatViewModel {
             onError(error)
             return
         }
-        let latest = page.map {
-            ChatMessage(id: $0.id, role: $0.peerId == "user" ? .user : .assistant,
-                        content: $0.content, createdAt: ISODate.parse($0.createdAt) ?? .distantPast)
-        }.sorted { $0.createdAt < $1.createdAt }
-        guard let oldestLatest = latest.first?.createdAt else { return }
+        let latest = Self.chronological(page)
+        guard !latest.isEmpty else { return }
 
         // Keep older pages already scrolled into view; the server's copy
-        // replaces everything from the latest page's start onward.
-        let older = messages.filter { $0.createdAt < oldestLatest && !$0.isPending }
+        // replaces everything from the first message it also returned
+        // onward. Split by identity, not timestamp - a turn's two
+        // messages share one timestamp.
+        let latestIds = Set(latest.map(\.id))
+        let settled = messages.filter { !$0.isPending }
+        let boundary = settled.firstIndex { latestIds.contains($0.id) } ?? settled.endIndex
+        let older = Array(settled[..<boundary])
         var merged = older + latest
 
         if let pending = interrupted {
@@ -176,6 +173,17 @@ final class ChatViewModel {
             interrupted = nil
             for i in messages.indices where messages[i].isPending { messages[i].isPending = false }
             errorText = "Amy's reply didn't arrive. Pull to refresh, or ask again."
+        }
+    }
+
+    /// A history page in display order. Pages come newest-first, and the
+    /// server's order is the truth: store_turn writes the user message and
+    /// Amy's reply in one batch, so they share a timestamp and sorting by
+    /// time put the reply above the message (seen live).
+    nonisolated static func chronological(_ page: [HistoryMessage]) -> [ChatMessage] {
+        page.reversed().map {
+            ChatMessage(id: $0.id, role: $0.peerId == "user" ? .user : .assistant,
+                        content: $0.content, createdAt: ISODate.parse($0.createdAt) ?? .distantPast)
         }
     }
 
