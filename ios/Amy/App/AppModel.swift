@@ -6,8 +6,11 @@ import Observation
 @MainActor
 @Observable
 final class AppModel {
-    /// The real chat-ui deployment (docker-compose `chat-ui`), not a test copy.
-    static let defaultServerURL = "http://192.168.86.24:3000"
+    /// The real chat-ui deployment, reached over Tailscale (`tailscale serve`
+    /// on the host terminates HTTPS with a real *.ts.net certificate). Works
+    /// from anywhere the phone's Tailscale is connected; nothing is exposed
+    /// to the public internet.
+    static let defaultServerURL = "https://john-pc.tail69c697.ts.net"
     private static let serverURLKey = "serverURL"
 
     private(set) var token: String?

@@ -23,8 +23,6 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Amy connects to your home server on the local network.
-        INFOPLIST_FILE: Amy/Info.plist
         TARGETED_DEVICE_FAMILY: "1"
   AmyTests:
     type: bundle.unit-test
