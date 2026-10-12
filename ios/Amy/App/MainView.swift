@@ -87,7 +87,7 @@ struct MainView: View {
         switch section {
         case .chat: ChatView(viewModel: thread)
         case .home: HomeView()
-        case .lab: ComingSoonView(section: .lab, detail: "Projects, skill proposals and the growth review queue.")
+        case .lab: AmyLabView()
         case .memory: ComingSoonView(section: .memory, detail: "What Amy knows - people, places and knowledge search.")
         case .settings: SettingsView()
         }

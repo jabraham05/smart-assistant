@@ -140,14 +140,14 @@ struct APIClient: Sendable {
 
     /// Mutations are never auto-retried after the request may have been
     /// sent - only when the connection was never made.
-    private func write(_ path: String, method: String, body: [String: JSONScalar]) async throws {
+    func write(_ path: String, method: String, body: [String: JSONScalar]) async throws {
         var req = request(path: path, method: method)
         req.httpBody = try JSONEncoder().encode(body)
         let (_, response) = try await send(req, retryable: false)
         try check(response)
     }
 
-    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
+    func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
         let (data, response) = try await send(request(path: path, query: query), retryable: true)
         try check(response)
         do {
