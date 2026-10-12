@@ -71,7 +71,10 @@ final class ChatViewModel {
         }
     }
 
-    func send(_ text: String, client: APIClient, onError: (Error) -> Void) async {
+    /// `speakWith`: the message was spoken, so read the reply aloud as it
+    /// streams (push-to-talk). Typed messages pass nil and stay silent.
+    func send(_ text: String, client: APIClient, speakWith voice: VoiceController? = nil,
+              onError: (Error) -> Void) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isSending else { return }
         errorText = nil
@@ -90,14 +93,18 @@ final class ChatViewModel {
         defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
 
         var streamStarted = false
+        voice?.beginReply()
         do {
             for try await event in try await client.chat(message: trimmed, sessionId: sessionId) {
                 streamStarted = true
                 reducer.apply(event)
                 messages[index] = reducer.message
+                voice?.replyChanged(reducer.message.content)
             }
             reducer.finish()
             messages[index] = reducer.message
+            voice?.replyChanged(reducer.message.content)
+            voice?.replyFinished()
         } catch where streamStarted && Self.isConnectionCut(error) {
             // At least one event arrived, so the server has the turn - and
             // it runs to completion regardless of us (detached turns). Show
@@ -107,6 +114,7 @@ final class ChatViewModel {
             var partial = reducer.message
             partial.isPending = true
             messages[index] = partial
+            voice?.replyFinished()
             interrupted = (trimmed, sentAt)
         } catch {
             onError(error)
