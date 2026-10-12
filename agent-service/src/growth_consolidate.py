@@ -30,12 +30,131 @@ writing the skill with no evaluation step at all."""
 from __future__ import annotations
 
 import asyncio
+import difflib
+import json
 import logging
 
 from . import db, growth_db, growth_graphiti, growth_judge, knowledge_client
 from .config import Config
 
 logger = logging.getLogger(__name__)
+
+
+def _draft_skill_instructions(description: str, rationale: str) -> str:
+    return (
+        f"{description}\n\nRationale: {rationale}\n\n"
+        "(Drafted automatically by the Growth engine from an approved proposal - "
+        "review and refine before relying on it heavily.)"
+    )
+
+
+async def _build_skill_draft(config: Config, opportunity_id: int, description: str, rationale: str) -> str:
+    """A teaching-sourced skill proposal already has a judge-extracted
+    procedure/rules/examples (growth_judge.classify_teaching_content) - use
+    that structured extraction instead of falling back to the raw captured
+    text + generic boilerplate every other skill proposal uses. Found live
+    while testing Phase 10: without this, a teaching session's nicely
+    parsed steps got discarded in favor of dumping the whole paragraph back
+    out, making the "drafted automatically" skill look no better than one
+    sourced from an ordinary recurring-failure signal."""
+    session = await growth_db.get_teaching_session_by_opportunity(config, opportunity_id)
+    if not session or not session.get("extracted_procedure"):
+        return _draft_skill_instructions(description, rationale)
+
+    parts = [f"Procedure:\n{session['extracted_procedure']}"]
+    if session.get("extracted_rules"):
+        parts.append(f"Rules:\n{session['extracted_rules']}")
+    if session.get("extracted_examples"):
+        parts.append(f"Examples:\n{session['extracted_examples']}")
+    parts.append(
+        "(Drafted from a teaching session - review and refine before relying on it heavily.)"
+    )
+    return "\n\n".join(parts)
+
+
+def _build_candidate_persona(current_persona: str, proposal_id: int, title: str, description: str) -> str:
+    return (
+        f"{current_persona}\n\n"
+        f"<!-- Growth engine proposal #{proposal_id}: {title} -->\n{description}"
+    )
+
+
+def unified_diff(current_text: str, proposed_text: str) -> list[str]:
+    return list(
+        difflib.unified_diff(
+            current_text.splitlines(),
+            proposed_text.splitlines(),
+            fromfile="current",
+            tofile="proposed",
+            lineterm="",
+        )
+    )
+
+
+async def preview_proposal(config: Config, proposal_id: int) -> dict:
+    """What the Review Queue calls before a human decides - computes the
+    real candidate text (and, for skill/behavior, runs the same before/after
+    check consolidate_proposal() would run after approval) without writing
+    anything to skills/personas/entities. Persists the result so approval
+    reuses exactly what was previewed instead of generating a second,
+    possibly different candidate."""
+    proposal = await growth_db.get_proposal(config, proposal_id)
+    if not proposal:
+        return {"ok": False, "error": "proposal not found"}
+
+    category = proposal["category"]
+    title = proposal["opportunity_title"]
+    description = proposal["opportunity_description"]
+    rationale = proposal["rationale"]
+    opportunity_id = proposal["opportunity_id"]
+    observations = await growth_db.list_observations_for_opportunity(config, opportunity_id)
+    result: dict = {
+        "ok": True,
+        "category": category,
+        "observations": [{"summary": o["summary"], "source": o["source"]} for o in observations],
+        "opportunity": {
+            "confidence": proposal.get("opportunity_confidence"),
+            "score": proposal.get("opportunity_score"),
+            "frequency": proposal.get("opportunity_frequency"),
+        },
+    }
+
+    if category == "skill":
+        draft_instructions = await _build_skill_draft(config, opportunity_id, description, rationale)
+        evidence_text = "\n".join(f"- {o['summary']}" for o in observations) or description
+        evaluation = await growth_judge.evaluate_skill_plausibility(config, evidence_text, draft_instructions)
+        evaluation_dict = (
+            {"effectivenessScore": evaluation.effectiveness_score, "reasoning": evaluation.reasoning}
+            if evaluation
+            else None
+        )
+        result["currentText"] = ""
+        result["proposedText"] = draft_instructions
+        result["diff"] = unified_diff("", draft_instructions)
+        result["evaluation"] = evaluation_dict
+        await growth_db.save_proposal_preview(config, proposal_id, "", draft_instructions, evaluation_dict)
+
+    elif category == "behavior":
+        current_persona = await db.get_persona_system_prompt(config) or ""
+        candidate_persona = _build_candidate_persona(current_persona, proposal_id, title, description)
+        regression = await growth_judge.check_golden_regression(config, current_persona, candidate_persona)
+        regressed_any = any(r["regressed"] for r in regression)
+        evaluation_dict = {"regression": regression, "regressedAny": regressed_any}
+        result["currentText"] = current_persona
+        result["proposedText"] = candidate_persona
+        result["diff"] = unified_diff(current_persona, candidate_persona)
+        result["evaluation"] = evaluation_dict
+        await growth_db.save_proposal_preview(config, proposal_id, current_persona, candidate_persona, evaluation_dict)
+
+    else:
+        # knowledge / tool: the "candidate" is just the proposal's own
+        # description - there's no separately generated text to diff.
+        result["currentText"] = ""
+        result["proposedText"] = description
+        result["diff"] = []
+        result["evaluation"] = None
+
+    return result
 
 
 async def consolidate_proposal(config: Config, proposal_id: int) -> dict:
@@ -64,53 +183,61 @@ async def consolidate_proposal(config: Config, proposal_id: int) -> dict:
             result["destination"] = "entities (research DB, type=learning)"
 
         elif category == "skill":
-            draft_instructions = (
-                f"{description}\n\nRationale: {rationale}\n\n"
-                "(Drafted automatically by the Growth engine from an approved proposal - "
-                "review and refine before relying on it heavily.)"
-            )
             if plan_id:
                 await growth_db.advance_learning_plan_step(config, plan_id, 0, "completed")
 
-            observations = await growth_db.list_observations_for_opportunity(config, opportunity_id)
-            evidence_text = "\n".join(f"- {o['summary']}" for o in observations) or description
-            evaluation = await growth_judge.evaluate_skill_plausibility(config, evidence_text, draft_instructions)
+            # Reuse a prior preview_proposal() run so the human approved
+            # exactly this text, instead of regenerating (and potentially
+            # drifting from) it now.
+            cached_text = proposal.get("proposed_text")
+            cached_eval_raw = proposal.get("preview_evaluation")
+            cached_eval = (
+                json.loads(cached_eval_raw) if isinstance(cached_eval_raw, str) else cached_eval_raw
+            ) or {}
+            if cached_text:
+                draft_instructions = cached_text
+                eval_effectiveness = cached_eval.get("effectivenessScore")
+                eval_reasoning = cached_eval.get("reasoning")
+            else:
+                draft_instructions = await _build_skill_draft(config, opportunity_id, description, rationale)
+                observations = await growth_db.list_observations_for_opportunity(config, opportunity_id)
+                evidence_text = "\n".join(f"- {o['summary']}" for o in observations) or description
+                evaluation = await growth_judge.evaluate_skill_plausibility(config, evidence_text, draft_instructions)
+                eval_effectiveness = evaluation.effectiveness_score if evaluation else None
+                eval_reasoning = evaluation.reasoning if evaluation else None
 
             experiment_id = await growth_db.create_experiment(
                 config,
                 f"Skill plausibility evaluation for proposal #{proposal_id}",
-                {"evidence": evidence_text},
+                {"opportunityId": opportunity_id},
                 {"draftInstructions": draft_instructions},
                 proposal_id=proposal_id,
             )
-            passed = evaluation is not None and evaluation.effectiveness_score >= growth_judge.SKILL_EFFECTIVENESS_PASS_THRESHOLD
+            passed = eval_effectiveness is not None and eval_effectiveness >= growth_judge.SKILL_EFFECTIVENESS_PASS_THRESHOLD
             if experiment_id:
                 await growth_db.record_evaluation(
                     config,
                     experiment_id,
                     "skill_plausibility",
                     baseline_score=None,
-                    candidate_score=float(evaluation.effectiveness_score) if evaluation else None,
+                    candidate_score=float(eval_effectiveness) if eval_effectiveness is not None else None,
                     baseline_results={},
-                    candidate_results={"reasoning": evaluation.reasoning if evaluation else None},
+                    candidate_results={"reasoning": eval_reasoning},
                     notes=f"passed={passed}",
                     improved=passed,
                 )
             if plan_id:
-                await growth_db.advance_learning_plan_step(config, plan_id, 1, "completed" if evaluation else "failed")
+                await growth_db.advance_learning_plan_step(config, plan_id, 1, "completed" if eval_effectiveness is not None else "failed")
 
             reason = rationale
             if not passed:
-                eval_note = evaluation.reasoning if evaluation else "evaluation could not be run"
+                eval_note = eval_reasoning or "evaluation could not be run"
                 reason = f"⚠️ LOW-CONFIDENCE evaluation ({eval_note}): {rationale}"
             await growth_db.consolidate_skill(config, title[:100], description[:500], draft_instructions, reason)
             if plan_id:
                 await growth_db.advance_learning_plan_step(config, plan_id, 2, "completed")
             result["destination"] = "skills (active instruction skill)"
-            result["evaluation"] = {
-                "effectivenessScore": evaluation.effectiveness_score if evaluation else None,
-                "passed": passed,
-            }
+            result["evaluation"] = {"effectivenessScore": eval_effectiveness, "passed": passed}
 
         elif category == "tool":
             if plan_id:
@@ -123,13 +250,21 @@ async def consolidate_proposal(config: Config, proposal_id: int) -> dict:
         else:  # behavior -> persona edit, gated by a golden-transcript regression check
             if plan_id:
                 await growth_db.advance_learning_plan_step(config, plan_id, 0, "completed")
-            current_persona = await db.get_persona_system_prompt(config) or ""
-            candidate_persona = (
-                f"{current_persona}\n\n"
-                f"<!-- Growth engine proposal #{proposal_id}: {title} -->\n{description}"
-            )
-            regression = await growth_judge.check_golden_regression(config, current_persona, candidate_persona)
-            regressed_any = any(r["regressed"] for r in regression)
+
+            cached_text = proposal.get("proposed_text")
+            cached_eval_raw = proposal.get("preview_evaluation")
+            cached_eval = (
+                json.loads(cached_eval_raw) if isinstance(cached_eval_raw, str) else cached_eval_raw
+            ) or {}
+            if cached_text:
+                candidate_persona = cached_text
+                regression = cached_eval.get("regression", [])
+                regressed_any = cached_eval.get("regressedAny", any(r["regressed"] for r in regression))
+            else:
+                current_persona = await db.get_persona_system_prompt(config) or ""
+                candidate_persona = _build_candidate_persona(current_persona, proposal_id, title, description)
+                regression = await growth_judge.check_golden_regression(config, current_persona, candidate_persona)
+                regressed_any = any(r["regressed"] for r in regression)
 
             experiment_id = await growth_db.create_experiment(
                 config,

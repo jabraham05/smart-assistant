@@ -16,6 +16,7 @@ rather than just requested.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -52,6 +53,7 @@ GROUPS: dict[str, list[str]] = {
     "self-growth": [
         "skill_propose",
         "growth_review",
+        "teaching_session_manage",
         "code_task",
         "code_task_status",
         "project_propose",
@@ -64,6 +66,24 @@ GROUPS: dict[str, list[str]] = {
     "research": ["research_task", "research_task_status", "status_overview", "project_complete"],
     "goals": ["goal_manage", "project_propose", "status_overview", "project_complete"],
 }
+
+# Real gap found via live testing (2026-10-11): the prompt's own "include
+# self-growth EVEN IF another category also matches" reminder (added for
+# 'goals') turned out unreliable depending on which OTHER category
+# co-occurred - verified working when paired with 'goals', verified NOT
+# working when paired with 'web' on an otherwise-identical standing-
+# instruction message. Rather than chasing every possible category pairing
+# with another prompt example (doesn't scale), safety_net.py's own
+# has_unaddressed_teaching_intent reuses this same regex as a backstop,
+# but the real fix is here: don't trust the model to remember the
+# reminder, enforce it deterministically - same "don't trust the model to
+# be disciplined when a deterministic constraint can enforce it instead"
+# lesson as the is_correction guard below.
+STANDING_INSTRUCTION_INTENT = re.compile(
+    r"\b(from now on|remember this|every time|going forward|that['’]?s the rule|apply this (rule|"
+    r"from now on)|i prefer|i want you to (always|never)|always do this|never do this)\b",
+    re.IGNORECASE,
+)
 
 BEHAVIOR_FEEDBACK_CATEGORIES = [
     "communication",
@@ -79,14 +99,30 @@ MEMORABLE_ITEM_TYPES = ["fact", "preference", "decision", "learning"]
 _CLASSIFIER_SYSTEM_PROMPT = (
     "Classify which capability categories (zero, one, or a few) might be needed to respond to the "
     "user's message. Categories: 'media' (music/Spotify playback control), 'scheduling' (calendar "
-    "events), 'info' (weather, or recalling facts/preferences ABOUT THE USER THEMSELVES specifically "
-    "- their traits, likes, past statements - never a document, manual, or reference material), "
+    "events), 'info' (weather, or RECALLING facts/preferences ABOUT THE USER THEMSELVES that Amy "
+    "should already know or look up - their traits, likes, past statements, e.g. 'what do you know "
+    "about my preferences', 'what did I tell you about X' - never a document, manual, or reference "
+    "material, and NOT the user currently stating a new lasting preference or standing instruction "
+    "for how Amy should behave going forward - that's 'self-growth' below, even though it's also "
+    "about the user's preferences), "
     "'self-growth' (proposing a new skill/tool, starting a coding task on a repo, checking on a "
     "coding task's progress, proposing a longer-term coding project for approval before work "
-    "starts, OR the user wants something Amy has no existing tool for, where a new skill or tool "
+    "starts, the user wants something Amy has no existing tool for, where a new skill or tool "
     "could plausibly be built - a missing integration, a new device/service to control - NOT "
     "something inherently requiring a human or physical action like ordering physical goods or "
-    "signing something, where no software assistant could ever do it), 'dashboard' (moving, "
+    "signing something, where no software assistant could ever do it, OR the user is directly "
+    "teaching Amy something she should do differently going forward - demonstrating a task step by "
+    "step, correcting her attempt at one, explaining a procedure/rules/examples outright, OR STATING "
+    "A LASTING PREFERENCE OR STANDING INSTRUCTION for how Amy should behave/respond (this is the "
+    "most common case - treat any 'I prefer X', 'remember this', 'from now on...', 'I want you to "
+    "always/never...' statement as teaching, not small talk) - e.g. 'let me "
+    "show you how I do X', 'no, the right way is Y, here's why', 'here's the procedure for X: "
+    "step one...'. Include 'self-growth' for this EVEN IF the same message is ALSO doing/correcting "
+    "real work under another category (e.g. 'goals', 'research') - a standing instruction buried "
+    "inside an otherwise task-focused correction (e.g. 'that's wrong, and from now on always check X "
+    "first before planning anything') still counts and must not be dropped just because the other "
+    "category also matches; the two aren't mutually exclusive, same as 'research' alongside 'goals'.), "
+    "'dashboard' (moving, "
     "resizing, showing, or hiding widgets on the smart-mirror "
     "dashboard), 'web' (searching the live web for current information, news, or facts that could "
     "have changed since training, OR looking something up online in general such as finding "
@@ -327,6 +363,15 @@ async def classify_relevant_tools(
         parsed = result.output
 
         relevant_groups = [g for g in parsed.relevant_groups if g in TOOL_GROUPS]
+
+        # Deterministic guard: a standing-instruction/teaching cue always
+        # gets self-growth (so teaching_session_manage is bound),
+        # regardless of what other category the model also matched - see
+        # STANDING_INSTRUCTION_INTENT's comment above for why this can't
+        # just be a prompt reminder.
+        if "self-growth" not in relevant_groups and STANDING_INSTRUCTION_INTENT.search(chat_input):
+            relevant_groups.append("self-growth")
+
         background, tools_after_background = apply_background_override(
             parsed.background, relevant_groups, expand_groups_to_tools(relevant_groups)
         )

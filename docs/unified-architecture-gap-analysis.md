@@ -5,6 +5,8 @@ A vision document proposed a unified cognitive architecture for Amy: a Context B
 This doc maps that vision onto what's actually built today, so the next build phase starts from "what's the real gap" instead of "what should exist in theory." Short version: **most of the vision already exists, under different names, at different maturity levels.** The real gaps are (1) no unified Growth lifecycle — several independent signal-capture mechanisms exist but nothing scores/proposes/experiments/evaluates the way the vision describes, (2) skills are flat and always-on rather than first-class objects with dynamic, leveled loading, and (3) the context-assembly logic that already exists isn't named or extracted as its own module. There's also real prior art for the Growth engine specifically — a full Reviewer/Proposer pipeline built in September 2026, never merged, stale now because it was wired into an n8n workflow that's since been replaced — whose *schema and rubric design* is still worth reusing even though its implementation isn't.
 
 > **Implementation status:** Phases 6–9 of the roadmap below (§7) are built and live-verified on branch `amy-phase6-growth-engine`. Full build details, what was ported vs. new, and what's still a known gap live in `docs/growth-engine.md` — this doc stays as the conceptual design reference.
+>
+> **2026-10 update:** a separately-drafted "unified Memory, Skills, Teaching & Growth" proposal was reconciled against the live Phases 6–9 build. Verdict and a new Phase 10 (Teaching — the one genuinely missing layer) are in §11.
 
 ## 1. Current architecture snapshot
 
@@ -107,7 +109,7 @@ Low urgency relative to §4/§5. The logic already exists and already works (the
 This supersedes §7/§8 of the original draft. The framing isn't "build the unified cognitive architecture" — most of it already exists. It's **unify Amy's existing cognitive systems through Growth, Skills v2, and Context Builder boundaries**, continuing the existing 5-pillar rebuild numbering as Phases 6–9, in priority order:
 
 ```
-6. Growth Engine  →  7. Skills v2  →  8. Context Builder extraction  →  9. Autonomous Growth
+6. Growth Engine  →  7. Skills v2  →  8. Context Builder extraction  →  9. Autonomous Growth  →  10. Teaching layer  →  11. Proof of learning
 ```
 
 That order gets the biggest capability jump first, while reusing the substantial work already done. None of the three foundational phases (6, 7, 8) strictly blocks another — #7 benefits from #8 being done first but doesn't require it — Phase 9 is the payoff that needs all three in place.
@@ -354,6 +356,88 @@ Once Phases 6–8 exist, the original idea becomes a real loop:
                                      Better Amy
 ```
 
+### Phase 10 — Teaching layer (revised 2026-10; implemented, not yet live-verified - see `docs/growth-engine.md` §Phase 10)
+
+Everything in Phases 6–9 captures what Amy *infers* from behavior, corrections, and tool outcomes. None of it covers direct instruction — the user deliberately showing or explaining a procedure. That path doesn't exist today (confirmed: zero references to "teach" anywhere in the codebase). Teaching is a new front door into the *same* Growth pipeline, not a parallel learning system — and critically, **not a skill-only pipeline**: a teaching session's lesson must pass through the same classification the rest of Growth uses before anything gets built, because not everything Amy is taught is a procedure.
+
+```
+Teaching Session (new) — one shared lifecycle for all three modes
+    │
+    ├── Demonstration      — user performs + narrates; captured like any other observation
+    ├── Guided practice    — Amy attempts, user corrects; each correction = evidence
+    └── Explain-and-build  — user describes procedure/rules/examples directly
+             │
+             ▼
+     Capture: instructions + corrections + source references → teaching_sessions row
+             │
+             ▼
+     classify_category()  ◄── same classifier Phase 6.3 already uses, not a new one
+             │
+    ┌────────┼────────────────┬──────────────────┐
+    ▼                         ▼                   ▼
+ Preference               Project knowledge     Skill
+ (user/preference         (project decisions/   (repeatable procedure)
+  system, not a skill)     learnings, not a skill)   │
+                                                      ▼
+                                      growth_proposals (category='skill',
+                                      source='teaching_session')
+                                                      │
+                                                      ▼
+                                      Learning Plan → Experiment
+                                      (evaluate_skill_plausibility, or real
+                                      test cases if the user gave expected
+                                      inputs/outputs) → Evaluation
+                                                      │
+                                                      ▼
+                                      Approval (growth_review, Tier 2 —
+                                      same as any other skill proposal)
+                                                      │
+                                                      ▼
+                                      Active skill, versioned, linked back
+                                      to its originating teaching session
+```
+
+**Phase 10.1 — Teaching session record.** Add a `teaching_sessions` table to the existing `growth` database (not a new database): mode, source conversation/turn reference, captured instructions/corrections with references, extracted candidate procedure + rules + examples + unresolved questions, and a foreign key to whichever existing record it was classified into (`growth_proposals.id` for a skill outcome, or the preference/entities row for a non-skill outcome). This reuses `growth_proposals`/`learning_plans`/`experiments`/`evaluations` as the downstream pipeline — a teaching session is a new *source* feeding existing classification and consolidation, not a new lifecycle running alongside it.
+
+**Phase 10.2 — Capture hook, shared across all three modes.** A teaching session starts the same way `behaviorFeedback`/`isCorrection` do today — detected mid-conversation (an explicit "let me show you how to do X" or "no, the right way is Y, here's why" pattern) rather than a separate mode the user has to invoke. Guided-practice corrections feed `record_observation` exactly like any other correction; the difference is they're pre-linked to one `teaching_sessions` row instead of accumulating as independent opportunities.
+
+**Phase 10.3 — Classify before building anything.** Run the captured lesson through `classify_category()` before deciding what, if anything, to draft. A durable fact about how the user wants Amy to behave routes to the preference system, not a skill. A project-specific decision or constraint routes to project knowledge. Only a genuinely repeatable procedure becomes a skill candidate. This is the step that stops every teaching session from automatically producing a new skill.
+
+**Phase 10.4 — Draft skill generation + testing** (skill-classified outcomes only). Explain-and-build sessions go straight from captured procedure to a draft skill body, then through the existing `evaluate_skill_plausibility` judge check before reaching `growth_review` — same `⚠️ LOW-CONFIDENCE` prefix convention Phase 6.5's follow-up work already established for low-scoring skill proposals. If the user supplied concrete example inputs/outputs during teaching, run those as real test cases (closer to golden-transcript regression than judge plausibility) rather than relying on the judge alone — this is the one place real execution testing is both cheap and available, since the test cases come from the teaching session itself.
+
+**Phase 10.5 — Surface in Amy Lab.** Add teaching sessions as a view under the existing Growth → Learning Plans tab (linked session → classification → proposal/preference/knowledge record → plan → evaluation), rather than a sixth top-level tab. A teaching session is additional provenance on an existing record, not a new category of thing to triage.
+
+### Phase 11 — Proof of learning (new 2026-10, the actual exit criterion for Phase 10)
+
+A skill being saved and activated is not evidence Amy learned to use it. Before Teaching counts as done, add an end-to-end behavioral test, separate from the schema/pipeline tests above:
+
+```
+Teach a workflow → approve the resulting skill/preference/knowledge update
+        ↓
+Start a NEW, separate conversation
+        ↓
+Ask Amy to perform the same class of task with novel inputs
+        ↓
+Check:
+  • Did she retrieve the right skill/preference/fact for this situation?
+  • Did she follow the demonstrated procedure and respect its rules?
+  • Did she avoid repeating the original mistake the teaching corrected?
+  • Did she avoid firing on an unrelated request (false trigger)?
+  • If something later contradicts or supersedes it, does she recognize that
+    instead of applying stale guidance?
+```
+
+This is also where **provenance and lifecycle consistency** get enforced, not just recorded: every durable outcome should be traceable through stable IDs/links — which observation(s) → which teaching session → which proposal → which evaluation → who approved it → which active skill/preference/knowledge row resulted — using the existing tables' foreign keys, not copies of the same content. Superseded or contradicted information should be marked superseded (skill versioning and `persona_snapshots` already model this for skills/personas; extend the same pattern to teaching-derived preference and knowledge outcomes) rather than silently overwritten.
+
+**Ongoing measurement**, added to the existing Amy Lab Growth dashboard rather than a new analytics subsystem — reuse `growth_history`, `evaluations`, and `review_scores`, which already exist for this purpose:
+- Repeated-mistake rate (same `review_attributions` category recurring after a related proposal was consolidated).
+- Skill retrieval/reuse success rate (a discovered skill was actually the relevant one for the turn).
+- False-trigger rate (a skill fired on a turn its triggers shouldn't have matched).
+- Proposals accepted / rejected / rolled back, by category.
+- Corrections repeated on the same topic after Amy "learned" from an earlier one — the single clearest signal that a consolidation didn't actually change behavior.
+
+The acceptance bar for this phase isn't "Teaching sessions produce skills." It's: **when Amy encounters a relevant situation, she retrieves the right information, applies it correctly, recognizes when it no longer applies, and demonstrates that a prior correction actually changed her later behavior.**
+
 ## 8. The autonomy model (resolves the open decision from §2/§4)
 
 **Tier 1 — Autonomous.** Amy can do these without asking: research something, learn factual knowledge, create internal observations, run evaluations, create experiments, improve documentation, identify recurring problems, propose opportunities, maintain growth history.
@@ -398,3 +482,54 @@ Archive only once Phase 6 is implemented and the schema/design has been ported a
 ```
 
 Underneath: Postgres (operational state) · Memory Engine (episodic recall) · Knowledge Engine (semantic/world knowledge) · Graphiti (relationships, decisions, development history) · Skills (procedural capability) · Growth (determines what Amy should become better at) · Context Builder (determines what Amy needs right now).
+
+## 11. Reconciling the 2026-10 "unified Memory, Skills, Teaching & Growth" proposal
+
+A separately-drafted plan proposed treating memory, skills, teaching, and autonomous learning as one connected system, with capture/promotion kept as distinct steps. Checked against the live Phases 6–9 build (`docs/growth-engine.md`) rather than against this doc's own earlier (now-stale) "what's missing" framing. Short version: **the proposal's principles are already the system's principles — most of its "build this" items are already shipped under different names.** The one real, unbuilt layer is Teaching (now Phase 10, §7).
+
+### Concept-by-concept verdict
+
+| Proposal concept | Live equivalent | Verdict |
+|---|---|---|
+| Learning candidate (id, type, source, evidence, confidence, occurrence_count, status, destination) | `growth_observations` / `growth_opportunities` (`growth_db.py`) | **Already built**, near field-for-field match |
+| Capture pipeline: signal → candidate → classify → route | `record_observation()` → `classify_category()` → `consolidate_proposal()` | **Already built** |
+| Dedup + evidence accumulation | Dedup by normalized title; `frequency`/`last_observed_at` accumulate on match | **Already built**, simpler than proposed (title match, not semantic similarity — a real future refinement, not a gap) |
+| Three-tier approval (autonomous / user-approval / always-approval) | `APPROVAL_TIER_BY_CATEGORY`, §8 of this doc | **Already built** |
+| "Capture is not promotion" | Tier 2 proposals sit in `growth_proposals` until `growth_review` approval; nothing auto-applies to personas/skills | **Already built** |
+| Golden-transcript regression before behavior changes | `check_golden_regression()` | **Already built** |
+| Evaluation dimensions (task success, relevance, persona alignment, sentiment, follow-up coherence) | `growth_judge.py`'s 5-dimension rubric | **Already built**, identical dimensions |
+| Learning Inbox / Growth dashboard | Amy Lab Growth tab — Overview / Opportunities / Review Queue / Learning Plans / History | **Already built**, live-verified via Playwright |
+| Skill progressive loading (L1 metadata → L4 examples) | `skills_discovery.py`: L1/L2 always rendered, L3 for direct-trigger matches, L4 on-demand via `skill_examples` MCP tool | **Already built** |
+| Graphiti milestones for meaningful consolidations, not every event | `growth_graphiti.py` fires only at `proposed`/`consolidated` | **Already built** |
+| Durable, human-readable "library" (`amy-library/identity/`, `user/`, `projects/`, `skills/`, `growth/` as literal files) | Persona lives in Postgres (`personas.system_prompt`); user model lives in Honcho's hosted peer cards; skills live in the `skills` table | **Not built, and shouldn't be as literal files.** Introducing a filesystem tree as a second source of truth for data that's already authoritative in Postgres/Honcho is exactly the "parallel store for the same responsibility" this doc's own principles (and the proposal's own §14 non-goals) warn against. If a human-browsable view is wanted, build it as a generated export/read view over the existing stores, not a new place to write to. |
+| Teaching (demonstration / guided practice / explain-and-build) | Nothing — zero matches for "teach" anywhere in the repo | **Real gap.** The only piece worth new engineering effort; see Phase 10 (§7). |
+| Proof that a consolidated change actually altered behavior | Nothing — Phases 6–9 verify that a row got written, not that later turns behave differently | **Real gap.** See Phase 11 (§7) — a saved skill/preference is not evidence Amy learned to use it. |
+
+### What to keep unchanged
+
+The framing that matters most here: **stop treating memory/Growth as things to build, and start treating them as things to prove work together reliably.** Nothing below changes as a result of this reconciliation or the proposal:
+
+| Decision | Keep as-is |
+|---|---|
+| Growth engine (observations → opportunities → proposals → plans → experiments → evaluations → consolidation) | Extend with Teaching as a new source; don't restructure |
+| Skills v2 / progressive loading (L1–L4) | Keep |
+| Context Builder | Keep; improve relevance selection with evidence from Phase 11's metrics, don't rewrite it |
+| Honcho / Memory Engine / Knowledge Engine | Keep their distinct responsibilities; no merging into one store |
+| Graphiti | Keep storing curated episodes at meaningful moments only, not raw turns |
+| Postgres | Remains canonical for operational records, skills, and persona data |
+| Filesystem-style "library" | Only ever a generated, human-readable view over the existing stores — never a second writable source of truth |
+| Human approval (Tier 2/3) | Unchanged — persistent preferences, skill activation, persona changes, consequential capabilities all still require approval |
+
+### What's actually left to do, in order
+
+1. **Close the Review Queue gap first, and clear the pending persona proposal.** This is more than a UI fix — it's what makes self-modification auditable. The queue needs to show, per proposal: current version vs. proposed version with a readable diff, the rationale, the supporting observations/confidence/evaluation results that justified it, and a concrete description of what approving it will actually do.
+   - **Done, 2026-10, not yet live-verified**: `growth_consolidate.preview_proposal` + `POST /growth/proposals/{id}/preview` generate the real candidate text and evaluation ahead of approval (reused, not regenerated, when the human then approves); the Review Queue and the legacy persona-proposal card both render a real diff. Full writeup in `docs/growth-engine.md`'s "Follow-up (2026-10)" section. Still needs: migration `28-add-proposal-preview-columns.sql` applied, and a real pass against the running stack — static checks (pyflakes/tsc/eslint) only so far.
+   - **Still open, not code**: the real 2026-08-21 persona proposal (software-dev/GitHub capabilities) is visible via `growth_review`/`promote_persona` but still unreviewed by a human — shouldn't sit indefinitely.
+2. **Build Phase 10 (Teaching)** as a workflow through the existing pipeline, not a third learning engine: one shared `teaching_sessions` lifecycle for all three modes, classification-first (so a preference or project decision doesn't get force-fit into a skill), reusing `growth_proposals`/`learning_plans`/`experiments`/`evaluations` as the downstream path.
+   - **Done, 2026-10, not yet live-verified**: `teaching_sessions` table + `growth_teaching.finalize_teaching_session` (classify via `growth_judge.classify_teaching_content`, then route through the existing `record_observation`/proposal pipeline) + `teaching_session_manage` MCP tool as the capture hook (model-invoked, same precedent as `skill_propose` - deliberately not a `classify.py` structured-output schema change; full reasoning in `docs/growth-engine.md`). Amy Lab shows sessions under the Learning Plans tab. Still needed: apply migration `29-create-teaching-sessions-table.sql` and a real pass against the running stack.
+3. **Prove end-to-end learning (Phase 11)** before calling Teaching done: draft generation, real skill execution, cross-conversation reuse with novel inputs, correct retrieval, rule adherence, no repeat of the original mistake, no false triggering on unrelated requests, and traceable provenance/supersession handling.
+4. **Only then** address weaknesses that real measurement actually surfaces — semantic (not just title-match) deduplication, richer contradiction handling, retrieval tuning — rather than pre-building them speculatively. Add the small metric set to the existing Amy Lab dashboard (repeated-mistake rate, skill retrieval/reuse success, false-trigger rate, proposal accept/reject/rollback rates, corrections repeated after "learning") using `growth_history`/`evaluations`/`review_scores` — no new analytics subsystem.
+
+**Acceptance criterion for this whole phase:** when Amy encounters a relevant situation, she retrieves the right information, applies it correctly, recognizes when it no longer applies, and demonstrates that a prior correction actually changed her later behavior. A schema existing, a proposal being approved, or a skill being saved are necessary steps toward that, not substitutes for it.
+
+**Caveat before starting any of this:** everything marked "already built"/"live-verified" above reflects `docs/growth-engine.md` as written, not a fresh check of current code/test health. Verify the specific interfaces Phase 10/11 will touch (`growth_db.py`, `growth_judge.py`, `growth_consolidate.py`, the Amy Lab Review Queue component) actually still pass their existing tests before building on top of them.

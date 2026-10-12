@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { GrowthProposal, PersonaProposal } from "@/lib/growth-client";
-import { ActionButton, APPROVAL_CONSEQUENCE, Card, CategoryBadge, EmptyRow, ErrorRow, StatusBadge, formatDate } from "./shared";
+import type { GrowthProposal, PersonaProposal, ProposalPreview } from "@/lib/growth-client";
+import { ActionButton, APPROVAL_CONSEQUENCE, Card, CategoryBadge, DiffView, EmptyRow, ErrorRow, StatusBadge, formatDate } from "./shared";
 
 function PersonaProposalCard({ onChanged }: { onChanged: () => void }) {
   const [proposal, setProposal] = useState<PersonaProposal | null>(null);
@@ -53,10 +53,14 @@ function PersonaProposalCard({ onChanged }: { onChanged: () => void }) {
       </div>
       <p className="mt-1.5 text-xs font-medium text-zinc-200">Proposed reasoning</p>
       <p className="mt-0.5 whitespace-pre-wrap text-xs text-zinc-400">{proposal.proposed_reason}</p>
-      <p className="mt-1.5 text-xs font-medium text-zinc-200">Proposed text</p>
-      <p className="mt-0.5 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/20 p-2 text-[11px] text-zinc-400">
-        {proposal.proposed_system_prompt}
-      </p>
+      <p className="mt-1.5 text-xs font-medium text-zinc-200">Current vs. proposed</p>
+      {proposal.diff && proposal.diff.length > 0 ? (
+        <DiffView diff={proposal.diff} />
+      ) : (
+        <p className="mt-0.5 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/20 p-2 text-[11px] text-zinc-400">
+          {proposal.proposed_system_prompt}
+        </p>
+      )}
       <p className="mt-1.5 text-[11px] text-zinc-600">
         Current persona is {proposal.system_prompt?.length ?? 0} chars; this proposal is{" "}
         {proposal.proposed_system_prompt?.length ?? 0} chars. Promotion is refused if the proposed text looks too
@@ -75,7 +79,51 @@ function ProposalRow({ proposal, onDecided }: { proposal: GrowthProposal; onDeci
   const [expanded, setExpanded] = useState(false);
   const [notes, setNotes] = useState("");
   const [result, setResult] = useState<string | undefined>();
+  const [preview, setPreview] = useState<ProposalPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | undefined>();
+  const [previewLoading, setPreviewLoading] = useState(false);
   const isPending = proposal.status === "proposed";
+
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (!next || preview || previewLoading) return;
+
+    // Already generated once - either previewed earlier or consolidated -
+    // reuse it instead of a fresh (costly) judge/regression call.
+    if (proposal.proposed_text) {
+      setPreview({
+        ok: true,
+        category: proposal.category,
+        currentText: proposal.current_text ?? "",
+        proposedText: proposal.proposed_text,
+        diff: [],
+        evaluation: proposal.preview_evaluation ?? null,
+        observations: [],
+        opportunity: {
+          confidence: proposal.opportunity_confidence ?? null,
+          score: proposal.opportunity_score ?? null,
+          frequency: proposal.opportunity_frequency ?? null,
+        },
+      });
+      return;
+    }
+
+    if (!isPending) return; // decided, and nothing was ever generated for it (knowledge/tool have no candidate text)
+
+    setPreviewLoading(true);
+    fetch(`/api/growth/proposals/${proposal.id}/preview`, { method: "POST" })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: ProposalPreview) => {
+        if (data.ok === false) {
+          setPreviewError(data.error ?? "Preview failed.");
+        } else {
+          setPreview(data);
+        }
+      })
+      .catch(() => setPreviewError("Couldn't generate a preview."))
+      .finally(() => setPreviewLoading(false));
+  };
 
   const act = async (action: "approve" | "reject") => {
     setResult(undefined);
@@ -104,7 +152,7 @@ function ProposalRow({ proposal, onDecided }: { proposal: GrowthProposal; onDeci
 
   return (
     <li className={`rounded-lg border p-2.5 ${isPending ? "border-amber-500/20 bg-amber-500/[0.04]" : "border-white/5 bg-white/[0.02]"}`}>
-      <button onClick={() => setExpanded((v) => !v)} className="w-full text-left">
+      <button onClick={toggle} className="w-full text-left">
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 truncate text-sm text-zinc-100">
             <CategoryBadge category={proposal.category} />
@@ -123,9 +171,64 @@ function ProposalRow({ proposal, onDecided }: { proposal: GrowthProposal; onDeci
             <p className="text-xs text-zinc-300">{proposal.proposed_action}</p>
           </div>
           <div>
-            <p className="text-[10px] font-mono uppercase tracking-wide text-zinc-600">Rationale / evidence</p>
+            <p className="text-[10px] font-mono uppercase tracking-wide text-zinc-600">Rationale</p>
             <p className="text-xs text-zinc-400">{proposal.rationale}</p>
           </div>
+          <div>
+            <p className="text-[10px] font-mono uppercase tracking-wide text-zinc-600">
+              Supporting observations
+              {proposal.opportunity_confidence != null && (
+                <span className="ml-1.5 text-zinc-500">confidence {Number(proposal.opportunity_confidence).toFixed(1)}</span>
+              )}
+            </p>
+            {previewLoading && <p className="text-xs text-zinc-600">Generating preview…</p>}
+            {!previewLoading && preview?.observations && preview.observations.length > 0 && (
+              <ul className="mt-0.5 space-y-0.5">
+                {preview.observations.map((o, i) => (
+                  <li key={i} className="text-xs text-zinc-400">
+                    <span className="font-mono text-[9px] uppercase text-zinc-600">{o.source}</span> {o.summary}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {!previewLoading && preview && preview.observations.length === 0 && (
+              <p className="text-xs text-zinc-600">No individual observations recorded.</p>
+            )}
+          </div>
+          {previewError && <ErrorRow text={previewError} />}
+          {preview && preview.diff.length > 0 && (
+            <div>
+              <p className="text-[10px] font-mono uppercase tracking-wide text-zinc-600">Current vs. proposed</p>
+              <DiffView diff={preview.diff} />
+            </div>
+          )}
+          {preview && preview.diff.length === 0 && preview.proposedText && (
+            <div>
+              <p className="text-[10px] font-mono uppercase tracking-wide text-zinc-600">Proposed content</p>
+              <p className="mt-0.5 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/20 p-2 text-[11px] text-zinc-400">
+                {preview.proposedText}
+              </p>
+            </div>
+          )}
+          {preview?.evaluation && (
+            <div>
+              <p className="text-[10px] font-mono uppercase tracking-wide text-zinc-600">Evaluation result</p>
+              {proposal.category === "skill" && (
+                <p className="text-xs text-zinc-400">
+                  Plausibility score {String((preview.evaluation as { effectivenessScore?: number }).effectivenessScore ?? "?")}/5
+                  {" — "}
+                  {(preview.evaluation as { reasoning?: string }).reasoning}
+                </p>
+              )}
+              {proposal.category === "behavior" && (
+                <p className="text-xs text-zinc-400">
+                  {(preview.evaluation as { regressedAny?: boolean }).regressedAny
+                    ? "⚠️ Regressed against at least one golden transcript."
+                    : "No regression against golden transcripts."}
+                </p>
+              )}
+            </div>
+          )}
           <div>
             <p className="text-[10px] font-mono uppercase tracking-wide text-zinc-600">What happens on approval</p>
             <p className="text-xs text-zinc-500">{APPROVAL_CONSEQUENCE[proposal.category] ?? "Consolidated."}</p>

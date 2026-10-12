@@ -269,3 +269,67 @@ async def check_golden_regression(config: Config, current_persona: str, candidat
         except Exception:
             logger.exception("growth_judge.check_golden_regression failed for transcript %s", gt.get("label"))
     return results
+
+
+class TeachingClassificationOutput(BaseModel):
+    # No field defaults - same reasoning as JudgeOutput/ClassifierOutput:
+    # a missing field should be a visible error, not a silently-wrong guess.
+    category: Literal["knowledge", "skill", "behavior", "tool"]
+    reasoning: str
+    procedure: str | None = Field(alias="procedure")
+    rules: str | None = Field(alias="rules")
+    examples: str | None = Field(alias="examples")
+    open_questions: str | None = Field(alias="openQuestions")
+
+    model_config = {"populate_by_name": True}
+
+
+_TEACHING_CLASSIFY_SYSTEM_PROMPT = (
+    "The user has been teaching Amy, a personal AI assistant, something directly - by demonstrating a "
+    "task, correcting her attempts at it, or explaining a procedure/rules/examples outright. You're "
+    "given the raw captured content of that teaching. Decide what kind of lesson this actually is - "
+    "not everything taught should become a new skill:\n"
+    "- 'skill': a genuinely repeatable PROCEDURE for doing a task - concrete steps, decision rules, or "
+    "a workflow Amy could follow again for a similar request later.\n"
+    "- 'behavior': how the user wants Amy to BEHAVE or communicate in general (tone, when to ask vs. "
+    "act, a standing preference) - not tied to one specific task's steps.\n"
+    "- 'knowledge': a fact, decision, or piece of information to remember - not a procedure to follow.\n"
+    "- 'tool': the user is describing a capability/integration Amy doesn't have at all yet (not a "
+    "procedure using tools she already has).\n"
+    "When genuinely ambiguous, prefer 'knowledge' over inventing a procedure that wasn't really given.\n"
+    "If category is 'skill', extract: procedure (the concrete steps, as Amy should follow them), rules "
+    "(any decision rules, constraints, or things to always/never do), examples (concrete input/output "
+    "examples if any were given, else null), openQuestions (anything genuinely ambiguous or "
+    "underspecified that a human should resolve before this is trusted, else null). For any other "
+    "category, leave procedure/rules/examples/openQuestions null. reasoning: one or two sentences "
+    "explaining the category choice."
+)
+
+
+def _build_teaching_classify_agent(config: Config) -> Agent[None, TeachingClassificationOutput]:
+    return Agent(
+        OllamaModel(
+            model_name=config.growth_judge_model, provider=OllamaProvider(base_url=f"{config.ollama_host}/v1")
+        ),
+        output_type=NativeOutput(TeachingClassificationOutput),
+        instructions=_TEACHING_CLASSIFY_SYSTEM_PROMPT,
+        model_settings={"thinking": False, "timeout": 60},
+    )
+
+
+async def classify_teaching_content(config: Config, mode: str, captured_content: str) -> TeachingClassificationOutput | None:
+    """Phase 10.3: classify before building anything. Runs on the bigger
+    judge model (not the live chat/classifier's 8b model) for the same
+    reliability reason every other reflective-reasoning call in this file
+    does - this decision determines whether a lesson becomes a skill, a
+    persona-behavior proposal, or a knowledge entry, so a cheap model
+    guessing wrong here is a real misclassification, not just a worse
+    answer."""
+    try:
+        agent = _build_teaching_classify_agent(config)
+        prompt = f"Teaching mode: {mode}\n\nCaptured content:\n{captured_content}"
+        result = await agent.run(prompt)
+        return result.output
+    except Exception:
+        logger.exception("growth_judge.classify_teaching_content failed")
+        return None

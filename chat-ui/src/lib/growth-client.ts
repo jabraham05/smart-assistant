@@ -39,6 +39,12 @@ export interface GrowthProposal {
   reviewer_notes: string | null;
   opportunity_title?: string;
   opportunity_description?: string;
+  opportunity_confidence?: number | null;
+  opportunity_score?: number | null;
+  opportunity_frequency?: number | null;
+  current_text?: string | null;
+  proposed_text?: string | null;
+  preview_evaluation?: Record<string, unknown> | null;
 }
 
 export interface LearningPlanStep {
@@ -95,6 +101,35 @@ export interface GrowthHistoryEntry {
   proposal_category?: string;
 }
 
+export interface ProposalPreview {
+  ok: boolean;
+  error?: string;
+  category: "knowledge" | "skill" | "behavior" | "tool";
+  currentText: string;
+  proposedText: string;
+  diff: string[];
+  evaluation: Record<string, unknown> | null;
+  observations: { summary: string; source: string }[];
+  opportunity: { confidence: number | null; score: number | null; frequency: number | null };
+}
+
+export interface TeachingSession {
+  id: number;
+  session_id: string | null;
+  mode: "demonstration" | "guided_practice" | "explain_and_build";
+  status: "capturing" | "classified" | "routed" | "consolidated" | "abandoned";
+  captured_content: string;
+  category: "knowledge" | "skill" | "behavior" | "tool" | null;
+  classification_reasoning: string | null;
+  extracted_procedure: string | null;
+  extracted_rules: string | null;
+  extracted_examples: string | null;
+  open_questions: string | null;
+  opportunity_id: number | null;
+  proposal_id: number | null;
+  created_at: string;
+}
+
 export interface PersonaProposal {
   pending: boolean;
   name?: string;
@@ -102,6 +137,7 @@ export interface PersonaProposal {
   proposed_system_prompt?: string;
   proposed_reason?: string;
   proposed_at?: string;
+  diff?: string[];
 }
 
 async function getJson<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
@@ -157,6 +193,10 @@ export async function getGrowthProposal(id: number): Promise<GrowthProposal> {
   return getJson<GrowthProposal>(`/growth/proposals/${id}`);
 }
 
+export async function previewGrowthProposal(id: number): Promise<ProposalPreview> {
+  return postJson<ProposalPreview>(`/growth/proposals/${id}/preview`);
+}
+
 export async function approveGrowthProposal(id: number, notes?: string) {
   return postJson<{ ok: boolean; consolidation?: Record<string, unknown> }>(`/growth/proposals/${id}/approve`, { notes });
 }
@@ -178,6 +218,11 @@ export async function listGrowthExperiments(): Promise<GrowthExperiment[]> {
 export async function listGrowthHistory(limit?: number): Promise<GrowthHistoryEntry[]> {
   const data = await getJson<{ history: GrowthHistoryEntry[] }>("/growth/history", { limit });
   return data.history;
+}
+
+export async function listTeachingSessions(status?: string): Promise<TeachingSession[]> {
+  const data = await getJson<{ teachingSessions: TeachingSession[] }>("/growth/teaching-sessions", { status });
+  return data.teachingSessions;
 }
 
 export async function getPersonaProposal(): Promise<PersonaProposal> {

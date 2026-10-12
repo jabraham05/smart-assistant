@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import re
 
+from .classify import STANDING_INSTRUCTION_INTENT
+
 # Same tool list as the old "confabulated action" backstop - tools whose
 # whole point is performing a real side effect, where a claim of success
 # with no matching call is worth catching.
@@ -446,3 +448,52 @@ UNWARRANTED_CHECKING_OPENER_NUDGE = (
     "this turn - that opener is only for when you're about to call a tool. Just answer directly "
     "instead, with no opener at all.)"
 )
+
+# Real gap found via live testing (2026-10-11): a standing-instruction
+# correction given mid-task ("from now on always check my constraints "
+# first... apply this every time I give you a vague goal") got only a
+# verbal "I'll follow that rule moving forward" - no teaching_session_manage
+# call, no observation, nothing persisted anywhere. classify.py's own
+# deterministic STANDING_INSTRUCTION_INTENT guard (see its comment there)
+# now forces self-growth into relevant_groups whenever this regex matches,
+# regardless of what other category the model matched - reused here rather
+# than duplicated, since both checks need to agree on exactly what counts
+# as a standing-instruction cue. This check is the backstop for the one
+# case the classifier-level guard can't reach: self-growth correctly
+# bound, but the model still didn't call the tool - juggling "respond to
+# the correction," "keep doing the task," and "log a durable lesson" in
+# one turn, it kept dropping the third. Same "model's own compliance" gap
+# as every other check here, just for a promise instead of a claimed
+# action.
+
+
+def has_unaddressed_teaching_intent(chat_input: str, relevant_groups: list[str], called_tools: list[str]) -> bool:
+    """True when the user's message carries a standing-instruction/teaching
+    cue, self-growth was matched (teaching_session_manage is bound), but it
+    was never actually called this turn."""
+    if "self-growth" not in relevant_groups:
+        return False
+    if "teaching_session_manage" in called_tools:
+        return False
+    return bool(STANDING_INSTRUCTION_INTENT.search(chat_input))
+
+
+def teaching_intent_retry_nudge(chat_input: str) -> str:
+    """Real bug found live-testing this exact retry (2026-10-11): a static
+    nudge let the model compose teaching_session_manage's `content` arg
+    from its own memory of the conversation, and it grabbed an earlier,
+    unrelated message instead of the actual correction it was just given -
+    a content-fidelity failure, not a routing one (self-growth was matched,
+    the tool was called, just with the wrong text). Fixed by quoting the
+    literal current message in the nudge itself and telling the model to
+    copy it verbatim, removing the need for the model to "find" the right
+    text in context at all - same dynamic-nudge pattern main.py's own
+    tool_error retry already uses (embedding the real tool name/error
+    inline rather than a generic static string)."""
+    return (
+        " (You were just given a standing instruction or lasting preference to remember for the "
+        "future - promising to follow it isn't enough, it has to actually be persisted. Call "
+        "teaching_session_manage right now (action='start', finalizeImmediately=true) with `content` "
+        f"set to EXACTLY this text, word for word - not a summary, not something from earlier in the "
+        f'conversation: "{chat_input}" - then answer normally.)'
+    )

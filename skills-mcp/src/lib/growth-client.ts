@@ -112,3 +112,98 @@ export async function dismissPersonaProposal(config: Config, name = "Amy", reaso
   if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
   return res.json();
 }
+
+// Phase 10 (Teaching layer) - growth_teaching.py / the /growth/teaching-
+// sessions routes in growth_routes.py. This is the actual capture hook:
+// Amy calls this herself when she recognizes the user is teaching her
+// something, the same "model-invoked mid-conversation" idiom skill_propose
+// already uses, rather than a new field on the per-turn classifier.
+export interface TeachingSession {
+  id: number;
+  session_id: string | null;
+  mode: "demonstration" | "guided_practice" | "explain_and_build";
+  status: "capturing" | "classified" | "routed" | "consolidated" | "abandoned";
+  captured_content: string;
+  category: string | null;
+  classification_reasoning: string | null;
+  extracted_procedure: string | null;
+  extracted_rules: string | null;
+  extracted_examples: string | null;
+  open_questions: string | null;
+  opportunity_id: number | null;
+  proposal_id: number | null;
+  created_at: string;
+}
+
+export async function startTeachingSession(
+  config: Config,
+  mode: TeachingSession["mode"],
+  content: string,
+  sessionId?: string,
+  finalizeImmediately?: boolean,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(new URL("/growth/teaching-sessions", config.agentServiceUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode, content, sessionId, finalizeImmediately }),
+    // finalizeImmediately chains a judge classification call AND, for
+    // skill/behavior, a plausibility/regression check - two sequential
+    // judge calls in one request. Live-tested and found 60s insufficient
+    // under load (a real ReadTimeout, not just the model declining to call
+    // this tool) - same generous ceiling approve already uses for its own
+    // regression check.
+    signal: AbortSignal.timeout(finalizeImmediately ? 120_000 : 10_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}
+
+export async function captureTeachingContent(
+  config: Config,
+  teachingSessionId: number,
+  content: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(new URL(`/growth/teaching-sessions/${teachingSessionId}/capture`, config.agentServiceUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}
+
+export async function finalizeTeachingSession(
+  config: Config,
+  teachingSessionId: number,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(new URL(`/growth/teaching-sessions/${teachingSessionId}/finalize`, config.agentServiceUrl), {
+    method: "POST",
+    // Runs a judge classification call, and - for skill/behavior categories
+    // that clear the proposal threshold - a plausibility/regression check
+    // too (same cost shape approve already has).
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}
+
+export async function abandonTeachingSession(
+  config: Config,
+  teachingSessionId: number,
+): Promise<{ ok: boolean; teachingSessionId: number; status: string }> {
+  const res = await fetch(new URL(`/growth/teaching-sessions/${teachingSessionId}/abandon`, config.agentServiceUrl), {
+    method: "POST",
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}
+
+export async function getTeachingSession(config: Config, teachingSessionId: number): Promise<TeachingSession> {
+  const res = await fetch(new URL(`/growth/teaching-sessions/${teachingSessionId}`, config.agentServiceUrl), {
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`agent-service returned ${res.status}`);
+  return res.json();
+}

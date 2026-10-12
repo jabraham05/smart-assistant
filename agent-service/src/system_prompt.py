@@ -39,6 +39,13 @@ class OpenProject:
 
 
 @dataclass(frozen=True)
+class OpenTeachingSession:
+    id: int
+    mode: str
+    captured_preview: str
+
+
+@dataclass(frozen=True)
 class RelevantMemory:
     content: str
     # 'tool_verified' | 'user_stated' | 'ungrounded' - see
@@ -71,6 +78,14 @@ class SystemPromptInput:
     # every turn regardless of topic, specifically to catch a re-proposal the
     # model wouldn't otherwise recognize as a duplicate.
     open_projects: list[OpenProject] | None = None
+    # Real gap found via live testing (2026-10-11): without this, a
+    # teaching-session continuation turn with no trigger phrase of its own
+    # ("Also - if you find conflicting info...") had no way to be
+    # recognized as teaching, and the model had no reliable way to recall
+    # which session id a much-earlier 'start' call returned. Given
+    # directly, every turn, same as open_tasks already is - not something
+    # the model should have to detect or remember on its own.
+    open_teaching_session: OpenTeachingSession | None = None
     needs_planning_nudge: bool = False
     narrate_before_slow_answer: bool = False
 
@@ -198,6 +213,18 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         else ""
     )
 
+    open_teaching_session_line = (
+        f"A teaching session is already open for this conversation (id={input.open_teaching_session.id}, "
+        f"mode={input.open_teaching_session.mode}), capturing: \"{input.open_teaching_session.captured_preview}"
+        "...\". If the user is continuing to teach, demonstrate, or correct the same thing, call "
+        f"teaching_session_manage action='capture' with teachingSessionId={input.open_teaching_session.id} - "
+        "don't start a new session or guess a different id. If they seem done, call action='finalize' with "
+        f"that same id. If the conversation has clearly moved on to something unrelated, call "
+        f"action='abandon' with that id rather than leaving it open."
+        if input.open_teaching_session
+        else ""
+    )
+
     needs_planning_line = (
         "This looks like a multi-step task. Before working on it, call task_context_manage with "
         "action='create' (if you haven't already tracked this), then action='plan' with an ordered "
@@ -258,6 +285,7 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         open_tasks_line,
         relevant_goals_line,
         open_projects_line,
+        open_teaching_session_line,
         needs_planning_line,
         narrate_line,
         skills_line,

@@ -16,14 +16,14 @@ from decimal import Decimal
 
 from fastapi import APIRouter
 
-from . import growth_consolidate, growth_db
+from . import growth_consolidate, growth_db, growth_teaching
 from .config import Config
 
 _JSON_FIELDS = (
     "evidence", "raw_judge_output", "detail", "baseline_definition", "candidate_definition",
     "baseline_results", "candidate_results", "baseline_scores", "candidate_scores", "steps",
     "expected_attribution", "expected_min_scores", "turn_ids", "tool_calls",
-    "user_card_snapshot", "user_card_for_amy_snapshot",
+    "user_card_snapshot", "user_card_for_amy_snapshot", "preview_evaluation",
 )
 
 
@@ -101,6 +101,11 @@ def build_router(config: Config) -> APIRouter:
             return {"error": "not found"}
         return _clean_row(row)
 
+    @router.post("/proposals/{proposal_id}/preview")
+    async def preview_proposal(proposal_id: int):
+        preview = await growth_consolidate.preview_proposal(config, proposal_id)
+        return _clean_row(preview) if isinstance(preview, dict) else preview
+
     @router.post("/proposals/{proposal_id}/approve")
     async def approve_proposal(proposal_id: int, body: dict | None = None):
         notes = (body or {}).get("notes")
@@ -119,7 +124,8 @@ def build_router(config: Config) -> APIRouter:
         row = await growth_db.get_persona_proposal(config, name)
         if not row:
             return {"pending": False}
-        return {"pending": True, **_clean_row(row)}
+        diff = growth_consolidate.unified_diff(row.get("system_prompt") or "", row.get("proposed_system_prompt") or "")
+        return {"pending": True, "diff": diff, **_clean_row(row)}
 
     @router.post("/persona-proposal/promote")
     async def promote_persona_proposal(body: dict | None = None):
@@ -133,5 +139,52 @@ def build_router(config: Config) -> APIRouter:
         reason = (body or {}).get("reason")
         result = await growth_db.dismiss_persona_proposal(config, name, reason)
         return {**result, "name": name}
+
+    @router.post("/teaching-sessions")
+    async def start_teaching_session(body: dict):
+        mode = body.get("mode")
+        if mode not in ("demonstration", "guided_practice", "explain_and_build"):
+            return {"ok": False, "error": "mode must be one of demonstration/guided_practice/explain_and_build"}
+        session_id = body.get("sessionId")
+        content = body.get("content") or ""
+        teaching_session_id = await growth_db.create_teaching_session(config, mode, session_id, content)
+        if not body.get("finalizeImmediately"):
+            return {"ok": True, "teachingSessionId": teaching_session_id}
+        # One-shot path: avoids a model needing to reference a
+        # teachingSessionId it can only know from THIS call's own result -
+        # live-tested and found to fail (a model emitting both tool calls
+        # before seeing the first result guessed the wrong id).
+        result = await growth_teaching.finalize_teaching_session(config, teaching_session_id)
+        return {**_clean_row(result), "teachingSessionId": teaching_session_id}
+
+    @router.post("/teaching-sessions/{teaching_session_id}/capture")
+    async def capture_teaching_content(teaching_session_id: int, body: dict):
+        content = body.get("content")
+        if not content:
+            return {"ok": False, "error": "content is required"}
+        await growth_db.append_teaching_content(config, teaching_session_id, content)
+        return {"ok": True, "teachingSessionId": teaching_session_id}
+
+    @router.post("/teaching-sessions/{teaching_session_id}/finalize")
+    async def finalize_teaching_session(teaching_session_id: int):
+        result = await growth_teaching.finalize_teaching_session(config, teaching_session_id)
+        return _clean_row(result) if isinstance(result, dict) else result
+
+    @router.post("/teaching-sessions/{teaching_session_id}/abandon")
+    async def abandon_teaching_session(teaching_session_id: int):
+        await growth_db.abandon_teaching_session(config, teaching_session_id)
+        return {"ok": True, "teachingSessionId": teaching_session_id, "status": "abandoned"}
+
+    @router.get("/teaching-sessions")
+    async def list_teaching_sessions(status: str | None = None, limit: int = 50):
+        rows = await growth_db.list_teaching_sessions(config, status=status, limit=limit)
+        return {"teachingSessions": [_clean_row(r) for r in rows]}
+
+    @router.get("/teaching-sessions/{teaching_session_id}")
+    async def get_teaching_session(teaching_session_id: int):
+        row = await growth_db.get_teaching_session(config, teaching_session_id)
+        if not row:
+            return {"error": "not found"}
+        return _clean_row(row)
 
     return router

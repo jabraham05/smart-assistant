@@ -59,12 +59,14 @@ from .safety_net import (
     has_status_narration_mismatch,
     has_tool_failure_narration,
     has_trailing_confirmation_question,
+    has_unaddressed_teaching_intent,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
     has_unwarranted_checking_opener,
     is_confabulated_action,
     strip_emoji,
     strip_known_stock_closers,
+    teaching_intent_retry_nudge,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -612,6 +614,26 @@ async def webhook(request: Request):
                     classification.tool_policy, bound_tools, state.called_tools, classification.relevant_groups
                 ):
                     final_text = REQUIRED_TOOL_FAILURE_MESSAGE
+
+            if has_unaddressed_teaching_intent(chat_input, classification.relevant_groups, state.called_tools):
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config, "safety_net_failure",
+                        "Reply promised to follow a standing instruction without calling teaching_session_manage",
+                        {"reason": "unaddressed_teaching_intent", "chatInput": chat_input}, session_id=session_id,
+                    )
+                )
+                yield emit(
+                    "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "unaddressed_teaching_intent"}
+                )
+                retry_text, chunks = await _run_turn(
+                    config, session_id, system_prompt, chat_input + teaching_intent_retry_nudge(chat_input),
+                    bound_tools, state, emit, message_history,
+                )
+                for c in chunks:
+                    yield c
+                if retry_text.strip():
+                    final_text = retry_text
 
             if has_trailing_confirmation_question(final_text, classification.tool_policy):
                 asyncio.create_task(
