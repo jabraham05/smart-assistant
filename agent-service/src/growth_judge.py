@@ -280,6 +280,13 @@ class TeachingClassificationOutput(BaseModel):
     rules: str | None = Field(alias="rules")
     examples: str | None = Field(alias="examples")
     open_questions: str | None = Field(alias="openQuestions")
+    # Only populated for category='skill' - a skill is now written as a
+    # real SKILL.md file (https://agentskills.io/specification), which
+    # needs a proper short name (slugified by the caller) and a real
+    # discovery description, not the truncated raw captured text that
+    # used to get dumped into both fields.
+    skill_name: str | None = Field(alias="skillName")
+    discovery_description: str | None = Field(alias="discoveryDescription")
 
     model_config = {"populate_by_name": True}
 
@@ -300,9 +307,14 @@ _TEACHING_CLASSIFY_SYSTEM_PROMPT = (
     "If category is 'skill', extract: procedure (the concrete steps, as Amy should follow them), rules "
     "(any decision rules, constraints, or things to always/never do), examples (concrete input/output "
     "examples if any were given, else null), openQuestions (anything genuinely ambiguous or "
-    "underspecified that a human should resolve before this is trusted, else null). For any other "
-    "category, leave procedure/rules/examples/openQuestions null. reasoning: one or two sentences "
-    "explaining the category choice."
+    "underspecified that a human should resolve before this is trusted, else null), skillName (a short "
+    "2-5 word name for this skill, e.g. 'Vague Goal Planning' or 'Database Troubleshooting' - will be "
+    "slugified, so just write it naturally), discoveryDescription (one or two sentences describing both "
+    "WHAT this skill does and WHEN to use it - specific enough that another agent could decide from "
+    "this alone whether it applies to a given request, e.g. 'Turns a vague goal into a concrete plan "
+    "by asking about constraints first. Use when the user states an ambiguous goal without a clear "
+    "next step.'). For any other category, leave procedure/rules/examples/openQuestions/skillName/"
+    "discoveryDescription null. reasoning: one or two sentences explaining the category choice."
 )
 
 

@@ -62,6 +62,11 @@ class Config:
     # chat-orchestrator this session).
     post_tool_timeout_seconds: float
     skills_mcp_url: str
+    # Real SKILL.md files (https://agentskills.io/specification) live here,
+    # one directory per skill - a dedicated Docker volume
+    # (skills-library-data), not inside the repo, since these are runtime-
+    # generated artifacts like postgres-data, not source code.
+    skills_library_path: str
     postgres: PostgresConfig
     # 'public' (the real views onto n8n's live Data Tables) for production,
     # 'chat_test' for the side-by-side test instance - same convention as
@@ -114,6 +119,7 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         num_ctx=_int_env("CHAT_NUM_CTX", 16384),
         post_tool_timeout_seconds=_float_env("CHAT_POST_TOOL_TIMEOUT_SECONDS", 120.0),
         skills_mcp_url=env.get("SKILLS_MCP_URL") or "http://skills-mcp:3001",
+        skills_library_path=env.get("SKILLS_LIBRARY_PATH") or "/data/skills",
         postgres=PostgresConfig(
             host=env.get("POSTGRES_HOST") or "postgres",
             port=_int_env("POSTGRES_PORT", 5432),

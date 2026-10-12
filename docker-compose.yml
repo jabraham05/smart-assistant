@@ -28,6 +28,10 @@ volumes:
   n8n-data:
   ollama-data:
   falkordb-data:
+  # Real SKILL.md files (https://agentskills.io/specification), one
+  # directory per skill - a runtime-generated artifact like postgres-data,
+  # not source code, so it's a volume rather than a bind-mounted repo path.
+  skills-library-data:
 
 services:
   postgres:
@@ -529,6 +533,9 @@ services:
       MEMORY_ENGINE_URL: http://memory-engine:3007
       KNOWLEDGE_ENGINE_URL: http://knowledge-engine:3005
       GRAPHITI_SERVICE_URL: http://graphiti-service:3012
+      SKILLS_LIBRARY_PATH: /data/skills
+    volumes:
+      - skills-library-data:/data/skills
     depends_on: [postgres, redis, ollama, skills-mcp, event-bus, memory-engine, graphiti-service]
     networks: [assistant-net]
 

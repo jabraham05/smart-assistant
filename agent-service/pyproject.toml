@@ -15,6 +15,10 @@ dependencies = [
   # the OS provides it, since system_prompt.py's Pacific-time formatting
   # is load-bearing (matches chat-orchestrator's own dateLine exactly).
   "tzdata>=2024.1",
+  # skills_library.py's SKILL.md frontmatter (https://agentskills.io/
+  # specification) - already present transitively via mcp/fastmcp-slim,
+  # but declared explicitly rather than relying on that.
+  "pyyaml>=6.0.0",
 ]
 
 [project.optional-dependencies]
