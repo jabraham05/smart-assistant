@@ -53,6 +53,28 @@ class ActiveSkillRow:
     instructions: str
 
 
+async def list_skills(config: Config) -> list[dict]:
+    """Every skill Amy has (any kind/status), for the app's Skills view.
+    Same columns get_active_instruction_skills already relies on, and the
+    same source-of-truth rule: SKILL.md content when a file exists, else
+    the legacy Postgres `instructions`."""
+    pool = await _get_pool(config)
+    rows = await pool.fetch(
+        f"SELECT name, description, kind, status, instructions FROM {_qualify(config.db_schema, 'skills')} "
+        "ORDER BY status = 'active' DESC, name"
+    )
+    return [
+        {
+            "name": r["name"],
+            "description": r["description"],
+            "kind": r["kind"],
+            "status": r["status"],
+            "instructions": skills_library.read_skill_body(config, r["name"]) or r["instructions"],
+        }
+        for r in rows
+    ]
+
+
 async def get_active_instruction_skills(config: Config) -> list[ActiveSkillRow]:
     pool = await _get_pool(config)
     rows = await pool.fetch(
