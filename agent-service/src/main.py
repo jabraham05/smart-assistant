@@ -18,6 +18,7 @@ import json
 import logging
 import random
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 from fastapi import FastAPI, Request
@@ -144,6 +145,13 @@ def _emit(item_index: list[int]):
     return emitter
 
 
+@dataclass
+class _Attempt:
+    """What one streamed attempt produced, filled in by _run_turn."""
+
+    text: str = ""
+
+
 async def _run_turn(
     config: Config,
     session_id: str,
@@ -153,9 +161,13 @@ async def _run_turn(
     state: _TurnState,
     emit,
     message_history: list[ModelMessage],
-) -> tuple[str, list[str]]:
-    """One attempt at a full agent turn - streams NDJSON as it goes,
-    returns (final_text, chunks_yielded). Wrapped in try/except so a thrown
+    out: _Attempt,
+) -> AsyncIterator[str]:
+    """One attempt at a full agent turn - yields each NDJSON event the
+    moment the model produces it, and records the attempt's final text on
+    `out`. (It used to collect every chunk and hand them back only once the
+    attempt finished, so replies arrived in one burst instead of
+    streaming.) Wrapped in try/except so a thrown
     error (timeout, ToolRetryError, UnexpectedModelBehavior - all
     confirmed-real failure modes found via live testing this session)
     degrades to an empty result the caller's existing empty-output retry
@@ -166,7 +178,6 @@ async def _run_turn(
     one webhook call - it's what happened BEFORE this turn, so a retry nudge
     on the current turn doesn't change it."""
     state.attempt += 1
-    chunks: list[str] = []
     text_parts: list[str] = []
     open_tool_calls: dict[str, tuple[str, int]] = {}  # tool_call_id -> (tool_name, iteration)
     iteration = 0
@@ -190,16 +201,16 @@ async def _run_turn(
                     # back as "ASE1TEST" every time, never once correct).
                     if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart) and event.part.content:
                         text_parts.append(event.part.content)
-                        chunks.append(emit("item", event.part.content))
+                        yield emit("item", event.part.content)
                     elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
                         text_parts.append(event.delta.content_delta)
-                        chunks.append(emit("item", event.delta.content_delta))
+                        yield emit("item", event.delta.content_delta)
                     elif isinstance(event, FunctionToolCallEvent):
                         tool_name = event.part.tool_name
                         iteration += 1
                         open_tool_calls[event.part.tool_call_id] = (tool_name, iteration)
                         state.called_tools.append(tool_name)
-                        chunks.append(
+                        yield (
                             emit(
                                 "trace",
                                 trace={
@@ -242,7 +253,7 @@ async def _run_turn(
                         else:
                             state.last_tool_error = None
                             state.tool_results.append(result_text)
-                        chunks.append(
+                        yield (
                             emit(
                                 "trace",
                                 trace={
@@ -262,10 +273,10 @@ async def _run_turn(
             time.monotonic() - _turn_started,
             iteration,
         )
-        return "".join(text_parts), chunks
+        out.text = "".join(text_parts)
     except Exception:
         logger.exception("agent turn threw for session %s (attempt %d)", session_id, state.attempt)
-        return "", chunks
+        out.text = ""
 
 
 @app.post("/webhook")
@@ -430,22 +441,26 @@ async def webhook(request: Request):
                 yield emit("ack", random.choice(_ACK_PHRASES) + "\n\n")
 
             state = _TurnState()
-            final_text, chunks = await _run_turn(
+            _attempt = _Attempt()
+            async for c in _run_turn(
                 config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit,
                 message_history,
-            )
-            for c in chunks:
+                _attempt,
+            ):
                 yield c
+            final_text = _attempt.text
 
             # One-shot empty-output retry - same shape as chat-orchestrator's.
             if not final_text.strip():
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "empty_output"})
-                final_text, chunks = await _run_turn(
+                _attempt = _Attempt()
+                async for c in _run_turn(
                     config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit,
                     message_history,
-                )
-                for c in chunks:
+                    _attempt,
+                ):
                     yield c
+                final_text = _attempt.text
 
             if not final_text.strip():
                 final_text = "No response was generated for that message — try asking again."
@@ -461,12 +476,14 @@ async def webhook(request: Request):
                     "make the minimal necessary change, and call it again right now before replying. "
                     "Don't just say you'll check again later.)"
                 )
-                retry_text, chunks = await _run_turn(
+                _attempt = _Attempt()
+                async for c in _run_turn(
                     config, session_id, system_prompt, retry_prompt, classification.relevant_tools, state, emit,
                     message_history,
-                )
-                for c in chunks:
+                    _attempt,
+                ):
                     yield c
+                retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
 
@@ -480,12 +497,14 @@ async def webhook(request: Request):
                     )
                 )
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "search_intent"})
-                retry_text, chunks = await _run_turn(
+                _attempt = _Attempt()
+                async for c in _run_turn(
                     config, session_id, system_prompt, chat_input + SEARCH_RETRY_NUDGE, bound_tools, state, emit,
                     message_history,
-                )
-                for c in chunks:
+                    _attempt,
+                ):
                     yield c
+                retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
 
@@ -501,12 +520,14 @@ async def webhook(request: Request):
                     " (Your last reply claimed to have done something, but no matching tool was actually "
                     "called - either actually call the right tool now, or answer without claiming you did.)"
                 )
-                retry_text, chunks = await _run_turn(
+                _attempt = _Attempt()
+                async for c in _run_turn(
                     config, session_id, system_prompt, chat_input + nudge, bound_tools, state, emit,
                     message_history,
-                )
-                for c in chunks:
+                    _attempt,
+                ):
                     yield c
+                retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
 
@@ -520,12 +541,14 @@ async def webhook(request: Request):
                 yield emit(
                     "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "fabricated_id"}
                 )
-                retry_text, chunks = await _run_turn(
+                _attempt = _Attempt()
+                async for c in _run_turn(
                     config, session_id, system_prompt, chat_input + FABRICATED_ID_NUDGE, bound_tools, state, emit,
                     message_history,
-                )
-                for c in chunks:
+                    _attempt,
+                ):
                     yield c
+                retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
 
@@ -539,12 +562,14 @@ async def webhook(request: Request):
                 yield emit(
                     "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "status_narration_mismatch"}
                 )
-                retry_text, chunks = await _run_turn(
+                _attempt = _Attempt()
+                async for c in _run_turn(
                     config, session_id, system_prompt, chat_input + STATUS_NARRATION_MISMATCH_NUDGE, bound_tools,
                     state, emit, message_history,
-                )
-                for c in chunks:
+                    _attempt,
+                ):
                     yield c
+                retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
 
@@ -558,12 +583,14 @@ async def webhook(request: Request):
                 yield emit(
                     "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "unwarranted_checking_opener"}
                 )
-                retry_text, chunks = await _run_turn(
+                _attempt = _Attempt()
+                async for c in _run_turn(
                     config, session_id, system_prompt, chat_input + UNWARRANTED_CHECKING_OPENER_NUDGE, bound_tools,
                     state, emit, message_history,
-                )
-                for c in chunks:
+                    _attempt,
+                ):
                     yield c
+                retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
 
@@ -577,12 +604,14 @@ async def webhook(request: Request):
                 yield emit(
                     "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "tool_failure_narration"}
                 )
-                retry_text, chunks = await _run_turn(
+                _attempt = _Attempt()
+                async for c in _run_turn(
                     config, session_id, system_prompt, chat_input + TOOL_FAILURE_NARRATION_NUDGE, bound_tools,
                     state, emit, message_history,
-                )
-                for c in chunks:
+                    _attempt,
+                ):
                     yield c
+                retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
 
@@ -597,7 +626,8 @@ async def webhook(request: Request):
                     )
                 )
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "required_tool"})
-                retry_text, chunks = await _run_turn(
+                _attempt = _Attempt()
+                async for c in _run_turn(
                     config,
                     session_id,
                     system_prompt,
@@ -606,9 +636,10 @@ async def webhook(request: Request):
                     state,
                     emit,
                     message_history,
-                )
-                for c in chunks:
+                    _attempt,
+                ):
                     yield c
+                retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
                 if has_unsatisfied_required_tool(
@@ -627,12 +658,14 @@ async def webhook(request: Request):
                 yield emit(
                     "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "unaddressed_teaching_intent"}
                 )
-                retry_text, chunks = await _run_turn(
+                _attempt = _Attempt()
+                async for c in _run_turn(
                     config, session_id, system_prompt, chat_input + teaching_intent_retry_nudge(chat_input),
                     bound_tools, state, emit, message_history,
-                )
-                for c in chunks:
+                    _attempt,
+                ):
                     yield c
+                retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
 
@@ -646,7 +679,8 @@ async def webhook(request: Request):
                 yield emit(
                     "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "trailing_confirmation"}
                 )
-                retry_text, chunks = await _run_turn(
+                _attempt = _Attempt()
+                async for c in _run_turn(
                     config,
                     session_id,
                     system_prompt,
@@ -655,16 +689,17 @@ async def webhook(request: Request):
                     state,
                     emit,
                     message_history,
-                )
-                for c in chunks:
+                    _attempt,
+                ):
                     yield c
+                retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
 
             # Deterministic tone backstop - runs after every retry above
             # (including the trailing-confirmation one) has settled, since
             # every attempt's raw chunks were already streamed to the client
-            # live (see _run_turn's chunks.append) - fixing final_text alone
+            # live (see _run_turn's yields) - fixing final_text alone
             # would only clean what gets stored, not what the user already
             # saw. Reuses the exact mechanism chat-ui's message-reducer
             # already has for a real retry (resets displayed content on a
