@@ -15,6 +15,9 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     var createdAt = Date()
     var steps: [ChatStep] = []
     var isEmpty = false
+    /// The stream was cut (app backgrounded, network dropped) while the
+    /// server keeps working on the turn - waiting for it to land in history.
+    var isPending = false
 }
 
 /// Port of chat-ui/src/lib/message-reducer.ts's *logic* (not its code).

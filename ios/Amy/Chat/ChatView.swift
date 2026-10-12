@@ -7,6 +7,7 @@ struct ChatView: View {
     var readOnly = false
     @State private var draft = ""
     @FocusState private var inputFocused: Bool
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -46,6 +47,18 @@ struct ChatView: View {
             .task {
                 await viewModel.loadInitial(client: model.client, onError: model.handle)
                 proxy.scrollTo("bottom", anchor: .bottom)
+            }
+            // Back from the background: catch up on anything that finished
+            // (or arrived) while the app was suspended.
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active, !readOnly else { return }
+                Task { await viewModel.syncLatest(client: model.client, onError: model.handle) }
+            }
+            // An interrupted reply: poll until it lands. Cancelled
+            // automatically when the view goes away.
+            .task(id: viewModel.isAwaitingInterruptedReply) {
+                guard viewModel.isAwaitingInterruptedReply else { return }
+                await viewModel.awaitInterruptedReply(client: model.client, onError: model.handle)
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -143,6 +156,14 @@ private struct MessageBubble: View {
                         .textSelection(.enabled)
                         .foregroundStyle(message.isEmpty ? .secondary : .primary)
                         .italic(message.isEmpty)
+                }
+                if message.isPending {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text("Amy is finishing this reply…")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 14)
