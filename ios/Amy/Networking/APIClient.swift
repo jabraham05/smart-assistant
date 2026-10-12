@@ -178,8 +178,8 @@ struct APIClient: Sendable {
         guard (200..<300).contains(http.statusCode) else { throw APIError.badStatus(http.statusCode) }
     }
 
-    /// The LAN link to the home server has been seen to refuse the first
-    /// connection after an idle stretch and then work immediately - so
+    /// A phone hops between Wi-Fi and cellular and the tailnet may need a
+    /// moment to (re)establish a path after the app wakes, so
     /// connection-level failures get a couple of quick retries.
     private func send(_ req: URLRequest, retryable: Bool) async throws -> (Data, URLResponse) {
         try await withConnectRetry(always: retryable) { try await session.data(for: req) }

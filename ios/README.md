@@ -16,9 +16,20 @@ xcodebuild test -project Amy.xcodeproj -scheme Amy -destination 'platform=iOS Si
 Re-run `xcodegen generate` after adding or removing Swift files. Never edit
 the `.xcodeproj` by hand.
 
-The server URL defaults to the LAN test container and can be changed on the
-login screen or in Settings. Plain HTTP is allowed for local-network
-addresses only (`NSAllowsLocalNetworking`).
+## Connecting
+
+The app reaches `chat-ui` over **Tailscale**, from home or anywhere else:
+`https://<host>.<tailnet>.ts.net` (the default; changeable on the login
+screen or in Settings). It's HTTPS only, with no App Transport Security
+exceptions and no local-network permission. Nothing is exposed to the
+public internet.
+
+One-time setup:
+1. Install Tailscale on the server host and the iPhone, signed in to the same
+   account. On the iPhone, turn on **VPN On Demand** so it reconnects by itself.
+2. In the admin console's DNS page, turn on **MagicDNS** and **HTTPS Certificates**.
+3. On the host, run `tailscale serve --bg 3000` to put `chat-ui` behind a real
+   `*.ts.net` certificate. This persists across reboots.
 
 ## Layout
 
