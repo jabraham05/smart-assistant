@@ -543,10 +543,7 @@ app.patch("/task-contexts/:id/steps/:stepId", async (req, res) => {
     if (!updated) {
       return res.status(404).json({ error: `step ${stepId} not found` });
     }
-    // node-pg returns BIGINT columns as strings (avoids JS number
-    // precision loss for large values) - Number() both sides rather than
-    // a strict === that would always fail comparing "4" to 4.
-    if (Number(updated.task_context_id) !== taskContextId) {
+    if (updated.task_context_id !== taskContextId) {
       return res.status(404).json({ error: `step ${stepId} does not belong to task context ${taskContextId}` });
     }
     res.json(updated);
