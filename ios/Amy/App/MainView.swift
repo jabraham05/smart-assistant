@@ -34,6 +34,8 @@ struct MainView: View {
     /// Owned here, not by ChatView, so leaving the thread for another
     /// section (mid-reply even) and coming back keeps it intact.
     @State private var thread = ChatViewModel(sessionId: ChatViewModel.mainThreadId)
+    /// One voice engine for the app, so speech keeps going across sections.
+    @State private var voice = VoiceController()
 
     private let menuWidth: CGFloat = 290
 
@@ -81,6 +83,7 @@ struct MainView: View {
                     .onEnded { value in if value.translation.width < -80 { setMenu(open: false) } }
             )
         }
+        .environment(voice)
     }
 
     @ViewBuilder private var content: some View {

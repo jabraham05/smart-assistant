@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @AppStorage(Appearance.storageKey) private var appearance: Appearance = .system
+    @AppStorage(VoiceController.readAloudKey) private var readRepliesAloud = true
 
     var body: some View {
         @Bindable var model = model
@@ -13,6 +14,13 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("appearancePicker")
+            }
+            Section {
+                Toggle("Read replies aloud", isOn: $readRepliesAloud)
+            } header: {
+                Text("Voice")
+            } footer: {
+                Text("Hold the mic button to talk to Amy. When you speak, she answers out loud. Speech is processed on this iPhone. For a more natural voice, download an Enhanced or Premium voice in Settings → Accessibility → Read & Speak → Voices.")
             }
             Section("Conversations") {
                 NavigationLink("Past conversations") { PastConversationsView() }

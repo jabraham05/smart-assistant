@@ -8,6 +8,8 @@ struct ChatView: View {
     @State private var draft = ""
     @FocusState private var inputFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(VoiceController.self) private var voice
+    @State private var micHeld = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -88,27 +90,108 @@ struct ChatView: View {
     }
 
     private var inputBar: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField("Message Amy", text: $draft, axis: .vertical)
-                .lineLimit(1...6)
-                .focused($inputFocused)
+        VStack(spacing: 6) {
+            if voice.phase == .speaking {
+                Button {
+                    voice.stopSpeaking()
+                } label: {
+                    Label("Amy is speaking · Stop", systemImage: "speaker.wave.2.fill")
+                        .font(.footnote.weight(.medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.thinMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .accessibilityIdentifier("stopSpeakingButton")
+            }
+            if let voiceError = voice.errorText {
+                Text(voiceError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                Group {
+                    if isListening {
+                        Text(voice.liveTranscript.isEmpty ? "Listening…" : voice.liveTranscript)
+                            .foregroundStyle(voice.liveTranscript.isEmpty ? .secondary : .primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .lineLimit(1...6)
+                    } else {
+                        TextField("Message Amy", text: $draft, axis: .vertical)
+                            .lineLimit(1...6)
+                            .focused($inputFocused)
+                            .accessibilityIdentifier("messageField")
+                    }
+                }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
-                .accessibilityIdentifier("messageField")
-            Button {
-                let text = draft
-                draft = ""
-                Task { await viewModel.send(text, client: model.client, onError: model.handle) }
-            } label: {
-                Image(systemName: "arrow.up.circle.fill").font(.system(size: 32))
+                .overlay {
+                    if isListening {
+                        RoundedRectangle(cornerRadius: 18).strokeBorder(Color.red.opacity(0.6), lineWidth: 1.5)
+                    }
+                }
+
+                if draftIsEmpty {
+                    micButton
+                } else {
+                    Button {
+                        let text = draft
+                        draft = ""
+                        Task { await viewModel.send(text, client: model.client, onError: model.handle) }
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 32))
+                    }
+                    .disabled(viewModel.isSending)
+                    .accessibilityIdentifier("sendButton")
+                }
             }
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isSending)
-            .accessibilityIdentifier("sendButton")
         }
+        .animation(.snappy(duration: 0.2), value: voice.phase)
         .padding(.horizontal)
         .padding(.vertical, 8)
         .background(.bar)
+    }
+
+    private var draftIsEmpty: Bool {
+        draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var isListening: Bool {
+        voice.phase == .listening || voice.phase == .starting
+    }
+
+    /// Hold to talk, release to send. A press-and-hold rather than a tap
+    /// toggle so the mic is only ever live while your finger is on it.
+    private var micButton: some View {
+        Image(systemName: isListening ? "mic.circle.fill" : "mic.circle")
+            .font(.system(size: 32))
+            .foregroundStyle(isListening ? Color.red : Color.accentColor)
+            .symbolEffect(.pulse, isActive: voice.phase == .listening)
+            .opacity(viewModel.isSending ? 0.4 : 1)
+            .contentShape(Circle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !viewModel.isSending, !micHeld else { return }
+                        micHeld = true
+                        inputFocused = false
+                        voice.startListening()
+                    }
+                    .onEnded { _ in
+                        guard micHeld else { return }
+                        micHeld = false
+                        Task {
+                            guard let spoken = await voice.finishListening() else { return }
+                            await viewModel.send(spoken, client: model.client, speakWith: voice, onError: model.handle)
+                        }
+                    }
+            )
+            .accessibilityLabel("Hold to talk")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("micButton")
     }
 
     static func startsNewDay(at index: Int, in messages: [ChatMessage]) -> Bool {
