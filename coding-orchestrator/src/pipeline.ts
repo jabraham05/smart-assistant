@@ -198,6 +198,9 @@ async function callPlanner(
     model: config.plannerModel,
     think: true,
     timeoutMs: 240_000,
+    // qwen3:14b - self-evict shortly after planning finishes instead of
+    // pinning VRAM forever (see ollama.ts's own comment on keepAlive).
+    keepAlive: "5m",
     messages: [
       {
         role: "system",
@@ -501,6 +504,8 @@ async function callReviewer(
   const { message } = await ollamaChat(config.ollamaHost, {
     model: config.reviewerModel,
     timeoutMs: 240_000,
+    // qwen3:14b - same self-evict rationale as the Planner call above.
+    keepAlive: "5m",
     messages: [
       {
         role: "system",

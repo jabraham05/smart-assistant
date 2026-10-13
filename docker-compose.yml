@@ -78,6 +78,14 @@ services:
       # coding-orchestrator/src/ollama.ts now also sets this explicitly per
       # request (numCtx) rather than depending on this default implicitly.
       OLLAMA_CONTEXT_LENGTH: "16384"
+      # Shrinks per-model KV cache VRAM usage (~half at q8_0 vs the f16
+      # default) at effectively no quality cost, and flash attention is
+      # required for KV cache quantization to apply at all. Real, measured
+      # motivation: with just the resident chat model + nomic-embed-text
+      # loaded, nvidia-smi showed only ~546MB free on this 12GB card -
+      # this recovers real headroom without touching model choice.
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: "q8_0"
     volumes:
       - ollama-data:/root/.ollama
     healthcheck:
@@ -525,6 +533,15 @@ services:
     environment:
       PORT: "3010"
       OLLAMA_HOST: http://ollama:11434
+      # Swapped from the config.py default (qwen3:8b) - live-verified this
+      # session: smaller VRAM footprint at the same 16384 context (6.11GB
+      # vs 7.52GB, measured via /api/ps), 3/3 success on the exact 6-tool
+      # binding that qwen3:8b documented as a 0/3 failure cliff, and a
+      # clean negative control (no spurious tool call on an unrelated
+      # question). Same thinking-mode-on-by-default behavior as qwen3:8b,
+      # already handled by agent.py's existing model_settings.
+      CHAT_MODEL: qwen3.5:9b
+      CHAT_CLASSIFIER_MODEL: qwen3.5:9b
       SKILLS_MCP_URL: http://skills-mcp:3001
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       CHAT_DB_SCHEMA: public

@@ -96,6 +96,29 @@ def _build_judge_agent(config: Config) -> Agent[None, JudgeOutput]:
     )
 
 
+async def _unload_model(config: Config, model: str) -> None:
+    """Explicit immediate-unload via Ollama's native keep_alive:0 convention.
+
+    PydanticAI's OllamaModel has no model_settings field for keep_alive (grepped
+    the installed package, no hit) - unlike `thinking`, it was never special-
+    cased for pass-through. The server-wide OLLAMA_KEEP_ALIVE=-1 in
+    docker-compose.yml means this bigger qwen3:14b judge model, once loaded,
+    would otherwise pin itself in VRAM forever, evicting the live chat model
+    with nothing to ever give that VRAM back (the same ratchet documented on
+    coding-orchestrator's ollama.ts keepAlive option). Best-effort: a failure
+    here just means the model stays resident a bit longer, not a real error.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{config.ollama_host}/api/chat",
+                json={"model": model, "messages": [], "keep_alive": 0},
+                timeout=10,
+            )
+    except Exception:
+        logger.debug("growth_judge._unload_model best-effort unload failed", exc_info=True)
+
+
 async def run_judge(config: Config, transcript: str) -> JudgeOutput | None:
     try:
         agent = _build_judge_agent(config)
@@ -104,6 +127,8 @@ async def run_judge(config: Config, transcript: str) -> JudgeOutput | None:
     except Exception:
         logger.exception("growth_judge.run_judge failed")
         return None
+    finally:
+        await _unload_model(config, config.growth_judge_model)
 
 
 def format_transcript(turns: list[dict]) -> str:
@@ -225,6 +250,8 @@ async def evaluate_skill_plausibility(config: Config, evidence_text: str, draft_
     except Exception:
         logger.exception("growth_judge.evaluate_skill_plausibility failed")
         return None
+    finally:
+        await _unload_model(config, config.growth_judge_model)
 
 
 async def check_golden_regression(config: Config, current_persona: str, candidate_persona: str) -> list[dict]:
@@ -353,3 +380,5 @@ async def classify_teaching_content(config: Config, mode: str, captured_content:
     except Exception:
         logger.exception("growth_judge.classify_teaching_content failed")
         return None
+    finally:
+        await _unload_model(config, config.growth_judge_model)
