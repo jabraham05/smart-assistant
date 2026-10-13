@@ -44,3 +44,22 @@ before it ever reaches `Submit Proposal`. Without this, idle reflection had
 no way to notice it had already proposed the same idea on an earlier tick —
 the workflow otherwise carries no memory of its own past proposals beyond
 whatever is already sitting in the `skills` table.
+
+**Still n8n-only, confirmed 2026-10-13**: checked this doc directly against
+the current export (`n8n/workflows/idlereflection0001.json`, `active:
+true`) — its 19 nodes match this description exactly (`Schedule Trigger`,
+`Check Idle Reflection`, `If Should Reflect`, the Honcho/goals fetch, the
+Ollama reasoning + parse, the `propose_skill`/`message_user`/`skip`
+branches, `Can Message User Now`, `Publish Proactive Thought`, `Mark
+Messaged`, the semantic dedup chain). This logic has **not** moved into
+`event-bus` or `chat-orchestrator` — it's still exactly this n8n workflow
+calling out to `event-bus`'s gates, same as always. The one thing worth
+not confusing it with: `agent-service`'s separate Growth engine background
+loop (`growth_background.py`, see
+[`docs/growth-engine.md`](growth-engine.md) Phase 9) deliberately runs on
+the same 30-minute cadence and is also gated/observation-driven, but it's
+a distinct mechanism with a distinct job — it judges past turns into
+`growth_observations`/proposals and never messages the user directly
+(Tier 1 only, always routed through human review in `growth_review`). Two
+independent 30-minute loops exist side by side on purpose, not because one
+superseded the other.

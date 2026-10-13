@@ -16,12 +16,14 @@ import {
   hasUnfulfilledSearchIntent,
   isConfabulatedAction,
   hasUnsatisfiedRequiredTool,
+  hasUngroundedCitation,
   classifyMemoryGrounding,
   stripEmoji,
   stripKnownStockClosers,
   SEARCH_RETRY_NUDGE,
   REQUIRED_TOOL_RETRY_NUDGE,
   REQUIRED_TOOL_FAILURE_MESSAGE,
+  UNGROUNDED_CITATION_RETRY_NUDGE,
 } from "./safety-net.js";
 
 const config = loadConfig(process.env);
@@ -71,7 +73,7 @@ export type ChatTraceEvent =
   | {
       kind: "retry";
       attempt: number;
-      reason: "empty_output" | "search_intent" | "confabulation" | "required_tool" | "tool_error";
+      reason: "empty_output" | "search_intent" | "confabulation" | "required_tool" | "tool_error" | "ungrounded_citation";
     };
 
 function makeEmitter(res: express.Response) {
@@ -281,6 +283,12 @@ app.post("/webhook", async (req, res) => {
     emit("begin");
 
     const calledTools: string[] = [];
+    // Accumulated across every attempt this turn (retries included), same
+    // persistent-across-attempts scope as calledTools above - evidence a
+    // tool actually returned earlier in this turn is still valid grounding
+    // for whichever attempt's reply ultimately gets shown (see
+    // safety-net.ts's hasUngroundedCitation).
+    const toolResultTexts: string[] = [];
     let attempt = 0;
     // Reset per attempt in runTurn - reflects only the LAST tool_result of
     // whichever attempt most recently ran, so the tool-error retry below
@@ -308,7 +316,10 @@ app.post("/webhook", async (req, res) => {
         onToolCalls: (names) => calledTools.push(...names),
         onTrace: (event) => {
           emit("trace", undefined, { ...event, attempt: thisAttempt });
-          if (event.kind === "tool_result") lastToolResultRef.current = event;
+          if (event.kind === "tool_result") {
+            lastToolResultRef.current = event;
+            toolResultTexts.push(event.result);
+          }
         },
       });
     };
@@ -389,6 +400,18 @@ app.post("/webhook", async (req, res) => {
       if (hasUnsatisfiedRequiredTool(toolPolicy, boundToolNames, calledTools, relevantGroups)) {
         finalText = REQUIRED_TOOL_FAILURE_MESSAGE;
       }
+    }
+
+    // One-shot ungrounded-citation retry - catches a reply that names a
+    // source/URL no tool actually returned this turn, even when a real
+    // search/research tool WAS called (the checks above only verify a tool
+    // was called, not that the reply's specific claims came from it - see
+    // safety-net.ts's hasUngroundedCitation for the real incident this
+    // closes).
+    if (hasUngroundedCitation(finalText, toolResultTexts)) {
+      emit("trace", undefined, { kind: "retry", attempt: attempt + 1, reason: "ungrounded_citation" });
+      const retry = await runTurn(chatInput + UNGROUNDED_CITATION_RETRY_NUDGE);
+      if (retry.output.trim()) finalText = retry.output;
     }
 
     // Deterministic tone backstop - runs after every retry above has

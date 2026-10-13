@@ -25,8 +25,13 @@ flow, garbage-output safety net, etc.), see
   siblings `code_task_status`/`run_command`/`get_diff`/`write_file`,
   `spotify_control`, `dashboard_control`, `web_search`,
   `knowledge_search`, `knowledge_ingest`, `research_task`,
-  `research_task_status`, `goal_manage`, `calculate` — 17 registered
-  tools total, though the `run_command`/`get_diff`/`write_file`/
+  `research_task_status`, `goal_manage`, `task_context_manage`,
+  `calculate`, `drive_search`, plus the Growth engine's
+  `growth_review`/`project_propose`/`project_complete`/`status_overview`/
+  `teaching_session_manage`/`skill_examples` (see
+  [`docs/growth-engine.md`](growth-engine.md)) — 26 registered tools
+  total (one `registerTool`/`register*` call per tool in `server.ts`),
+  though the `run_command`/`get_diff`/`write_file`/
   `code_task_status` cluster is pipeline-internal, scoped to an active
   coding-agent's own tool-calling loop, not exposed to general chat)
   — added by registering each in `server.ts` following the
@@ -57,4 +62,15 @@ flow, garbage-output safety net, etc.), see
   (see [`docs/knowledge-engine.md`](knowledge-engine.md)) that's the first
   real consumer of pgvector: `chunks.embedding` is a genuine
   `vector(768)` column, populated by the `nomic-embed-text` Ollama model.
-- **redis** — provisioned, not yet wired into anything specific.
+  Several other services have since gained their own dedicated database on
+  this same instance (`CREATE DATABASE`-separated, not schemas within
+  one) — `coding_tasks`, `events`, `memory`, `skills`, `growth` per
+  `postgres/init/` — each documented under its own service's doc rather
+  than enumerated here.
+- **redis** — now backs `chat-orchestrator`'s short-term session memory
+  (`chat-orchestrator/src/session-memory.ts`, `MAX_TURNS` 15, 30-day TTL),
+  replacing n8n's Postgres Chat Memory node for live chat traffic; its
+  `prod`/`test` instances use separate `REDIS_DB` indices (0/1 per
+  `docker-compose.yml`) so their session buffers never collide.
+  `agent-service` (`docker-compose.yml`) also has its own `REDIS_DB` (2) —
+  a separate service not otherwise covered in this file.

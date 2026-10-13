@@ -122,6 +122,25 @@ deliberate rewrite (not just accumulated behavioral instructions), that's a
 product decision for a human to make directly in the Data Table — not
 something to re-introduce a proposal workflow for.
 
+**2026-10 update — this got effectively revisited, on different terms.**
+The Growth engine (see [`docs/growth-engine.md`](growth-engine.md)) now
+*does* generate persona-change proposals again, but not as a dedicated
+"propose_persona_change"-style tool call — a `behavior`-category
+`growth_proposals` row, produced from accumulated evidence (safety-net
+failures, user corrections, behavior feedback, teaching sessions) clearing
+a score threshold, not from the model deciding ad hoc that a rewrite is
+warranted. It reuses the exact dormant columns mentioned above
+(`personas.proposed_system_prompt`/`proposed_reason`), writes a full
+current-persona-plus-addition candidate (never a short fragment — see
+`growth_db.promote_persona_proposal`'s length-ratio guard, added after a
+real near-miss), runs a golden-transcript regression check against it
+before a human ever sees it, and still requires an explicit, separate
+`growth_review` tool call (`action='promote_persona'`) to actually apply
+it — the core guarantee this 2026-07-26 decision cared about (never
+auto-applied, always a deliberate human act) still holds; only the
+proposal-generation mechanism changed from "a tool the model calls" to
+"an automatic consequence of accumulated evidence."
+
 **2026-07-26 decision — tool guidance lives in the tool, not the persona.**
 The persona prompt used to carry a per-tool "When to use the
 memory_recall tool:" section, duplicating guidance that already
@@ -314,6 +333,31 @@ publish that requires a restart can silently orphan any coding task that
 happens to be mid-run** — no automatic detection or recovery of this exists
 yet.
 
+**2026-10 update — the 3-5/7-tool guidance above is long superseded; tool
+count is no longer the reliability lever.** `skills-mcp/src/server.ts` now
+registers 26 tools (the original 7 plus `run_command`/`get_diff`/
+`write_file`/`code_task_status`, `research_task`/`research_task_status`,
+`knowledge_search`/`knowledge_ingest`, `goal_manage`/`task_context_manage`,
+`project_propose`/`status_overview`/`project_complete`, `growth_review`,
+`teaching_session_manage`, `skill_examples`, and `drive_search`) — well
+past the ceiling this section's reasoning was built around. What actually
+changed isn't the tool-selection reliability math; it's that the
+"dynamic tool filtering" idea discussed and deliberately deferred back when
+this was a 5-7 tool problem got built for real once it stopped being
+hypothetical: the live chat path now classifies each turn's relevant
+tool/capability groups and only binds that subset (see
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)'s `classify-tools.ts`,
+and `agent-service`'s equivalent classifier now that it's the live backend —
+see [`docs/chat-ui.md`](chat-ui.md)'s 2026-10 note), so the model is never
+actually choosing among all 26 in a single turn. `calculate` and
+`task_context_manage` are the two tools still unconditionally bound every
+turn regardless of classification, same as noted above. Also new since
+this section was written: `skill_examples` (Skills v2's on-demand L4 detail
+— see [`docs/skill-proposals.md`](skill-proposals.md)) and `drive_search`
+(Google Drive, the same OAuth consent as `calendar_event` — see the
+README's setup step 10) are both low-stakes/read-only additions, not
+another round of the consolidation pressure this section describes.
+
 ## Known gotchas (learned the hard way)
 
 - **Fixed 2026-07-26 — the persona used to confabulate specific fake
@@ -347,13 +391,15 @@ yet.
     `personality` Data Table (empty `content`/`synced_at` row, an abandoned
     earlier attempt at dynamic persona content — superseded by the
     peer-card approach in [`docs/honcho-memory.md`](honcho-memory.md)) got
-    removed on 2026-07-26. The leftover
+    removed on 2026-07-26. The
     `proposed_system_prompt`/`proposed_reason`/`proposed_at` *columns* on
     the still-live `personas` table (from the removed
     `propose_persona_change` feature) were left in place rather than
     dropped, since column-level changes are more likely to desync n8n's
-    schema cache than a full table's metadata+physical-table pair — remove
-    those via the Data Table UI if you want them gone. There's also a
+    schema cache than a full table's metadata+physical-table pair.
+    **Do not remove these now** — see the dated note below: the Growth
+    engine has since reused these exact columns for a real, live feature,
+    not left them dormant. There's also a
     `skills` Data Table — that one backs the working
     [Skill proposals](skill-proposals.md) feature, not stale; leave it
     alone.

@@ -4,39 +4,76 @@ Part of the [Smart Assistant](../README.md) project. See
 [`docs/architecture.md`](architecture.md) for the project-wide service
 overview this workflow sits inside of.
 
+**Diagram re-drawn 2026-10-13** directly from the current export's
+`connections` object (`n8n/workflows/9YdYYhVGfsKgj4yz.json`,
+`updatedAt: 2026-09-21T08:45:56.270Z`, 29 nodes) — the previous version of
+this diagram predated the **2026-09-20** entry below and didn't show the
+tool-group classifier, the search-retry loop, or the event-bus wiring at
+all.
+
 ```
 Chat client (n8n test chat / scripts/chat.mjs / chat-ui / discord-bot / future Pi)
         |
         v
 n8n Chat Trigger (webhook, streaming response)
         |
-        v
-Get Persona (Data Table "personas", row "Amy") -> system prompt
-        |
-        v
-Ensure Session Exists (Honcho: get-or-create session, idempotent)
-        |
-        v
-Set User Observe Config (Honcho: user.observe_others=true, this session)
-        |
-        v
-Get User Card (Honcho: user's own peer card)
-        |
-        v
-Get User Card For Amy (Honcho: user's directional card, target=amy)
-        |
-        v
-Get Active Skills (Data Table "skills", status=active, kind=instruction)
-        |
-        v
-Format Skills Catalog (Code: joins active skills' full instructions)
-        |
-        v
+        +-------------------------------+
+        v                               v
+Publish Message Event           Get Last Active Capability
+(event-bus, fire-and-forget,    (event-bus: which tool group, if any,
+ no downstream connection)       answered this session's prior turn)
+                                        |
+                                        v
+                        Classify Relevant Tool Groups (raw Ollama /api/chat,
+                           structured output: research/personal/automation/
+                           self-growth - sees the prior capability above so
+                           an ambiguous follow-up stays in the same group)
+                                        |
+                                        v
+                        Expand Groups To Tools (Code: group -> member tool
+                           names; calculate + task_context_manage always
+                           included regardless of classification)
+                              /                              \
+                             v                                v
+                  Publish Classification Event        Get Persona (Data Table
+                  (event-bus, fire-and-forget)         "personas", row "Amy")
+                                                              |
+                                                              v
+                                                Ensure Session Exists (Honcho)
+                                                              |
+                                                              v
+                                              Set User Observe Config (Honcho)
+                                                              |
+                                                              v
+                                                   Get User Card (Honcho)
+                                                              |
+                                                              v
+                                            Get User Card For Amy (Honcho)
+                                                              |
+                                                              v
+                                 Get Active Skills (Data Table "skills",
+                                    status=active, kind=instruction)
+                                                              |
+                                                              v
+                                 Format Skills Catalog (Code: joins active
+                                    skills' full instructions)
+                                                              |
+                                                              v
+                                 Get Open Task Contexts (event-bus: open
+                                    TaskContext steps, status=open)
+                                                              |
+                                                              v
+   +--------------------------------------------------------+
+   v
 AI Agent  ---- Ollama Chat Model (local LLM, GPU-accelerated)
    |     \---- Postgres Chat Memory (short-term: last N turns of this session)
-   |     \---- MCP Client Tool -> skills-mcp (memory_recall, weather_get,
-   |            skill_propose, calendar_event)
+   |     \---- MCP Client Tool -> skills-mcp, includeTools = Expand Groups
+   |            To Tools' per-message dynamic tool list (not a fixed 4
+   |            tools - see the 2026-09-20 entry below)
    v
+Detect Unfulfilled Search Intent (Code) -> Should Retry Search?
+   |no                                            |yes, loops back to AI Agent
+   v                                               (via Prepare Search Retry Nudge)
 Detect Garbage Output (Code) -> If Garbage Detected
    |no                              |yes
    v                                v
@@ -70,6 +107,79 @@ Every gotcha below is preserved for history and because n8n's Chat
 workflow itself is still live infrastructure, not because the reliability
 problems it describes are still being actively worked around in the
 user-facing path.
+
+**Still published, confirmed 2026-10-13**: the most recent export
+(`n8n/workflows/9YdYYhVGfsKgj4yz.json`) has `"active": true`, consistent
+with this section's claim. A static export can only speak to the moment it
+was taken (see [`docs/known-gotchas.md`](known-gotchas.md)'s "point-in-time
+snapshot" gotcha), so this isn't a substitute for checking the live n8n UI
+directly, but it's at least not contradicting the rollback story.
+
+## 2026-09-20 — tool groups renamed/expanded, a search-retry loop, and event-bus wiring (not previously documented)
+
+Reconstructed 2026-10-13 from the current export's node configuration and
+`connections` graph (not from a live test batch — flagging that distinction
+per this project's own evidence standards). Three real additions to the
+pipeline since the tool-group-filtering work below, none of which had ever
+been written up here:
+
+- **The classifier groups were renamed and regrouped.** The original
+  `media`/`scheduling`/`info`/`self-growth` groups (see the
+  "dynamic, per-message tool-group filtering" gotcha below) are now
+  `research`/`personal`/`automation`/`self-growth` in `Classify Relevant
+  Tool Groups`'s JSON-Schema `format` and `Expand Groups To Tools`'s
+  `GROUPS` map: `research` → `knowledge_search`/`knowledge_ingest`/
+  `research_task`/`research_task_status`/`web_search`; `personal` →
+  `memory_recall`/`goal_manage`; `automation` →
+  `calendar_event`/`spotify_control`/`dashboard_control`/`weather_get`;
+  `self-growth` → `skill_propose`/`code_task`/`code_task_status`. This
+  reflects `skills-mcp`'s tool catalog having grown well past the original
+  6 tools (see [`docs/architecture.md`](architecture.md)) — the old 4
+  groups no longer carved it up sensibly. `calculate` and
+  `task_context_manage` are unconditionally included regardless of
+  classification, same "too cheap/too important to gate" reasoning
+  `calculate` already had.
+- **A classification-continuity input was added.** `Classify Relevant Tool
+  Groups` now also calls a new `Get Last Active Capability` node
+  (`GET event-bus:3004/sessions/{sessionId}/last-capability`) and folds its
+  result into the classifier's own system prompt, so an ambiguous
+  topic-less follow-up ("and what about tomorrow?") stays classified under
+  whatever group answered the immediately preceding turn instead of
+  reclassifying from scratch each time.
+- **A search-retry loop was added after `AI Agent`**: `Detect Unfulfilled
+  Search Intent` (Code, `runOnceForEachItem`) flags a turn for retry when a
+  real capability tool was bound this turn (not just `calculate`) and
+  either the agent's own reply narrates an unfulfilled intent to search/
+  check/look something up (a deliberately narrow regex — "I'll/let me/hold
+  on ... try/search/look/check/find" — chosen to avoid false-triggering on
+  ordinary replies) or the output is genuinely empty — the latter a known,
+  separate `qwen3:8b` failure mode where the model burns generation tokens
+  on a specific tool combination that never resolves into text or a parsed
+  tool call, with no error anywhere in the stack. `Should Retry Search?`
+  routes a flagged turn through `Prepare Search Retry Nudge` back into
+  `AI Agent` for one extra attempt (guarded against infinite-looping by
+  checking `Prepare Search Retry Nudge` hasn't already run this execution),
+  otherwise falls through to `Detect Garbage Output` as before.
+- **`event-bus` integration was added at the edges of the pipeline**: the
+  Chat Trigger now also fires a fire-and-forget `Publish Message Event`
+  (`POST event-bus:3004/events`, `type: message_received`), `Expand Groups
+  To Tools` similarly fires `Publish Classification Event` with the
+  resolved `relevantGroups`, and `Format Skills Catalog` now feeds a new
+  `Get Open Task Contexts` node (`GET event-bus:3004/task-contexts?
+  status=open`) into `AI Agent`'s context, echoing the open-TaskContext-step
+  visibility `chat-orchestrator`/`agent-service` already have for real
+  traffic (see [`docs/event-bus-and-goals.md`](event-bus-and-goals.md)).
+  None of these four event-bus calls appear to feed back into this
+  workflow's own control flow (no downstream branch depends on their
+  responses besides `Get Last Active Capability` feeding the classifier) —
+  they read as parity/instrumentation work keeping the rollback path from
+  falling further behind the live `chat-orchestrator` path's own event-bus
+  wiring, not new user-facing behavior.
+
+Not verified against a live execution (no test batch was run for this doc
+pass) — the above is read directly from the exported node parameters and
+connection graph, which is reliable for *what the nodes are configured to
+do* but not a substitute for watching them actually fire.
 
 ## Known gotchas (learned the hard way)
 
@@ -227,9 +337,11 @@ user-facing path.
     structured-output pattern as `skill_gap_scanner`/the coding-agent
     pipeline — deliberately not native tool-calling, since that's the
     exact mechanism proven unreliable) → `Expand Groups To Tools` (a
-    Code node mapping a small set of named categories — `media`,
-    `scheduling`, `info`, `self-growth` — to their member tool names,
-    the same coarse-"toolset" grouping pattern GitHub's own official MCP
+    Code node mapping a small set of named categories — at the time,
+    `media`, `scheduling`, `info`, `self-growth`; **renamed and expanded
+    to `research`/`personal`/`automation`/`self-growth` on 2026-09-20, see
+    the dated entry above** — to their member tool names, the same
+    coarse-"toolset" grouping pattern GitHub's own official MCP
     server uses to manage its 33 tools) → `MCP Client Tool`'s
     `includeTools` now reads `={{ $('Expand Groups To Tools').item.json.relevantTools }}`
     instead of exposing all 6 tools always. Confirmed via direct testing
@@ -284,9 +396,11 @@ user-facing path.
     caught by the `Detect Garbage Output` patterns. Left as a known/open
     item; likely needs tool-description or system-prompt tuning if it keeps
     happening.
-  - Tools are now consumed via a `skills-mcp` MCP server (`memory_recall`,
-    `weather_get`) rather than bespoke n8n HTTP Request Tool nodes — see
-    [`docs/architecture.md`](architecture.md).
+  - Tools are now consumed via a `skills-mcp` MCP server (initially just
+    `memory_recall`/`weather_get`; the dynamic per-message group filtering
+    above narrows a much larger current catalog — see
+    [`docs/architecture.md`](architecture.md)) rather than bespoke n8n
+    HTTP Request Tool nodes.
   - **2026-09-04 — a stream can end with genuinely zero `AI Agent` tokens
     for that turn, not just garbage ones.** The safety net above corrects
     Honcho/Postgres memory so a *future* turn stays clean, but it runs

@@ -33,6 +33,7 @@ def test_expand_groups_to_tools_dedupes_and_ignores_unknown_groups():
         "project_propose",
         "status_overview",
         "project_complete",
+        "teaching_session_manage",
     }
 
 

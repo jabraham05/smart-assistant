@@ -6,9 +6,10 @@ retries → persist to Honcho/Redis/memory-engine.
 Preserves the exact NDJSON wire contract chat-ui/discord-bot already parse
 (same {type, content, metadata: {nodeId, nodeName: "AI Agent", ...}} shape) -
 this is a hard constraint, not a nice-to-have, since neither client is in
-scope for this rebuild phase. Not yet wired into chat-ui/discord-bot's
-webhook URL - runs alongside chat-orchestrator until proven via eval-harness
-parity + a real soak period (see the plan's Phase 1 checkpoint).
+scope for this rebuild phase. Live: chat-ui/discord-bot's webhook URL points
+here now (docker-compose.yml), after eval-harness parity + a real soak
+period. chat-orchestrator is left running unmodified as the instant
+rollback - see docs/unified-architecture-gap-analysis.md.
 """
 
 from __future__ import annotations
@@ -54,6 +55,7 @@ from .safety_net import (
     STATUS_NARRATION_MISMATCH_NUDGE,
     TOOL_FAILURE_NARRATION_NUDGE,
     TRAILING_CONFIRMATION_RETRY_NUDGE,
+    UNGROUNDED_CITATION_NUDGE,
     UNWARRANTED_CHECKING_OPENER_NUDGE,
     classify_memory_grounding,
     has_fabricated_id_reference,
@@ -62,6 +64,7 @@ from .safety_net import (
     has_trailing_confirmation_question,
     has_unaddressed_teaching_intent,
     has_unfulfilled_search_intent,
+    has_ungrounded_citation,
     has_unsatisfied_required_tool,
     has_unwarranted_checking_opener,
     is_confabulated_action,
@@ -523,6 +526,25 @@ async def webhook(request: Request):
                 retry_text, chunks = await _run_turn(
                     config, session_id, system_prompt, chat_input + FABRICATED_ID_NUDGE, bound_tools, state, emit,
                     message_history,
+                )
+                for c in chunks:
+                    yield c
+                if retry_text.strip():
+                    final_text = retry_text
+
+            if has_ungrounded_citation(final_text, state.tool_results):
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config, "safety_net_failure", "Reply cited a URL/source not present in any real tool result",
+                        {"reason": "ungrounded_citation", "chatInput": chat_input}, session_id=session_id,
+                    )
+                )
+                yield emit(
+                    "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "ungrounded_citation"}
+                )
+                retry_text, chunks = await _run_turn(
+                    config, session_id, system_prompt, chat_input + UNGROUNDED_CITATION_NUDGE, bound_tools,
+                    state, emit, message_history,
                 )
                 for c in chunks:
                     yield c
