@@ -28,6 +28,7 @@ def test_expand_groups_to_tools_dedupes_and_ignores_unknown_groups():
         "skill_examples",
         "skill_propose",
         "growth_review",
+        "teaching_session_manage",
         "code_task",
         "code_task_status",
         "project_propose",
