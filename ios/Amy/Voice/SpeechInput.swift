@@ -29,7 +29,10 @@ final class SpeechInput {
     var onTranscript: ((String) -> Void)?
 
     /// Asks for speech + microphone permission (prompts only the first time).
-    static func authorize() async throws {
+    /// nonisolated: requestAuthorization calls back on a background queue,
+    /// and a callback created on the main actor traps there under Swift 6 -
+    /// seen live as the app closing the moment the mic was pressed.
+    nonisolated static func authorize() async throws {
         let speech = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
         }
