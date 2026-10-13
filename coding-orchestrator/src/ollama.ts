@@ -28,6 +28,16 @@ export interface OllamaChatOptions {
   format?: Record<string, unknown>;
   timeoutMs?: number;
   numCtx?: number;
+  // Ollama native-API field, distinct from the server-wide OLLAMA_KEEP_ALIVE
+  // default (docker-compose.yml's "-1", i.e. never expire). That default
+  // means every model that ever loads - including the much bigger
+  // qwen3:14b planner/reviewer - pins itself in VRAM forever once used,
+  // evicting whatever else was resident (the resident chat model, most
+  // disruptively) with nothing to ever give that VRAM back. Pass a short
+  // value here specifically for the planner/reviewer call sites so qwen3:14b
+  // self-evicts shortly after a coding task's planning/review step finishes,
+  // instead of permanently ratcheting VRAM away from live chat.
+  keepAlive?: string;
 }
 
 // Matches the ollama service's OLLAMA_CONTEXT_LENGTH in docker-compose.yml
@@ -68,6 +78,7 @@ export async function ollamaChat(ollamaHost: string, options: OllamaChatOptions)
         messages: options.messages,
         ...(options.tools ? { tools: options.tools } : {}),
         ...(options.format ? { format: options.format } : {}),
+        ...(options.keepAlive ? { keep_alive: options.keepAlive } : {}),
         options: { num_ctx: options.numCtx ?? DEFAULT_NUM_CTX },
       }),
       signal: controller.signal,
