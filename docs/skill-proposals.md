@@ -60,3 +60,38 @@ turn correctly inserts rows; approving an `instruction` skill (flipping
 `status` to `active`) and starting a *fresh* session demonstrably changed
 Amy's behavior to follow that skill's specific instructions, with zero tool
 calls involved in "loading" it.
+
+## 2026-10 update — `skill_propose` narrowed to exclude user-directed teaching
+
+The Growth engine's Teaching layer (see
+[`docs/growth-engine.md`](growth-engine.md) Phase 10) added a second,
+newer self-authoring path, `teaching_session_manage` — for when the *user*
+is the one directly teaching Amy (demonstrating, correcting, dictating a
+procedure, or stating a standing preference), as opposed to `skill_propose`
+here, which is only for a gap **Amy herself** discovers mid-task. A real
+usage incident found the two tools' descriptions overlapped enough that the
+model kept picking the older, simpler `skill_propose` for user-directed
+teaching anyway (confabulating proposals, losing the user's actual taught
+content in the process). `skill_propose`'s description
+(`skills-mcp/src/tools/skill-propose.ts`) was tightened in response and now
+explicitly excludes two cases: user-directed teaching ("that's
+`teaching_session_manage`'s job") and answering a plain capability question
+("just answer directly, never call this to respond to a question"). The
+two kinds (`instruction`/`tool_idea`) and the human-gated `skills` Data
+Table flow described above are unchanged — this only narrows *which*
+situations route through `skill_propose` versus the newer tool.
+
+Also relevant to this doc: **Skills v2**. A skill's content can now live as
+a real `SKILL.md` file (YAML frontmatter + Markdown body, following the
+[Agent Skills spec](https://agentskills.io/specification)) rather than only
+the `instructions` Postgres column, with an additive `skill_metadata` table
+enabling relevance-filtered (rather than always-injected) skill loading for
+skills that opt in. Skills created through `skill_propose`/
+`skill_gap_scanner` (as opposed to the newer Teaching path) still write to
+the plain `instructions` column only — not yet updated to write files — a
+known, deliberate gap, not forgotten. `skill_examples` (new MCP tool,
+`skills-mcp/src/tools/skill-examples.ts`) is Skills v2's on-demand L4 detail
+mechanism: worked examples a skill doesn't get by default (too long to
+always inject) are fetched explicitly when the injected L1/L2 summary isn't
+enough to actually follow the procedure. Full detail lives in
+`docs/growth-engine.md`, not duplicated here.

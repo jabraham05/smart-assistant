@@ -63,6 +63,18 @@ for world-fact retrieval. `domain`/`taskContextId` are optional hard
 `WHERE` pre-filters, same convention as knowledge-engine's metadata
 filters.
 
+**2026-09-23 — relevance-gating fields added to every result.** A real live
+incident (unrelated recency-boosted memory from a past conversation got
+injected into a Porsche-automation session and primed four duplicate
+`project_propose` retries) showed the recency lane means a completely
+unrelated-but-recent memory can still land a nonzero RRF score. Each result
+now also carries `keywordOverlapCount`/`queryLexemeCount` (same
+`query_lexemes` CTE technique as knowledge-engine's `hybridSearchChunks`),
+so `chat-orchestrator`'s `isRelevantMemory` can gate automatic injection on
+real keyword overlap in addition to the raw score, not the score alone —
+`memory-engine` itself stays policy-agnostic and just exposes the two
+numbers.
+
 ## No LLM anywhere in this service — deliberate, and reverted from a real build
 
 Phase 3b originally built `src/synthesize.ts` — an LLM call that turned
@@ -131,3 +143,40 @@ actually needed.)
   genuinely, unavoidably a judgment call; would be the only LLM call
   anywhere in this service if ever built, and only once raw recall
   demonstrably falls short on something real.
+
+## 2026-10-01 — `grounding` column: tagging a stored memory as verified or not, at write time
+
+Companion fix to knowledge-engine's own deterministic grounding check (see
+[`docs/knowledge-engine.md`](knowledge-engine.md)'s entry of the same
+date) — same failure shape, different path: a fabricated claim (e.g. a
+made-up "Qwen3.8-LiveTranslate API"/WebRTC detail) landing in
+`memory_entries` indistinguishable from something the user actually said
+or a tool actually verified. `postgres/init/22-add-memory-grounding-column.sql`
+adds `memory_entries.grounding TEXT NOT NULL DEFAULT 'ungrounded'` (free-text,
+no CHECK constraint, same convention as `findings.confidence`) plus an
+index on it.
+
+No new logic in `memory-engine` itself — `POST /ingest` just validates the
+caller-supplied `grounding` against an allowlist
+(`tool_verified`/`user_stated`/`ungrounded`), defaulting to the
+conservative `ungrounded` if omitted or invalid, and returns it on every
+`/search` result. The actual classification is deterministic and lives in
+the caller: `agent-service`/`chat-orchestrator`'s
+`safety_net.classify_memory_grounding` (`role='user'` → `user_stated`;
+`role='assistant'` → `tool_verified` only if at least one real tool ran
+that turn, else `ungrounded`). `system-prompt.ts`/`system_prompt.py` render
+an `ungrounded` memory differently in the injected context block (hedged
+phrasing) than a verified one — see
+[`docs/chat-orchestrator.md`](chat-orchestrator.md).
+
+## 2026-10-11 — ids/counts now cross the API as real numbers, not strings
+
+Same fix as `knowledge-engine`/`event-bus` (see
+[`docs/knowledge-engine.md`](knowledge-engine.md)'s entry of the same
+date): `node-pg` returns `BIGINT` (OID 20) as a string by default, and
+every id here is a BIGINT `IDENTITY` column. New `src/pg-types.ts`
+registers a type parser returning a real JS number (throwing past
+`2^53`), imported for its side effect in `db.ts`. `hybridSearchMemory`'s
+own `SUM(...)` aggregate (`rrf_score`, `NUMERIC`/OID 1700) is unaffected
+by this and still needs its existing explicit `Number()` conversion —
+BIGINT and NUMERIC are different OIDs with different default behavior.

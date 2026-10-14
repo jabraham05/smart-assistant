@@ -11,6 +11,7 @@ from src.safety_net import (
     has_status_narration_mismatch,
     has_tool_failure_narration,
     has_trailing_confirmation_question,
+    has_ungrounded_citation,
     has_unfulfilled_search_intent,
     has_unsatisfied_required_tool,
     has_unwarranted_checking_opener,
@@ -358,3 +359,55 @@ def test_has_unwarranted_checking_opener_does_not_flag_when_tool_called():
 
 def test_has_unwarranted_checking_opener_does_not_flag_mid_reply_mention():
     assert has_unwarranted_checking_opener("I was checking now and then on this.", []) is False
+
+
+# Real incident that motivated this: a fake "ModKit Community Guide" source
+# (https://modkit.gg/warframe/) got cited as verified while a real
+# research_task result for the same topic, correctly sourced, went unused.
+def test_has_ungrounded_citation_flags_a_url_no_tool_result_contains():
+    assert (
+        has_ungrounded_citation(
+            "Source: https://modkit.gg/warframe/",
+            ["Finding: https://warframe.fandom.com/wiki/Modding"],
+        )
+        is True
+    )
+
+
+def test_has_ungrounded_citation_does_not_flag_a_url_a_tool_actually_returned():
+    assert (
+        has_ungrounded_citation(
+            "Source: https://warframe.fandom.com/wiki/Modding",
+            ["[1] Modding Guide\nhttps://warframe.fandom.com/wiki/Modding\nsome snippet"],
+        )
+        is False
+    )
+
+
+def test_has_ungrounded_citation_does_not_flag_plain_text_with_no_url():
+    assert has_ungrounded_citation("Base damage and elemental mods stack differently.", []) is False
+
+
+def test_has_ungrounded_citation_ignores_trailing_sentence_punctuation():
+    assert (
+        has_ungrounded_citation(
+            "See https://warframe.fandom.com/wiki/Modding.",
+            ["https://warframe.fandom.com/wiki/Modding"],
+        )
+        is False
+    )
+
+
+# Real bug this closes: TOOL_FAILURE_RELEVANT_TOOLS used to include
+# web_search/knowledge_search, so has_tool_failure_narration would retry
+# away an honest "couldn't verify" disclosure for those two specifically -
+# exactly backwards for a factual-lookup tool (see safety_net.py's comment
+# on TOOL_FAILURE_RELEVANT_TOOLS for the live transcript that found this).
+def test_has_tool_failure_narration_does_not_flag_web_search_disclosure():
+    text = "I wasn't able to verify that via web search just now."
+    assert has_tool_failure_narration(text, ["web_search"]) is False
+
+
+def test_has_tool_failure_narration_does_not_flag_knowledge_search_disclosure():
+    text = "Knowledge search check failed - unable to access that at this time."
+    assert has_tool_failure_narration(text, ["knowledge_search"]) is False

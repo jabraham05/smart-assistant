@@ -1,10 +1,38 @@
 # Research workflow (topic research, markdown synthesis, RAG recall) — superseded
 
 **2026-09 — superseded by [`docs/knowledge-engine.md`](knowledge-engine.md).**
-`research_pipeline` is unpublished (kept in `n8n/workflows/` as a rollback
-reference only, never deleted) and every tool/table below has a
-replacement in the new knowledge engine. This file is kept for history —
-see `docs/knowledge-engine.md` for the current system.
+`research_pipeline` is kept in `n8n/workflows/` as a rollback reference
+only, never deleted, and every tool/table below has a replacement in the
+new knowledge engine. **Nothing currently calls it**: `docker-compose.yml`
+confirms `knowledge_search`/`knowledge_ingest`/`research_task`/
+`research_task_status` now all talk to `knowledge-engine` directly
+(`KNOWLEDGE_ENGINE_URL`), replacing the old `RESEARCH_TASK_WEBHOOK_URL`/
+`RESEARCH_TASK_STATUS_WEBHOOK_URL`/`RESEARCH_SEARCH_WEBHOOK_URL` env vars
+that used to point at this workflow's webhooks (those vars are gone from
+`docker-compose.yml` entirely now, only mentioned in a comment explaining
+what they used to do). This file is kept for history — see
+`docs/knowledge-engine.md` for the current system.
+
+**Found during a 2026-10-13 doc audit, not resolved — flagging rather than
+guessing**: this file previously claimed `research_pipeline` is
+"unpublished." The most recent export
+(`n8n/workflows/researchpipe1x.json`) actually shows `"active": true`,
+which — if accurate — means the workflow is currently *enabled* in n8n
+despite nothing calling it. This also contradicts
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)'s 2026-09-21 migration
+note, which explicitly lists the 10 workflows confirmed active against the
+live `workflow_entity` table at that time and does **not** include
+`research_pipeline` (or `coding_task_pipeline`, its superseded sibling —
+see [`docs/coding-agent-pipeline.md`](coding-agent-pipeline.md)) in that
+list. Possible explanations: it was reactivated sometime after 2026-09-21
+for an unknown reason, or an export's `active` field is less reliable here
+than assumed (see [`docs/known-gotchas.md`](known-gotchas.md) on the
+draft/publish system and point-in-time snapshots) — a static export can't
+distinguish these. Either way this is dead code that's seemingly still
+turned on; worth a direct check against the live n8n UI and, if still
+active, toggling it off (same category of cleanup as the two dead
+`propose_persona_change` entities noted in the root `README.md`), not
+something safe to resolve by editing this doc alone.
 
 Part of the [Smart Assistant](../README.md) project. See
 [`docs/persona-system.md`](persona-system.md) for `web_search` (the

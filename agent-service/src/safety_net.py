@@ -157,6 +157,41 @@ def has_unfulfilled_search_intent(reply_text: str, bound_tools: list[str], calle
     return had_search_tool and not actually_searched and bool(_UNFULFILLED_SEARCH_INTENT.search(reply_text))
 
 
+_URL_REGEX = re.compile(r"https?://[^\s)\]}>\"']+")
+
+
+def _strip_trailing_punctuation(url: str) -> str:
+    return re.sub(r"[.,;:!?]+$", "", url)
+
+
+# Real incident that motivated this (live transcript, 2026-10-12): Amy cited
+# a fake "ModKit Community Guide" source (https://modkit.gg/warframe/) as a
+# verified finding, while a real research_task result for the same topic -
+# correctly sourced to a reddit.com thread and a warframe.fandom.com page -
+# sat one tool call away, unused. Calling a real search/research tool this
+# turn isn't enough on its own (that's what has_unfulfilled_search_intent/
+# has_unsatisfied_required_tool above already check) - the reply can still
+# name a URL that was never actually in anything a tool returned this turn.
+# Exact-URL matching, not keyword overlap (see
+# knowledge-engine/src/engine/grounding.ts's isGrounded for that weaker
+# variant used internally by the research agent itself) - a citation is
+# either the real source a tool gave back, verbatim, or it's fabricated.
+def has_ungrounded_citation(reply_text: str, tool_results: list[str]) -> bool:
+    """True when the reply cites a URL that doesn't appear verbatim in any
+    tool result actually returned this turn."""
+    cited_urls = [_strip_trailing_punctuation(m.group(0)) for m in _URL_REGEX.finditer(reply_text)]
+    if not cited_urls:
+        return False
+    haystack = "\n".join(tool_results)
+    return any(url not in haystack for url in cited_urls)
+
+
+UNGROUNDED_CITATION_NUDGE = (
+    " (Your last reply cited a URL/source that didn't actually appear in any tool result this turn - "
+    "that source is fabricated. Only cite a URL that's verbatim in what a tool actually returned this "
+    "turn, or drop the citation and say plainly you couldn't verify it.)"
+)
+
 SEARCH_RETRY_NUDGE = (
     " (Your last attempt said you'd search again but didn't actually call the tool - actually call "
     "web_search, knowledge_search, or research_task again (whichever fits) right now with a "
@@ -480,7 +515,18 @@ _TOOL_FAILURE_NARRATION = re.compile(
     re.IGNORECASE,
 )
 
-TOOL_FAILURE_RELEVANT_TOOLS = ["calendar_event", "weather_get", "web_search", "knowledge_search", "spotify_control"]
+# web_search/knowledge_search/research_task deliberately excluded: this
+# check's whole point is "never expose a plumbing failure, just answer from
+# what you already know" - correct for calendar/weather/Spotify, but for a
+# factual-lookup tool "what you already know" is exactly the unverified
+# guess the persona's own priority #1 (accuracy) forbids. A real transcript
+# (2026-10-12) showed this fallback driving confident fabrication (fake
+# Warframe entities, a fabricated "ModKit" source) specifically because
+# disclosing "couldn't verify that" was being retried away as a violation of
+# this exact check. For these three, an honest disclosure is the correct
+# behavior, not a bug - see has_ungrounded_citation above for the
+# complementary check on what the reply fabricates when it doesn't disclose.
+TOOL_FAILURE_RELEVANT_TOOLS = ["calendar_event", "weather_get", "spotify_control"]
 
 
 def has_tool_failure_narration(reply_text: str, called_tools: list[str]) -> bool:

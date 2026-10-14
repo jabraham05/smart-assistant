@@ -124,7 +124,7 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["ollama", "run", "${OLLAMA_WARMUP_MODEL:-llama3.2:3b}", "hi"]
+    entrypoint: ["ollama", "run", "${OLLAMA_WARMUP_MODEL:-qwen3.5:9b}", "hi"]
     networks: [assistant-net]
 
   n8n:
@@ -216,7 +216,7 @@ services:
       # RESEARCH_SEARCH_WEBHOOK_URL vars that pointed at research_pipeline.
       KNOWLEDGE_ENGINE_URL: http://knowledge-engine:3005
       # memory_recall's manual retrieval path - same backend
-      # chat-orchestrator's automatic per-turn retrieval uses.
+      # agent-service's automatic per-turn retrieval uses.
       MEMORY_ENGINE_URL: http://memory-engine:3007
       # code_task/code_task_status/status_overview - direct to
       # coding-orchestrator, always-on internal infra, same tier as
@@ -325,11 +325,14 @@ services:
     environment:
       PORT: "3011"
       OLLAMA_HOST: http://ollama:11434
-      # qwen3:8b, not coding-orchestrator's qwen2.5-coder:7b - confirmed
-      # live this session: qwen2.5-coder fails structurally with OpenHands
-      # (narrates tool calls as prose instead of invoking them), qwen3:8b
-      # makes real, correctly-executed tool calls end-to-end.
-      CODER_MODEL: qwen3:8b
+      # qwen2.5-coder fails structurally with OpenHands (narrates tool
+      # calls as prose instead of invoking them). qwen3:8b was this
+      # project's established reliable tool-calling model here; retired
+      # and replaced with qwen3.5:9b - live benchmarking showed identical
+      # 100% tool-calling reliability on the same tool schema, with
+      # meaningfully better general reasoning accuracy (see
+      # scripts/benchmark-results/).
+      CODER_MODEL: qwen3.5:9b
       SANDBOX_NETWORK: sandbox-net
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       # Same defaults coding-orchestrator's own config.ts already uses -
@@ -382,7 +385,7 @@ services:
       # skipped (not an error) if TAVILY_API_KEY is unset.
       OVERNIGHT_DIGEST_MIN_HOURS: ${OVERNIGHT_DIGEST_MIN_HOURS:-20}
       OLLAMA_HOST: http://ollama:11434
-      DIGEST_MODEL: ${DIGEST_MODEL:-qwen3:8b}
+      DIGEST_MODEL: ${DIGEST_MODEL:-qwen3.5:9b}
       TAVILY_API_KEY: ${TAVILY_API_KEY}
     depends_on: [postgres]
     networks: [assistant-net]
@@ -438,7 +441,7 @@ services:
   # service and its own database (`memory`), not a domain inside
   # knowledge-engine's `research` database, since knowledge-engine's own
   # scope explicitly excludes user-specific memory (world facts only).
-  # Replaces Honcho's dialectic API for both chat-orchestrator's automatic
+  # Replaces Honcho's dialectic API for both agent-service's automatic
   # per-turn retrieval and the memory_recall MCP tool's manual path - one
   # backend for both. Honcho itself is unaffected: still owns the peer-card
   # profile summary and its own background consolidation. Internal-only,
@@ -477,52 +480,21 @@ services:
       - ./homeassistant/config:/config
     networks: [assistant-net]
 
-  # Replaces the old Chat n8n workflow's AI Agent + MCP Client Tool node for
-  # tool-calling orchestration - see docs/chat-workflow.md's documented
-  # qwen3:8b reliability history and docs/coding-agent-pipeline.md's
-  # already-proven raw-Ollama-tool-loop pattern this reuses. skills-mcp
-  # itself is unchanged; this is a second, better-behaved MCP client
-  # consuming it directly. n8n's Chat workflow is left intact/importable as
-  # an instant rollback for as long as needed - chat-ui/discord-bot only
-  # get repointed here once this is proven end-to-end (see the plan).
-  # Published on the host (unlike coding-orchestrator/knowledge-engine) so
-  # scripts/chat.mjs can be pointed at it directly for testing
-  # (N8N_CHAT_WEBHOOK_URL=http://localhost:3008/webhook) with zero script
-  # changes, since it preserves the exact same request/NDJSON contract.
-  # Host port 3008, not 3006 - 3006 is `dashboard`'s published port (see
-  # that service below), unrelated to this change.
-  chat-orchestrator:
-    build:
-      context: ./chat-orchestrator
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "3008:3006"
-    environment:
-      PORT: "3006"
-      OLLAMA_HOST: http://ollama:11434
-      SKILLS_MCP_URL: http://skills-mcp:3001
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      # 'public' - the real views onto n8n's live personas/skills Data
-      # Tables (see postgres/init/10-add-chat-test-schema.sql).
-      CHAT_DB_SCHEMA: public
-      REDIS_HOST: redis
-      REDIS_DB: "0"
-      HONCHO_API_KEY: ${HONCHO_API_KEY}
-      HONCHO_WORKSPACE_ID: smart-assistant
-      EVENT_BUS_URL: http://event-bus:3004
-      MEMORY_ENGINE_URL: http://memory-engine:3007
-    depends_on: [postgres, redis, ollama, skills-mcp, event-bus, memory-engine]
-    networks: [assistant-net]
-
   # Phase 1 of the infrastructure rebuild (PydanticAI as the agent runtime -
-  # see the architecture co-designed in this session's plan). Now the live
+  # see the architecture co-designed in this session's plan). The live
   # backend for chat-ui/discord-bot (see their N8N_WEBHOOK_URL/
   # N8N_CHAT_WEBHOOK_URL below) - cut over after live smoke-testing surfaced
   # and fixed a real streaming bug (main.py silently dropped the first
   # chunk of every response - see its own comment on PartStartEvent).
-  # chat-orchestrator is left running, unmodified, as the instant rollback:
-  # see the webhook URL comments on chat-ui/discord-bot below.
+  # Replaces the old Chat n8n workflow's AI Agent + MCP Client Tool node for
+  # tool-calling orchestration (see docs/chat-workflow.md's documented
+  # qwen3:8b reliability history) via the same raw-Ollama-tool-loop pattern
+  # docs/coding-agent-pipeline.md proved first. skills-mcp itself is
+  # unchanged; this is just a better-behaved MCP client consuming it
+  # directly. chat-orchestrator, the TypeScript service this once ran
+  # alongside as a rollback, has been retired and deleted (see
+  # docs/chat-orchestrator.md) - n8n's Chat workflow is now the only
+  # remaining rollback layer, left intact/importable for as long as needed.
   agent-service:
     build:
       context: ./agent-service
@@ -629,38 +601,6 @@ services:
       PORT: "3013"
     networks: [assistant-net]
 
-  # Side-by-side test instance of the same image/codebase - differs only by
-  # env var (CHAT_DB_SCHEMA/REDIS_DB), never a per-request flag. Lets a
-  # persona/skill change be tried against chat_test.personas/chat_test.skills
-  # (edit directly via SQL) without ever touching production data, and lets
-  # tool-calling behavior be regression-tested without writing to the
-  # production Redis session buffer. Known, accepted limitation: still
-  # shares the same real Honcho workspace, skills-mcp, and Ollama as prod -
-  # a test conversation still writes to Amy's real long-term memory and can
-  # still trigger real-world tool side effects (a real calendar event, real
-  # Spotify control). Not sandboxed by this change - see the plan.
-  chat-orchestrator-test:
-    build:
-      context: ./chat-orchestrator
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "3009:3006"
-    environment:
-      PORT: "3006"
-      OLLAMA_HOST: http://ollama:11434
-      SKILLS_MCP_URL: http://skills-mcp:3001
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      CHAT_DB_SCHEMA: chat_test
-      REDIS_HOST: redis
-      REDIS_DB: "1"
-      HONCHO_API_KEY: ${HONCHO_API_KEY}
-      HONCHO_WORKSPACE_ID: smart-assistant
-      EVENT_BUS_URL: http://event-bus:3004
-      MEMORY_ENGINE_URL: http://memory-engine:3007
-    depends_on: [postgres, redis, ollama, skills-mcp, event-bus, memory-engine]
-    networks: [assistant-net]
-
   chat-ui:
     build:
       # Repo root, not ./chat-ui - it now needs to COPY docs/ and README.md
@@ -673,17 +613,17 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Cut over from chat-orchestrator to agent-service (Phase 1 of the
-      # infrastructure rebuild - PydanticAI, live-verified this session:
-      # eval-harness parity was never formally run, but real live smoke
-      # tests against a running agent-service - plain replies, a real
-      # skills-mcp tool call, repeated requests - all came back clean after
-      # fixing a real streaming bug found in the process, see main.py's own
-      # comment on PartStartEvent). Identical NDJSON wire contract, so no
-      # code change was needed here, only this URL. Rollback is one line:
-      # revert to http://chat-orchestrator:3006/webhook (or further back,
+      # agent-service (Phase 1 of the infrastructure rebuild - PydanticAI),
+      # live-verified: eval-harness parity was never formally run, but real
+      # live smoke tests against a running agent-service - plain replies, a
+      # real skills-mcp tool call, repeated requests - all came back clean
+      # after fixing a real streaming bug found in the process, see
+      # main.py's own comment on PartStartEvent. Rollback is one line:
       # n8n's own Chat workflow at
-      # http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat).
+      # http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat
+      # (chat-orchestrator, the TypeScript service this ran alongside as a
+      # nearer rollback, has been retired and deleted - see
+      # docs/chat-orchestrator.md).
       N8N_WEBHOOK_URL: http://agent-service:3010/webhook
       # Single shared-secret login (src/lib/auth.ts, src/proxy.ts) - every
       # route except /login, /api/auth/login, /api/health, and the PWA
@@ -722,11 +662,12 @@ services:
     environment:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
       DISCORD_ALLOWED_USER_ID: ${DISCORD_ALLOWED_USER_ID}
-      # Cut over to agent-service, same as chat-ui above - identical NDJSON
-      # contract (chat-client.ts already documents it as such), so no code
-      # change needed here either. Rollback: revert this one line to
-      # http://chat-orchestrator:3006/webhook (or further back, n8n's own
-      # http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat).
+      # agent-service, same as chat-ui above - identical NDJSON contract
+      # (chat-client.ts already documents it as such). Rollback: revert
+      # this one line to n8n's own Chat workflow at
+      # http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat
+      # (chat-orchestrator, the nearer rollback this once had, has been
+      # retired and deleted - see docs/chat-orchestrator.md).
       N8N_CHAT_WEBHOOK_URL: http://agent-service:3010/webhook
     depends_on: [agent-service]
     networks: [assistant-net]

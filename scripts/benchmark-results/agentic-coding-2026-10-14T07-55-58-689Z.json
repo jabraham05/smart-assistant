@@ -1,0 +1,92 @@
+{
+  "config": {
+    "models": [
+      "qwen3:14b"
+    ],
+    "reps": 2
+  },
+  "results": [
+    {
+      "model": "qwen3:14b",
+      "task": "fib-build-and-verify",
+      "runs": [
+        {
+          "task": "fib-build-and-verify",
+          "pass": false,
+          "iterations": 2,
+          "toolLog": [
+            "write_file(fib.py, 158 bytes)",
+            "run_command(python3 fib.py)"
+          ],
+          "finalText": "The implementation is correct, as the output for `fib(10)` is 55, which matches the expected result. No bugs were found, and the function works as intended.",
+          "actualOutput": "55\r\n55",
+          "hitMaxIterations": false,
+          "ms": 3382.849900000001
+        },
+        {
+          "task": "fib-build-and-verify",
+          "pass": false,
+          "iterations": 2,
+          "toolLog": [
+            "write_file(fib.py, 158 bytes)",
+            "run_command(python3 fib.py)"
+          ],
+          "finalText": "The implementation is correct, as the output for `fib(10)` is 55, which matches the expected result. No bugs were found, and the function works as intended.",
+          "actualOutput": "55\r\n55",
+          "hitMaxIterations": false,
+          "ms": 9980.6957
+        }
+      ]
+    },
+    {
+      "model": "qwen3:14b",
+      "task": "fix-reverse-words-bug",
+      "runs": [
+        {
+          "task": "fix-reverse-words-bug",
+          "pass": true,
+          "iterations": 3,
+          "toolLog": [
+            "run_command(python3 -c \"import reverse_words; print(reverse_words.reverse_words('the quick brown fox'))\")",
+            "write_file(reverse_words.py, 62 bytes)",
+            "run_command(python3 -c \"import reverse_words; print(reverse_words.reverse_words('the quick brown fox'))\")"
+          ],
+          "finalText": "The bug in the `reverse_words.py` file has been fixed. The function now correctly reverses the order of words in a sentence. When tested with the input `'the quick brown fox'`, it returns `'fox brown ",
+          "actualOutput": "fox brown quick the",
+          "hitMaxIterations": false,
+          "ms": 4243.703900000004
+        },
+        {
+          "task": "fix-reverse-words-bug",
+          "pass": true,
+          "iterations": 3,
+          "toolLog": [
+            "run_command(python3 -c \"import reverse_words; print(reverse_words.reverse_words('the quick brown fox'))\")",
+            "write_file(reverse_words.py, 62 bytes)",
+            "run_command(python3 -c \"import reverse_words; print(reverse_words.reverse_words('the quick brown fox'))\")"
+          ],
+          "finalText": "The bug in the `reverse_words.py` file has been fixed. The function now correctly reverses the order of words in a sentence. When tested with the input `'the quick brown fox'`, it returns `'fox brown ",
+          "actualOutput": "fox brown quick the",
+          "hitMaxIterations": false,
+          "ms": 4141.013900000005
+        }
+      ]
+    }
+  ],
+  "summaries": [
+    {
+      "model": "qwen3:14b",
+      "task": "fib-build-and-verify",
+      "passRate": "0/2",
+      "avgIterations": "2.0",
+      "avgMs": "6682"
+    },
+    {
+      "model": "qwen3:14b",
+      "task": "fix-reverse-words-bug",
+      "passRate": "2/2",
+      "avgIterations": "3.0",
+      "avgMs": "4192"
+    }
+  ]
+}

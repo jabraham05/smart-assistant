@@ -1,8 +1,14 @@
--- chat-orchestrator's persona/skills reads (see chat-orchestrator/src/db.ts)
--- against a schema-configurable view, so the exact same query shape works
--- against real production data ('public') or a safe test copy
--- ('chat_test') just by switching the CHAT_DB_SCHEMA env var - no
--- per-request flag, no code branching on environment.
+-- Originally for chat-orchestrator's persona/skills reads against a
+-- schema-configurable view, so the exact same query shape works against
+-- real production data ('public') or a safe test copy ('chat_test') just
+-- by switching the CHAT_DB_SCHEMA env var - no per-request flag, no code
+-- branching on environment. agent-service's own db.py reuses the same
+-- CHAT_DB_SCHEMA convention and public.personas/public.skills views below,
+-- but was never given a -test instance, so the chat_test schema itself is
+-- now orphaned: chat-orchestrator-test (its only consumer) was retired
+-- and deleted 2026-10-13 - see docs/chat-orchestrator.md. Left in place
+-- (not dropped) since this is a manual-apply migration against real,
+-- already-applied data, not something to unilaterally undo.
 --
 -- Runs against the `n8n` database (personas/skills are n8n Data Tables -
 -- see docs/known-gotchas.md's Data Table DDL note for how these physical

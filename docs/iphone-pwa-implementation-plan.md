@@ -1,4 +1,16 @@
-# Amy iPhone PWA — TASK-001 Audit
+# Amy iPhone PWA — TASK-001 Audit — superseded
+
+**2026-10-12 — superseded by the native iOS pivot, see
+[`docs/native-ios-app-plan.md`](native-ios-app-plan.md).** Some of this
+audit's recommendations did ship into `chat-ui` (bearer-token auth, the
+PWA manifest/icons, a responsive `AppDrawer` replacing the old fixed
+`Sidebar.tsx`), but active mobile feature work then moved to a real
+SwiftUI app (`ios/`) instead of continuing the PWA path this doc proposes
+— see `docs/native-ios-app-plan.md`'s "Why this is a pivot" section for
+the reasoning. This file is kept for history; its architecture/API
+inventory (sections 1-2) is still an accurate snapshot of `chat-ui`'s
+backend-proxy shape as of when it was written, but sections 4-9's PWA-specific
+gaps/plan are no longer the active direction.
 
 Repository and API audit for turning `chat-ui` into an installable, mobile-first
 PWA with chat, voice, task/queue, Amy Lab, and memory access. Read-only audit;

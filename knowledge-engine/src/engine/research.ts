@@ -20,16 +20,6 @@ export interface ResearchInput {
   deferNotify?: boolean;
 }
 
-export interface ResearchResult {
-  route: RouteDecision;
-  knowledgeResults: SearchResult[];
-  findings?: VerifiedFinding[];
-  agentIterations?: number;
-  agentExhaustedIterations?: boolean;
-  sessionId?: number;
-  documentId?: number;
-}
-
 // The fast half only: knowledge search + the deterministic routing
 // decision. Always synchronous - this alone is fast enough that a caller
 // (an MCP tool call, a direct HTTP client) can wait on it directly.
@@ -83,43 +73,4 @@ export async function runWebResearchAndPersist(config: Config, input: ResearchIn
       await notifyResearchComplete(config, notifyInfo, [], true);
     }
   }
-}
-
-// Full synchronous run: knowledge check, and if needed, the entire agent
-// loop + persistence, awaited end-to-end. Used directly by tests and any
-// caller that genuinely can afford to block (not the skills-mcp tool,
-// which uses checkKnowledge + runWebResearchAndPersist separately so a
-// real research run doesn't hang a Chat tool call for over a minute).
-export async function research(config: Config, input: ResearchInput): Promise<ResearchResult> {
-  const { route, knowledgeResults } = await checkKnowledge(config, input);
-
-  if (route.source === "knowledge") {
-    return { route, knowledgeResults };
-  }
-
-  if (!config.tavilyApiKey) {
-    throw new Error("web escalation needed but TAVILY_API_KEY is not configured");
-  }
-
-  const agentResult = await runResearchAgent(config, input.query, input.domain);
-  const clusters = clusterFindings(agentResult.findings, input.query);
-  const findings = await verifyClusters(config, clusters);
-
-  const persisted = await persistResearch(config, {
-    topic: input.query,
-    domain: input.domain,
-    triggerSource: input.triggerSource,
-    originSessionId: input.originSessionId,
-    findings,
-  });
-
-  return {
-    route,
-    knowledgeResults,
-    findings,
-    agentIterations: agentResult.iterations,
-    agentExhaustedIterations: agentResult.exhaustedIterations,
-    sessionId: persisted.sessionId,
-    documentId: persisted.documentId,
-  };
 }

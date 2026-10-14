@@ -30,8 +30,8 @@ own venv (`dspy-optimizer/requirements.txt`), kept entirely separate.
    has ground truth for; the other `ClassifierOutput` fields like
    `toolPolicy`/`memoryPolicy` aren't labeled there, so they're out of scope
    for this pass).
-2. Splits the 25 labeled examples 70/30 into train/validation sets (fixed
-   seed for reproducibility).
+2. Splits the labeled examples (31 as of the fixture set's current size)
+   70/30 into train/validation sets (fixed seed for reproducibility).
 3. Evaluates the **zero-shot baseline** (exactly what `classify.py` runs
    today) against the validation set.
 4. Runs `dspy.BootstrapFewShot` against the training set to discover good
@@ -43,16 +43,19 @@ own venv (`dspy-optimizer/requirements.txt`), kept entirely separate.
    actual artifact to inspect/apply) and `results/report.json` (full
    per-example baseline vs. optimized comparison).
 
-## Live-verified result (2026-09-26, qwen3:8b)
+## Live-verified result (2026-09-26, qwen3:8b; fixture set has grown since)
 
-Baseline (zero-shot, matching live `classify.py` today): **87.5%** exact
-match on the 8-example validation split — missed classifying
-"what do you know about my car?" as `info`.
+Baseline (zero-shot, matching live `classify.py` today): **90%** exact
+match on the current 10-example validation split (31 labeled examples
+total, 21/10 train/val) — missed classifying "what do you know about my
+car?" as `info`, the same single miss as the original 25-example run this
+doc first reported (87.5% on an 8-example split at the time).
 
-After `BootstrapFewShot` (4 bootstrapped + 4 labeled demos from the 17-example
-training split): **100%** exact match on the same validation set — the demos
-fixed exactly the case the baseline missed, without regressing any of the
-7 it already got right.
+After `BootstrapFewShot` (4 bootstrapped + 4 labeled demos from the
+training split): **100%** exact match on the same validation set — the
+demos fixed exactly the case the baseline missed, without regressing
+anything else. `results/compiled_classifier.json`/`results/report.json`
+reflect this most recent run, not the original 25-example one.
 
 ## Running it
 
@@ -81,7 +84,7 @@ This tool never writes to `agent-service/` itself. To act on a result:
    confirm the change actually helps in the real pipeline, not just in this
    isolated harness.
 
-As the fixture set grows past the current 25 examples (adding more of the
+As the fixture set grows past the current 31 examples (adding more of the
 real edge cases the classifier gets wrong in production), re-running this
 tool against the larger set is expected to keep finding better demos —
 this is meant to be re-run occasionally, not a one-time exercise.

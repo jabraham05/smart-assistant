@@ -6,6 +6,17 @@ work has to happen in a Claude Code session running on a Mac with Xcode —
 nothing here can be compiled, run, or screenshotted from the Windows session
 that wrote this plan. Hand this file to that session as a starting brief.
 
+**2026-10-12 status update:** the Mac-side session did this. `ios/` is a
+real Xcode-generated SwiftUI app (`ios/project.yml` + `xcodegen`, see
+`ios/README.md`) already covering Milestones 1, 3, and 4 below (chat, the
+Home dashboard, and Amy Lab/Growth/Memory), plus a Swift Testing suite
+(`ios/AmyTests/`) for the stream parser/reducer. Milestone 2 (voice)
+hasn't started yet — `ios/README.md` lists it as the next milestone,
+push-to-talk only, no always-on listening. The "First concrete steps" and
+"What this session is explicitly NOT doing" sections below are the
+original brief as written before that work happened; left as-is for
+history rather than rewritten.
+
 ## Why this is a pivot, not a rewrite of everything
 
 The backend doesn't change. Every lesson from the PWA work and the earlier

@@ -1,7 +1,7 @@
 [project]
 name = "agent-service"
 version = "0.1.0"
-description = "PydanticAI-based agent runtime for Amy - Phase 1 of the infrastructure rebuild, running alongside chat-orchestrator (not replacing it) until proven via eval-harness parity + a real soak period."
+description = "PydanticAI-based agent runtime for Amy - Phase 1 of the infrastructure rebuild. Live: chat-ui/discord-bot's webhook points here now, after real smoke-testing (not formal eval-harness parity). chat-orchestrator is left running unmodified as the instant rollback - see docs/agent-service.md."
 requires-python = ">=3.12"
 dependencies = [
   "pydantic-ai-slim[openai,mcp]>=1.0.0",

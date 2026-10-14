@@ -311,3 +311,22 @@ branches' prompts (`Ollama Reasoning` for Branch A, `Detect Correction
 Pattern` for Branch C) so a future proposal from either path is judged
 by whether it would genuinely help with a *different but similar* future
 situation, not just whether it accurately recorded what happened once.
+
+## 2026-10 update — a second, broader autonomous loop now exists alongside this one
+
+The Growth engine (see [`docs/growth-engine.md`](growth-engine.md) Phase 9)
+built its own autonomous reflection loop (`growth_background.py`, every 30
+minutes, judging recent `review_turns` and feeding actionable attributions
+into the same observation/scoring pipeline every other Growth signal uses) —
+not a replacement for this workflow, a parallel one with a broader signal
+set (safety-net failures, user corrections, behavior feedback, teaching
+sessions, judge-derived review scores, in addition to this scanner's own
+gap-detection). `skill_gap_scan` is itself one of Growth's named source
+types (`_SOURCE_DEFAULTS`), confirming this n8n workflow's own proposals are
+now also an input Growth's scoring/promotion logic consumes, not something
+it superseded. Worth checking directly in n8n (`list:workflow` /
+`workflow_entity.active`, see
+[`docs/known-gotchas.md`](known-gotchas.md)'s draft/publish notes) whether
+this workflow is still scheduled and active day-to-day — this update is
+based on reading `growth-engine.md` and `skills-mcp`/`chat-ui` source, not a
+fresh live re-verification of the n8n side.

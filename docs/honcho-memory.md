@@ -78,3 +78,16 @@ hybrid search over every past turn doesn't need to depend on it anymore.
 [`docs/chat-orchestrator.md`](chat-orchestrator.md)'s Coordinator section)
 gates both mechanisms together, in parallel, on the same turn — Honcho's
 peer-card injection and `memory-engine`'s `/search`.
+
+**2026-10 update** — `agent-service` (not `chat-orchestrator`) is now the
+live reader of these peer cards for real chat traffic, following the same
+Phase 1 infra-rebuild cutover described in
+[`docs/chat-ui.md`](chat-ui.md)'s 2026-10 note; `chat-orchestrator` is kept
+running, unmodified, as the rollback target, so everything above still
+describes a real, currently-reachable code path, just not the live one by
+default anymore. Separately, the Growth engine's turn-logging (see
+[`docs/growth-engine.md`](growth-engine.md) Phase 6.1) now also captures
+both Honcho peer-card snapshots on every turn (`log_review_turn`, part of
+`main.py`'s post-turn persistence) — an additional *reader* of this data for
+Growth's own judge/review pipeline, not a change to how or when the cards
+themselves get written.
