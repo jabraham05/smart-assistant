@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from . import growth_db, growth_judge
+from . import growth_db, growth_judge, growth_planner
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,41 @@ _MIN_ATTRIBUTION_CONFIDENCE = 0.5
 _DEFAULT_INTERVAL_SECONDS = 1800  # 30 minutes, same cadence as idle_reflection
 
 
+async def retry_pending_knowledge_research(config: Config, limit: int = 2) -> int:
+    """Retry abandoned Planner/queue attempts; queue-level dedup makes this idempotent."""
+    try:
+        plans = await growth_db.list_retryable_knowledge_plans(config, limit=limit)
+    except Exception:
+        logger.exception("Growth could not list retryable knowledge plans")
+        return 0
+    completed = 0
+    for plan in plans:
+        try:
+            observations = await growth_db.list_observations_for_opportunity(config, plan["opportunity_id"])
+            evidence = "\n".join(
+                f"- {o['summary']} (evidence: {str(o.get('evidence') or '')[:600]})"
+                for o in observations[-12:]
+            ) or plan.get("description", "")
+            result = await growth_planner.plan_and_enqueue(
+                config, plan["title"], evidence, plan["opportunity_id"]
+            )
+            if not result.get("completed"):
+                continue
+            await growth_db.advance_learning_plan_step(config, plan["plan_id"], 1, "completed")
+            await growth_db.finish_learning_plan(config, plan["plan_id"], "complete")
+            await growth_db.insert_growth_history(
+                config,
+                "research_planning_retried",
+                {"researchPlanning": result},
+                opportunity_id=plan["opportunity_id"],
+                proposal_id=plan["proposal_id"],
+            )
+            completed += 1
+        except Exception:
+            logger.exception("Growth failed retrying knowledge plan %s", plan.get("plan_id"))
+    return completed
+
+
 async def run_sweep(config: Config, batch_size: int = 20) -> dict:
     """One pass: judge a batch of not-yet-reviewed review_turns, persist
     the scores/attributions, and feed actionable attributions into
@@ -56,6 +91,7 @@ async def run_sweep(config: Config, batch_size: int = 20) -> dict:
         since = await growth_db.get_review_cursor(config)
         turns = await growth_db.list_unreviewed_review_turns(config, since, limit=batch_size)
         if not turns:
+            await retry_pending_knowledge_research(config)
             if run_id:
                 await growth_db.finish_review_run(config, run_id, 0, 0, "complete")
             return {"sessionsScanned": 0, "chunksReviewed": 0}
@@ -97,6 +133,8 @@ async def run_sweep(config: Config, batch_size: int = 20) -> dict:
 
         if latest_occurred_at and latest_occurred_at != since:
             await growth_db.set_review_cursor(config, latest_occurred_at)
+
+        await retry_pending_knowledge_research(config)
 
         if run_id:
             await growth_db.finish_review_run(config, run_id, sessions_scanned, chunks_reviewed, "complete")

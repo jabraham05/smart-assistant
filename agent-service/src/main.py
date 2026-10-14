@@ -54,11 +54,14 @@ from .safety_net import (
     REQUIRED_TOOL_FAILURE_MESSAGE,
     REQUIRED_TOOL_RETRY_NUDGE,
     SEARCH_RETRY_NUDGE,
+    UNGROUNDED_CITATION_FAILURE_MESSAGE,
     STATUS_NARRATION_MISMATCH_NUDGE,
     TOOL_FAILURE_NARRATION_NUDGE,
     TRAILING_CONFIRMATION_RETRY_NUDGE,
     UNGROUNDED_CITATION_NUDGE,
     UNWARRANTED_CHECKING_OPENER_NUDGE,
+    UNGROUNDED_SPECIFICS_FAILURE_MESSAGE,
+    UNGROUNDED_SPECIFICS_NUDGE,
     classify_memory_grounding,
     has_fabricated_id_reference,
     has_status_narration_mismatch,
@@ -67,6 +70,7 @@ from .safety_net import (
     has_unaddressed_teaching_intent,
     has_unfulfilled_search_intent,
     has_ungrounded_citation,
+    has_ungrounded_specifics,
     has_unsatisfied_required_tool,
     has_unwarranted_checking_opener,
     is_confabulated_action,
@@ -99,6 +103,14 @@ _NODE_NAME = "AI Agent"
 
 # Same cap as chat-orchestrator's own tool-error retry loop.
 _MAX_TOOL_ERROR_RETRIES = 3
+
+# Lower than _MAX_TOOL_ERROR_RETRIES - a model that narrates "I'll check X"
+# instead of actually calling the tool is refusing to call it, not hitting a
+# transient failure a few more attempts would plausibly fix. Two real
+# chances, then an honest "couldn't complete this" beats shipping the same
+# dead-end narration a third time.
+_MAX_SEARCH_INTENT_RETRIES = 2
+_MAX_UNGROUNDED_SPECIFICS_RETRIES = 2
 
 # Real, live-verified finding: asking the model to narrate before a slow
 # tool-heavy turn (system_prompt.py's narrate_line) does not work - tracing
@@ -317,27 +329,25 @@ async def webhook(request: Request):
             open_tasks = ctx.open_tasks
             relevant_goals = ctx.relevant_goals
             relevant_memory_results = ctx.relevant_memory_results
+            relevant_knowledge_results = ctx.relevant_knowledge_results
             user_card = ctx.user_card
             user_card_for_amy = ctx.user_card_for_amy
             system_prompt = ctx.system_prompt
             should_acknowledge = ctx.should_acknowledge
 
             if classification.knowledge_gap_topic:
-                asyncio.create_task(
-                    knowledge_client.enqueue_research_topic(
-                        config, classification.knowledge_gap_topic, session_id=session_id
-                    )
-                )
-                # Growth engine Phase 6.2: additive, not a replacement for
-                # the research-queue enqueue above - this is what lets a
-                # recurring knowledge gap eventually surface as a scored
-                # Growth opportunity, not just a one-off research job.
+                # A conversational gap is evidence for Growth, not by itself
+                # authorization for ambient research. Growth decides after
+                # recurrence/value scoring, then Planner scopes any task.
                 asyncio.create_task(
                     growth_db.record_observation(
                         config,
                         "knowledge_gap",
                         classification.knowledge_gap_topic,
-                        {"chatInput": chat_input},
+                        {
+                            "chatInput": chat_input,
+                            "injectedKnowledge": [k.content[:500] for k in relevant_knowledge_results],
+                        },
                         session_id=session_id,
                     )
                 )
@@ -422,6 +432,16 @@ async def webhook(request: Request):
                     "memories": [
                         {"content": m.content, "domain": m.domain, "score": m.score} for m in relevant_memory_results
                     ],
+                    "knowledge": [
+                        {
+                            "content": k.content,
+                            "documentTitle": k.document_title,
+                            "domain": k.domain,
+                            "score": k.score,
+                            "sourceUrl": k.source_url,
+                        }
+                        for k in relevant_knowledge_results
+                    ],
                 },
             )
             yield emit("begin")
@@ -494,7 +514,23 @@ async def webhook(request: Request):
 
             bound_tools = classification.relevant_tools
 
-            if has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools):
+            # Capped loop, not one-shot (same shape as the tool-error retry
+            # above) - real, observed gap: a single retry gives the model
+            # one chance to actually call the tool, but a model that
+            # narrates "I'll check X" instead of calling it can just as
+            # easily do the exact same thing again on the retry (confirmed
+            # live: "I'll check `knowledge_search` on 'Hermes agent harness
+            # architecture 2026'..." shipped to the user as the entire final
+            # reply, with no further retry attempted). Looping gives it a
+            # second real chance; if it still won't call the tool after
+            # that, ship an honest "couldn't complete this" instead of the
+            # same dead-end narration a third time.
+            search_intent_retries = 0
+            while (
+                has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools)
+                and search_intent_retries < _MAX_SEARCH_INTENT_RETRIES
+            ):
+                search_intent_retries += 1
                 asyncio.create_task(
                     growth_db.record_observation(
                         config, "safety_net_failure", "Reply implied a search without calling a search tool",
@@ -512,6 +548,74 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+
+            if has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools):
+                final_text = (
+                    "I wasn't able to actually complete a search for that just now, sir - rather than guess, "
+                    "ask me again and I'll try again."
+                )
+
+            injected_evidence = [
+                *(m.content for m in relevant_memory_results),
+                *(
+                    f"{k.document_title or ''} {k.source_title or ''} {k.source_url or ''}\n{k.content}"
+                    for k in relevant_knowledge_results
+                ),
+            ]
+            citation_evidence = [chat_input, *injected_evidence]
+            if has_ungrounded_citation(final_text, state.called_tools, state.tool_results, citation_evidence):
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config,
+                        "safety_net_failure",
+                        "Reply included a URL absent from retrieved sources",
+                        {"reason": "ungrounded_citation", "chatInput": chat_input},
+                        session_id=session_id,
+                    )
+                )
+                yield emit(
+                    "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "ungrounded_citation"}
+                )
+                _attempt = _Attempt()
+                async for c in _run_turn(
+                    config, session_id, system_prompt, chat_input + UNGROUNDED_CITATION_NUDGE, bound_tools,
+                    state, emit, message_history, _attempt,
+                ):
+                    yield c
+                if _attempt.text.strip():
+                    final_text = _attempt.text
+                if has_ungrounded_citation(final_text, state.called_tools, state.tool_results, citation_evidence):
+                    final_text = UNGROUNDED_CITATION_FAILURE_MESSAGE
+
+            ungrounded_retries = 0
+            while (
+                has_ungrounded_specifics(final_text, state.called_tools, state.tool_results, injected_evidence)
+                and ungrounded_retries < _MAX_UNGROUNDED_SPECIFICS_RETRIES
+            ):
+                ungrounded_retries += 1
+                asyncio.create_task(
+                    growth_db.record_observation(
+                        config,
+                        "safety_net_failure",
+                        "Reply added specific details absent from retrieved evidence",
+                        {"reason": "ungrounded_specifics", "chatInput": chat_input},
+                        session_id=session_id,
+                    )
+                )
+                yield emit(
+                    "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "ungrounded_specifics"}
+                )
+                _attempt = _Attempt()
+                async for c in _run_turn(
+                    config, session_id, system_prompt, chat_input + UNGROUNDED_SPECIFICS_NUDGE, bound_tools,
+                    state, emit, message_history, _attempt,
+                ):
+                    yield c
+                if _attempt.text.strip():
+                    final_text = _attempt.text
+
+            if has_ungrounded_specifics(final_text, state.called_tools, state.tool_results, injected_evidence):
+                final_text = UNGROUNDED_SPECIFICS_FAILURE_MESSAGE
 
             if is_confabulated_action(final_text, bound_tools, state.called_tools):
                 asyncio.create_task(

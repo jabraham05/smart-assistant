@@ -27,6 +27,9 @@ export interface SearchResult {
   // decideRoute() for why this exists alongside the RRF score.
   keywordOverlapCount: number;
   queryLexemeCount: number;
+  createdAt: string;
+  retrievedAt: string | null;
+  validUntil: string | null;
   source: { url: string | null; title: string | null };
 }
 
@@ -56,6 +59,9 @@ export async function search(config: Config, input: SearchInput): Promise<Search
     score: row.rrf_score,
     keywordOverlapCount: row.keyword_overlap_count,
     queryLexemeCount: row.query_lexeme_count,
+    createdAt: row.document_created_at,
+    retrievedAt: row.document_retrieved_at,
+    validUntil: row.valid_until,
     source: { url: row.source_url, title: row.source_title },
   }));
 }

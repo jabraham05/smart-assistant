@@ -562,6 +562,21 @@ async def list_learning_plans(config: Config, status: str | None = None, limit: 
     return [dict(r) for r in rows]
 
 
+async def list_retryable_knowledge_plans(config: Config, limit: int = 10) -> list[dict]:
+    """Knowledge plans whose Planner/queue attempt failed and can be retried."""
+    pool = await _get_pool(config)
+    rows = await pool.fetch(
+        "SELECT lp.id AS plan_id, lp.proposal_id, o.id AS opportunity_id, o.title, o.description "
+        "FROM learning_plans lp "
+        "JOIN growth_proposals p ON p.id = lp.proposal_id "
+        "JOIN growth_opportunities o ON o.id = p.opportunity_id "
+        "WHERE lp.status = 'abandoned' AND p.category = 'knowledge' AND p.status = 'approved' "
+        "ORDER BY lp.updated_at ASC LIMIT $1",
+        limit,
+    )
+    return [dict(r) for r in rows]
+
+
 async def list_experiments(config: Config, limit: int = 50) -> list[dict]:
     """Experiments joined with their evaluation (one-to-one in practice -
     every experiment this project creates gets exactly one evaluation
@@ -891,8 +906,8 @@ async def create_tool_idea_proposal(
 # whole, never queried step-by-step.
 LEARNING_PLAN_TEMPLATES: dict[str, list[str]] = {
     "knowledge": [
-        "Confirm the fact/learning is accurate and self-contained",
-        "Record it as a durable entity",
+        "Planner scopes the Growth-approved knowledge gap into a focused brief",
+        "Queue the brief for the Research system to execute and persist",
     ],
     "skill": [
         "Draft skill instructions from the opportunity's evidence",

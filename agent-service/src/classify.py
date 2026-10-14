@@ -374,6 +374,22 @@ async def classify_relevant_tools(
         if "self-growth" not in relevant_groups and STANDING_INSTRUCTION_INTENT.search(chat_input):
             relevant_groups.append("self-growth")
 
+        # Deterministic guard: 'knowledge' always pairs with 'web'.
+        # knowledge_search's own tool description frames it as a check-
+        # first step ("use this before starting new research... to check
+        # whether something is already known"), but nothing guaranteed its
+        # natural escalation - web_search - was actually bound alongside
+        # it. Real, live-verified incident: classified 'knowledge' alone,
+        # knowledge_search came back empty ("Nothing in my current
+        # knowledge base, sir"), and with no live-search tool left to
+        # fall back on, the model confabulated a detailed answer anyway
+        # instead of admitting it couldn't find anything. The reverse
+        # pairing isn't needed - web_search alone is a complete, valid
+        # turn on its own, nothing about it implies checking knowledge_search
+        # first.
+        if "knowledge" in relevant_groups and "web" not in relevant_groups:
+            relevant_groups.append("web")
+
         background, tools_after_background = apply_background_override(
             parsed.background, relevant_groups, expand_groups_to_tools(relevant_groups)
         )

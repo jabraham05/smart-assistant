@@ -29,7 +29,7 @@ from .classify import GROUPS, ClassificationResult, classify_relevant_tools
 from .config import Config
 from .db import get_active_instruction_skills, get_persona_system_prompt
 from .event_bus_client import GoalSummary, TaskContextSummary
-from .knowledge_client import OpenProjectSummary
+from .knowledge_client import KnowledgeSearchResult, OpenProjectSummary
 from .memory_client import MemorySearchResult
 from .system_prompt import (
     OpenProject,
@@ -37,6 +37,7 @@ from .system_prompt import (
     OpenTeachingSession,
     RelevantGoal,
     RelevantMemory,
+    RelevantKnowledge,
     SystemPromptInput,
     build_system_prompt,
 )
@@ -54,6 +55,7 @@ class TurnContext:
     relevant_goals: list[GoalSummary]
     open_projects: list[OpenProjectSummary]
     relevant_memory_results: list[MemorySearchResult]
+    relevant_knowledge_results: list[KnowledgeSearchResult]
     user_card: list[str] = field(default_factory=list)
     user_card_for_amy: list[str] = field(default_factory=list)
 
@@ -68,6 +70,7 @@ async def build_context(
         active_skills,
         skill_metadata,
         memory_results,
+        knowledge_results,
         open_tasks,
         relevant_goals,
         open_projects,
@@ -78,6 +81,7 @@ async def build_context(
         get_active_instruction_skills(config),
         skills_discovery.get_skill_metadata(config),
         memory_client.search_memory(config, chat_input),
+        knowledge_client.search_knowledge(config, chat_input),
         event_bus_client.match_task_contexts(config, chat_input),
         event_bus_client.match_goals(config, chat_input),
         knowledge_client.list_open_projects(config),
@@ -125,6 +129,26 @@ async def build_context(
         else []
     )
     relevant_memories = [RelevantMemory(content=m.content, grounding=m.grounding) for m in relevant_memory_results]
+    relevant_knowledge_results = [
+        k for k in knowledge_results
+        if knowledge_client.is_relevant_knowledge(
+            k, config.knowledge_min_relevance_score, config.knowledge_min_keyword_overlap
+        )
+    ][:5]
+    relevant_knowledge = [
+        RelevantKnowledge(
+            content=k.content,
+            document_title=k.document_title,
+            domain=k.domain,
+            score=k.score,
+            created_at=k.created_at,
+            retrieved_at=k.retrieved_at,
+            valid_until=k.valid_until,
+            source_url=k.source_url,
+            source_title=k.source_title,
+        )
+        for k in relevant_knowledge_results
+    ]
 
     user_card: list[str] = []
     user_card_for_amy: list[str] = []
@@ -157,6 +181,8 @@ async def build_context(
                 skill_metadata,
             ),
             relevant_memories=relevant_memories,
+            relevant_knowledge=relevant_knowledge,
+            knowledge_strong_relevance_score=config.knowledge_strong_relevance_score,
             open_tasks=[OpenTask(id=t.id, objective=t.objective, status=t.status) for t in open_tasks],
             relevant_goals=[RelevantGoal(id=g.id, title=g.title, status=g.status) for g in relevant_goals],
             open_projects=[OpenProject(id=p.id, title=p.title, status=p.status) for p in open_projects],
@@ -183,6 +209,7 @@ async def build_context(
         relevant_goals=relevant_goals,
         open_projects=open_projects,
         relevant_memory_results=relevant_memory_results,
+        relevant_knowledge_results=relevant_knowledge_results,
         user_card=user_card,
         user_card_for_amy=user_card_for_amy,
     )

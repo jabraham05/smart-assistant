@@ -11,9 +11,10 @@ already exist:
     |               |            |
  Knowledge        Skill       Behavior
     |               |            |
- entities        skills     persona proposal
-(research DB)  (n8n Data    (personas.proposed_*,
-               Table)       still human-promoted)
+ Planner ->      skills     persona proposal
+ Research       (n8n Data    (personas.proposed_*,
+ -> sourced      Table)       still human-promoted)
+ documents
 
 'tool' category proposals route into the existing skill_proposals
 human-review queue instead, since building a new tool/integration is
@@ -35,7 +36,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from . import db, growth_db, growth_graphiti, growth_judge, knowledge_client, skills_library
+from . import db, growth_db, growth_graphiti, growth_judge, growth_planner, knowledge_client, skills_library
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -198,10 +199,34 @@ async def consolidate_proposal(config: Config, proposal_id: int) -> dict:
         if category == "knowledge":
             if plan_id:
                 await growth_db.advance_learning_plan_step(config, plan_id, 0, "completed")
-            await knowledge_client.create_entity_from_chat(config, "learning", f"{title}: {description}")
+            observations = await growth_db.list_observations_for_opportunity(config, opportunity_id)
+            evidence = "\n".join(
+                f"- {o['summary']} (evidence: {str(o.get('evidence') or '')[:600]})"
+                for o in observations[-12:]
+            ) or description
+            planning = await growth_planner.plan_and_enqueue(config, title, evidence, opportunity_id)
+            if not planning.get("completed"):
+                if plan_id:
+                    await growth_db.advance_learning_plan_step(config, plan_id, 1, "failed")
+                    await growth_db.finish_learning_plan(config, plan_id, "abandoned")
+                await growth_db.insert_growth_history(
+                    config,
+                    "research_planning_failed",
+                    {"reason": planning.get("reason"), "opportunityId": opportunity_id},
+                    proposal_id=proposal_id,
+                    opportunity_id=opportunity_id,
+                )
+                return {"ok": False, "error": "research planning failed; Growth will retry", "researchPlanning": planning}
             if plan_id:
-                await growth_db.advance_learning_plan_step(config, plan_id, 1, "completed")
-            result["destination"] = "entities (research DB, type=learning)"
+                await growth_db.advance_learning_plan_step(
+                    config, plan_id, 1, "completed"
+                )
+            result["destination"] = (
+                "knowledge-engine research queue"
+                if planning.get("queued")
+                else "no new research task (already covered or planner declined)"
+            )
+            result["researchPlanning"] = planning
 
         elif category == "skill":
             if plan_id:
@@ -335,7 +360,13 @@ async def consolidate_proposal(config: Config, proposal_id: int) -> dict:
         if plan_id:
             await growth_db.finish_learning_plan(config, plan_id, "complete")
         await growth_db.insert_growth_history(
-            config, "consolidated", {"destination": result.get("destination")}, proposal_id=proposal_id
+            config,
+            "consolidated",
+            {
+                "destination": result.get("destination"),
+                "researchPlanning": result.get("researchPlanning"),
+            },
+            proposal_id=proposal_id,
         )
         asyncio.create_task(
             growth_graphiti.add_episode(
