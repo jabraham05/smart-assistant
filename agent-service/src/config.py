@@ -106,17 +106,20 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         raise RuntimeError("POSTGRES_PASSWORD is required")
 
     return Config(
-        # Distinct default port from chat-orchestrator (3006) and
-        # chat-orchestrator-test (3009) - runs alongside both during Phase 1.
         port=_int_env("PORT", 3010),
         ollama_host=env.get("OLLAMA_HOST") or "http://ollama:11434",
-        # qwen3:8b was retired (benchmarked weaker general accuracy than
-        # qwen3.5:9b at the same tool-calling reliability - see
-        # scripts/benchmark-results/) - qwen3.5:9b is now the only
-        # general-purpose model kept pulled alongside qwen3:14b.
+        # qwen3:8b and qwen3:14b were both retired - qwen3.5:9b is now the
+        # only model pulled, for every role (chat, classifier, Growth
+        # judge). qwen3.5:9b matched or beat qwen3:14b on live benchmarking
+        # (see scripts/benchmark-results/, including a real
+        # execution-verified agentic task), and consolidating onto one
+        # model everywhere eliminates the VRAM-swap cost between two
+        # differently-sized models that didn't both fit in 12GB at once -
+        # see growth_judge.py's _unload_model, which now only actually
+        # unloads when growth_judge_model differs from chat_model.
         chat_model=env.get("CHAT_MODEL") or "qwen3.5:9b",
         classifier_model=env.get("CHAT_CLASSIFIER_MODEL") or "qwen3.5:9b",
-        growth_judge_model=env.get("GROWTH_JUDGE_MODEL") or "qwen3:14b",
+        growth_judge_model=env.get("GROWTH_JUDGE_MODEL") or "qwen3.5:9b",
         agent_max_iterations=_int_env("CHAT_AGENT_MAX_ITERATIONS", 10),
         num_ctx=_int_env("CHAT_NUM_CTX", 16384),
         post_tool_timeout_seconds=_float_env("CHAT_POST_TOOL_TIMEOUT_SECONDS", 120.0),

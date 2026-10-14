@@ -62,14 +62,19 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     sandboxRunnerUrl: env.SANDBOX_RUNNER_URL || "http://sandbox-runner:3002",
     useOpenHandsRunner: env.USE_OPENHANDS_RUNNER === "true",
     openhandsRunnerUrl: env.OPENHANDS_RUNNER_URL || "http://openhands-runner:3011",
-    // qwen3:14b for the deep-thinking Planner/Reviewer calls (unchanged
-    // since the coding_task_pipeline n8n workflow). Coder/Tester upgraded
-    // from qwen3:8b to qwen3.5:9b - live benchmarking (see
-    // scripts/benchmark-results/) showed identical 100% tool-calling
-    // reliability on the exact run_command/write_file schema this agent
-    // loop binds, but meaningfully better general reasoning accuracy
-    // (85.7% vs 71.4%). qwen3:8b has been retired/removed entirely.
-    plannerModel: env.CODING_PLANNER_MODEL || "qwen3:14b",
+    // All four roles consolidated onto qwen3.5:9b - Planner/Reviewer used
+    // to run the bigger qwen3:14b (inherited from the old
+    // coding_task_pipeline n8n workflow's split), Coder/Tester qwen3:8b.
+    // Live benchmarking (scripts/benchmark-results/, including a real
+    // execution-verified agentic task, not just regex-graded one-liners)
+    // showed qwen3.5:9b matching or beating qwen3:14b's output quality
+    // while being meaningfully faster. Consolidating to one model everywhere
+    // also eliminates the VRAM-swap cost between two differently-sized
+    // models that don't both fit in 12GB at once - see ollama.ts's keepAlive
+    // comment and the Planner/Reviewer call sites in pipeline.ts, which
+    // only apply the short self-evict keepAlive when a role's configured
+    // model actually differs from coderModel.
+    plannerModel: env.CODING_PLANNER_MODEL || "qwen3.5:9b",
     coderModel: env.CODING_CODER_MODEL || "qwen3.5:9b",
     testerModel: env.CODING_TESTER_MODEL || "qwen3.5:9b",
     reviewerModel: env.CODING_REVIEWER_MODEL || "qwen3.5:9b",
