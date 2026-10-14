@@ -336,8 +336,11 @@ def _build_classifier_agent(ollama_host: str, model: str) -> Agent[None, Classif
         timeout=12.0,
         max_retries=0,
     )
+    # The supplied AsyncOpenAI client already targets Ollama's compatible
+    # /v1 endpoint. OllamaProvider accepts either that client or a base_url,
+    # not both.
     return Agent(
-        OllamaModel(model_name=model, provider=OllamaProvider(base_url=f"{ollama_host}/v1", openai_client=client)),
+        OllamaModel(model_name=model, provider=OllamaProvider(openai_client=client)),
         # NativeOutput, not PydanticAI's default tool-call-based structured
         # output - a real, live-verified finding: the default mode routes
         # ClassifierOutput through a synthetic "final_result" tool call,
