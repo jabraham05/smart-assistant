@@ -352,7 +352,7 @@ def _build_classifier_agent(ollama_host: str, model: str) -> Agent[None, Classif
         # instead - confirmed working live against qwen3:8b on this
         # project's actual Ollama version (0.32.3).
         output_type=NativeOutput(ClassifierOutput),
-        output_retries=0,
+        retries=0,
         instructions=_CLASSIFIER_SYSTEM_PROMPT,
         # think=False equivalent - qwen3 defaults to thinking-mode ON even
         # when unrequested (a real, measured ~2.9s -> ~0.09s latency finding
