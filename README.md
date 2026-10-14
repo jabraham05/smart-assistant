@@ -28,6 +28,8 @@ eventually tested) on its own.
 
 - [`docs/architecture.md`](docs/architecture.md) — project-wide service
   overview (n8n, skills-mcp, Ollama, Honcho, postgres, redis)
+- [`docs/planner-agent.md`](docs/planner-agent.md) — shared Planner contract
+  and ownership boundaries for Growth research and coding tasks
 - [`docs/chat-workflow.md`](docs/chat-workflow.md) — the main `Chat` n8n
   workflow: pipeline diagram, tool-calling reliability saga, trigger/response
   mode gotchas (superseded for real traffic by `agent-service`, kept
@@ -121,14 +123,15 @@ eventually tested) on its own.
   workflows in the n8n UI, then run `scripts/export-n8n-workflows.sh`.
 - `chat-ui/` — Next.js custom web chat client, wired into
   `docker-compose.yml` (builds from `chat-ui/Dockerfile`, serves on
-  `:3000`). Proxies chat through the n8n webhook and reads session
-  list/history from Honcho.
+  `:3000`). Sends chat to the live `agent-service` backend and reads
+  session list/history from Honcho.
 - `discord-bot/` — Discord DM bridge, another thin client of the same Chat
   webhook (see [`docs/discord-bridge.md`](docs/discord-bridge.md)).
 - `skills-mcp/` — MCP server hosting agent-callable tools
   (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
   `drive_search`, `code_task`, `spotify_control`, `dashboard_control`,
-  `web_search`, `knowledge_search`, `knowledge_ingest`, `research_task`,
+  `knowledge_lookup`, `growth_research_request`, `web_search`,
+  `knowledge_search`, `knowledge_ingest`, `research_task`,
   `research_task_status`, `goal_manage`, `task_context_manage`,
   `status_overview`, `project_propose`, `project_complete`,
   `growth_review`, `teaching_session_manage`, `skill_examples`,

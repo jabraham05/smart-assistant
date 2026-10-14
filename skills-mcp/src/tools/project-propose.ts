@@ -14,7 +14,8 @@ export function registerProjectPropose(server: McpServer, config: Config): void 
         "activityType='research' (dig into a topic in depth) or activityType='coding' (build or fix " +
         "something real via the coding agent). Use this when the user describes a new interest or " +
         "idea that's worth a review gate before real work starts, not for something they want done " +
-        "immediately: for a quick question, use research_task/web_search; for code the user wants " +
+        "immediately: for a quick question, use knowledge_lookup; for deep research the user wants " +
+        "saved, use growth_research_request; for code the user wants " +
         "built RIGHT NOW, use code_task directly instead - this tool is for a more exploratory or " +
         "longer-term idea worth approving first, not a direct command to act now. This is different " +
         "from goal_manage: a goal just tracks an ongoing objective for progress-matching and does no " +

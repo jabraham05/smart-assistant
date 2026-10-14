@@ -18,6 +18,22 @@ around: **knowledge** (Amy already has this, just retrieve it) vs.
 **research** (Amy doesn't have it yet — search live, cross-check sources,
 optionally save the result back into knowledge).
 
+## Current chat-facing flow
+
+Amy's live chat exposes one immediate `knowledge_lookup` tool. It queries
+saved documents and live web passages concurrently and returns both sources
+with provenance. `knowledge_search` and `web_search` remain registered for
+legacy callers, but Amy's classifier maps both legacy categories to the
+combined lookup tool. Personal conversation recall is separate in
+`memory-engine`.
+
+Longer-term research is separate from immediate lookup. Growth decides which
+opportunities merit work; its research Planner scopes approved topics into
+briefs; this service's Research agent performs the investigation and
+persists the resulting knowledge document. Explicit user requests enter the
+Growth flow as authorized research opportunities. See
+[`planner-agent.md`](planner-agent.md) and [`growth-engine.md`](growth-engine.md).
+
 ## Architecture
 
 New service, `knowledge-engine/` (Node/Express/pg, port 3005, internal-only

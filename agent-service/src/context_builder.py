@@ -91,7 +91,7 @@ async def build_context(
     # this gather's wall time is almost entirely classify_relevant_tools's
     # own LLM call - every other item here finishes in well under half a
     # second.
-    logger.info("TIMING classify+context-gather session=%s took=%.2fs", session_id, time.monotonic() - _t)
+    logger.debug("TIMING classify+context-gather session=%s took=%.2fs", session_id, time.monotonic() - _t)
 
     # Real gap found via live testing (2026-10-11): a teaching-session
     # continuation turn ("Also - if you find conflicting info...") has no
@@ -161,7 +161,7 @@ async def build_context(
         user_card, user_card_for_amy = await asyncio.gather(
             honcho_client.get_user_card(config), honcho_client.get_user_card_for_amy(config)
         )
-        logger.info("TIMING honcho session=%s took=%.2fs", session_id, time.monotonic() - _t)
+        logger.debug("TIMING honcho session=%s took=%.2fs", session_id, time.monotonic() - _t)
 
     system_prompt = build_system_prompt(
         SystemPromptInput(

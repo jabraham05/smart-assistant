@@ -13,6 +13,13 @@ that used to point at this workflow's webhooks (those vars are gone from
 what they used to do). This file is kept for history — see
 `docs/knowledge-engine.md` for the current system.
 
+**Current Amy ownership and lookup flow (2026-10-14):** see
+[`docs/knowledge-acquisition-plan.md`](knowledge-acquisition-plan.md). Amy now
+uses `knowledge_lookup` for immediate saved-knowledge + web retrieval;
+Growth owns promotion decisions, the reusable Planner scopes approved work,
+and Research persists cited findings. The older trigger/path descriptions
+below are historical and do not describe the current chat routing.
+
 **Found during a 2026-10-13 doc audit, not resolved — flagging rather than
 guessing**: this file previously claimed `research_pipeline` is
 "unpublished." The most recent export

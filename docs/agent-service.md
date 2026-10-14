@@ -36,6 +36,21 @@ were ported here as `src/profile_routes.py`, so nothing in chat-ui broke.
 
 ## Architecture
 
+### Current lookup and research routing
+
+Amy's immediate factual-search tool is `knowledge_lookup`. It calls the
+knowledge-engine's saved-document search and live web passage search in
+parallel and returns separate labeled results. `memory_recall` remains for
+personal facts from prior conversations. Legacy `web_search` and
+`knowledge_search` remain registered in skills-mcp for compatibility, but
+the live classifier maps both old categories to `knowledge_lookup`.
+
+The `research` category exposes `growth_research_request`, not the direct
+`research_task` executor. Growth decides whether work should proceed;
+Planner's research profile scopes the approved request; knowledge-engine's
+Research agent executes it and persists the document. See
+[`planner-agent.md`](planner-agent.md) for the shared Planner contract.
+
 `agent-service/src/main.py` is the Python equivalent of
 `chat-orchestrator/src/index.ts`'s turn orchestration: classify → assemble
 system prompt → run the PydanticAI agent (streamed) → apply safety-net

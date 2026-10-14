@@ -606,9 +606,17 @@ export async function listResearchQueue(config: Config, status?: string): Promis
 // single wake event - but this is free correctness, not speculative).
 export async function claimNextResearchQueueEntries(config: Config, limit: number): Promise<ResearchQueueRow[]> {
   const result = await getPool(config).query<ResearchQueueRow>(
-    `UPDATE research_queue SET status = 'researching', updated_at = now()
-     WHERE id IN (SELECT id FROM research_queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT $1)
-     RETURNING *`,
+    `WITH candidates AS (
+       SELECT id FROM research_queue
+       WHERE status = 'pending'
+          OR (status = 'researching' AND updated_at < now() - interval '2 hours')
+       ORDER BY created_at ASC
+       LIMIT $1
+       FOR UPDATE SKIP LOCKED
+     )
+     UPDATE research_queue AS rq SET status = 'researching', updated_at = now()
+     FROM candidates WHERE rq.id = candidates.id
+     RETURNING rq.*`,
     [limit],
   );
   return result.rows;

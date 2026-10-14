@@ -116,6 +116,10 @@ _SOURCE_DEFAULTS: dict[str, dict[str, float]] = {
     "user_correction": {"usefulness": 4, "confidence": 4, "reuse_potential": 3, "improvement_value": 4, "effort": 2, "interruption_cost": 2},
     "behavior_feedback": {"usefulness": 3, "confidence": 3, "reuse_potential": 3, "improvement_value": 3, "effort": 2, "interruption_cost": 2},
     "knowledge_gap": {"usefulness": 3, "confidence": 3, "reuse_potential": 2, "improvement_value": 2, "effort": 1, "interruption_cost": 1},
+    # An explicit user request is direct authorization for this topic. It
+    # bypasses recurrence scoring, while still entering Growth's proposal/
+    # Planner flow and the Research agent queue.
+    "explicit_research_request": {"usefulness": 5, "confidence": 5, "reuse_potential": 3, "improvement_value": 5, "effort": 1, "interruption_cost": 0},
     "idle_reflection": {"usefulness": 2, "confidence": 2, "reuse_potential": 2, "improvement_value": 2, "effort": 2, "interruption_cost": 2},
     "skill_gap_scan": {"usefulness": 3, "confidence": 3, "reuse_potential": 3, "improvement_value": 3, "effort": 3, "interruption_cost": 2},
     "review_score": {"usefulness": 3, "confidence": 3, "reuse_potential": 2, "improvement_value": 3, "effort": 3, "interruption_cost": 2},
@@ -140,6 +144,7 @@ _DEFAULT_SCORE_DIMENSIONS = {
 # separately in classify_category below rather than collapsed here.
 _SOURCE_CATEGORY: dict[str, str] = {
     "knowledge_gap": "knowledge",
+    "explicit_research_request": "knowledge",
     "tool_failure": "tool",
     "skill_gap_scan": "skill",
     "idle_reflection": "behavior",
@@ -370,6 +375,7 @@ async def record_observation(
     evidence: dict,
     session_id: str | None = None,
     category: str | None = None,
+    auto_promote: bool = True,
 ) -> int | None:
     """Raw signal -> accumulated, scored opportunity (Phase 6.2/6.3). Never
     raises - every call site fires this as a best-effort side observation,
@@ -442,11 +448,20 @@ async def record_observation(
                 json.dumps({"source": source, "summary": summary}),
             )
 
-        await _maybe_promote(config, opportunity_id)
+        if auto_promote:
+            await _maybe_promote(config, opportunity_id)
         return opportunity_id
     except Exception:
         logger.exception("growth_db.record_observation failed (source=%s)", source)
         return None
+
+
+async def promote_observation_opportunity(config: Config, opportunity_id: int) -> None:
+    """Run Growth's normal scoring/promotion flow for a persisted observation."""
+    try:
+        await _maybe_promote(config, opportunity_id)
+    except Exception:
+        logger.exception("growth_db.promote_observation_opportunity failed (id=%s)", opportunity_id)
 
 
 # ============================================================

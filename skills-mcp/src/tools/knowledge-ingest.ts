@@ -14,8 +14,9 @@ export function registerKnowledgeIngest(server: McpServer, config: Config): void
       title: "Save a web page into Amy's knowledge base",
       description:
         "Save a specific web page's content into Amy's knowledge base so it's recallable later via " +
-        "knowledge_search, from any conversation. Use this when the user gives you a specific URL to " +
-        "remember, not for general research on a topic - use research_task for that instead.",
+        "knowledge_lookup, from any conversation. Use this when the user gives you a specific URL to " +
+        "remember, not for general research on a topic - submit that through Growth with " +
+        "growth_research_request so Growth can decide and Planner can scope the Research work.",
       inputSchema: {
         url: z.string().url("must be a valid URL").describe("The web page to save."),
         domain: z.string().optional().describe("Topic area this belongs to, if known (e.g. 'automotive', 'warframe')."),

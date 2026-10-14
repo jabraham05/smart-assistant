@@ -19,6 +19,7 @@ import logging
 import re
 from typing import Literal
 
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, NativeOutput
 from pydantic_ai.models.ollama import OllamaModel
@@ -61,9 +62,9 @@ GROUPS: dict[str, list[str]] = {
         "project_complete",
     ],
     "dashboard": ["dashboard_control"],
-    "web": ["web_search"],
-    "knowledge": ["knowledge_search", "knowledge_ingest", "drive_search"],
-    "research": ["research_task", "research_task_status", "status_overview", "project_complete"],
+    "web": ["knowledge_lookup"],
+    "knowledge": ["knowledge_lookup", "knowledge_ingest", "drive_search"],
+    "research": ["growth_research_request", "research_task_status", "status_overview", "project_complete"],
     "goals": ["goal_manage", "project_propose", "status_overview", "project_complete"],
 }
 
@@ -82,6 +83,22 @@ GROUPS: dict[str, list[str]] = {
 STANDING_INSTRUCTION_INTENT = re.compile(
     r"\b(from now on|remember this|every time|going forward|that['’]?s the rule|apply this (rule|"
     r"from now on)|i prefer|i want you to (always|never)|always do this|never do this)\b",
+    re.IGNORECASE,
+)
+
+EXPLICIT_LOOKUP_INTENT = re.compile(
+    r"\b(look\s+it\s+up|look\s+that\s+up|look\s+up|search\s+(the\s+)?(web|internet|for)|"
+    r"check\s+(online|the\s+web)|find\s+out\s+about|verify\s+(this|that|whether)|"
+    r"research\s+(this|that|whether))\b",
+    re.IGNORECASE,
+)
+LIKELY_FACTUAL_QUESTION = re.compile(r"^\s*(what|who|when|where|which|how)\b", re.IGNORECASE)
+NON_LOOKUP_QUESTION = re.compile(r"\b(calendar|schedule|weather|spotify|music|myself|about me|told you|remember me)\b", re.IGNORECASE)
+
+EXPLICIT_RESEARCH_REQUEST = re.compile(
+    r"\b(research|investigate|look\s+into)\b.{0,80}\b(in\s+depth|deeply|thoroughly|save|remember|"
+    r"write\s+(a\s+)?(document|doc|report)|create\s+(a\s+)?(document|doc|report))\b|"
+    r"\b(in\s+depth|deeply|thoroughly)\b.{0,80}\b(research|investigate|look\s+into)\b",
     re.IGNORECASE,
 )
 
@@ -124,7 +141,11 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "category also matches; the two aren't mutually exclusive, same as 'research' alongside 'goals'.), "
     "'dashboard' (moving, "
     "resizing, showing, or hiding widgets on the smart-mirror "
-    "dashboard), 'web' (searching the live web for current information, news, or facts that could "
+    "dashboard), 'web' (requesting an immediate factual lookup; both the 'web' and 'knowledge' "
+    "categories expose the combined knowledge_lookup tool, which checks saved knowledge and the "
+    "live web in parallel. Include this for current information, news, facts, products, links, or "
+    "recommendations - Amy should cite whichever returned source supports the answer. 'web' also "
+    "means searching the live web for information, news, or facts that could "
     "have changed since training, OR looking something up online in general such as finding "
     "products, links, or recommendations - e.g. 'find me a good pair of headphones', 'give me some "
     "links for X'), 'knowledge' (looking up or searching within a specific document/manual/guide Amy "
@@ -134,7 +155,8 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "saving a specific web page for later recall - ALSO include 'knowledge' for finding or reading "
     "something from the user's own Google Drive, e.g. 'find my resume in Drive', 'what's in that "
     "Google Doc about X', 'look up Y in my Drive'), 'research' (starting in-depth background research "
-    "on a topic not already known, that should be saved for later, OR checking on/asking about "
+    "on a topic not already known, that should be saved for later - submit through "
+    "growth_research_request so Growth owns the decision and Planner scopes the work - OR checking on/asking about "
     "findings from research that may have already happened - 'what have you found out about X', 'any "
     "updates on the research', 'how's that going' - include 'research' for these EVEN IF X also "
     "matches an existing goal or project; the two aren't mutually exclusive, and research about a "
@@ -165,7 +187,7 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "user is waiting on the reply.\n"
     "- knowledgeGapTopic: a short topic string (a few words) ONLY when the user expresses genuine "
     "ongoing interest in a specific topic/project they want to learn about or work on - something Amy "
-    "likely knows little about and should go quietly research in the background, not something to "
+    "likely knows little about and Growth should evaluate for possible research, not something to "
     "answer right now. Covers explicit project-idea framing ('I have a new project idea, I want to "
     "build a robotics arm' -> \"robotics arm design and construction\") AND general new-interest "
     "statements with the same shape ('I've gotten really into drone photography lately', 'I've been "
@@ -266,6 +288,7 @@ class ClassificationResult(BaseModel):
     behavior_feedback: BehaviorFeedback | None
     memorable_items: list[MemorableItem]
     is_correction: bool
+    explicit_research_request: bool = False
 
 
 def expand_groups_to_tools(relevant_groups: list[str]) -> list[str]:
@@ -288,7 +311,7 @@ def expand_groups_to_tools(relevant_groups: list[str]) -> list[str]:
 def apply_background_override(
     background: bool, relevant_groups: list[str], relevant_tools: list[str]
 ) -> tuple[bool, list[str]]:
-    """Force-expose research_task/research_task_status for a background
+    """Force-expose Growth research request/status for a background
     request even if 'research' wasn't classified. A background request about
     something else entirely (Spotify, the calendar) has no generic
     background-any-tool executor, so it silently falls back to the normal
@@ -299,12 +322,22 @@ def apply_background_override(
     has_backgroundable_work = "research" in relevant_groups or "web" in relevant_groups
     if not has_backgroundable_work:
         return False, relevant_tools
-    return True, list(dict.fromkeys([*relevant_tools, "research_task", "research_task_status"]))
+    return True, list(dict.fromkeys([*relevant_tools, "growth_research_request", "research_task_status"]))
 
 
 def _build_classifier_agent(ollama_host: str, model: str) -> Agent[None, ClassifierOutput]:
+    # The SDK defaults to retrying timed-out requests. On the local Ollama
+    # endpoint that multiplied a 30-second timeout into ~90 seconds on the
+    # chat hot path. Keep classifier failure bounded and let deterministic
+    # fallback routing preserve essential tools.
+    client = AsyncOpenAI(
+        base_url=f"{ollama_host}/v1",
+        api_key="ollama",
+        timeout=12.0,
+        max_retries=0,
+    )
     return Agent(
-        OllamaModel(model_name=model, provider=OllamaProvider(base_url=f"{ollama_host}/v1")),
+        OllamaModel(model_name=model, provider=OllamaProvider(base_url=f"{ollama_host}/v1", openai_client=client)),
         # NativeOutput, not PydanticAI's default tool-call-based structured
         # output - a real, live-verified finding: the default mode routes
         # ClassifierOutput through a synthetic "final_result" tool call,
@@ -316,6 +349,7 @@ def _build_classifier_agent(ollama_host: str, model: str) -> Agent[None, Classif
         # instead - confirmed working live against qwen3:8b on this
         # project's actual Ollama version (0.32.3).
         output_type=NativeOutput(ClassifierOutput),
+        output_retries=0,
         instructions=_CLASSIFIER_SYSTEM_PROMPT,
         # think=False equivalent - qwen3 defaults to thinking-mode ON even
         # when unrequested (a real, measured ~2.9s -> ~0.09s latency finding
@@ -325,18 +359,24 @@ def _build_classifier_agent(ollama_host: str, model: str) -> Agent[None, Classif
         # key (bool | reasoning-effort literal) - `extra_body: {"think":
         # False}` (the OpenAI-SDK-style passthrough convention) silently
         # never reached the actual request at all.
-        model_settings={"thinking": False, "timeout": 30},
+        model_settings={"thinking": False, "timeout": 12},
     )
 
 
-def _fallback_result() -> ClassificationResult:
+def _fallback_result(chat_input: str) -> ClassificationResult:
     # Classifier failure degrades to "only calculate/task_context_manage"
     # rather than "all tools" - a classifier hiccup can't reintroduce the
     # exact large-tool-set failure mode this step exists to avoid.
+    explicit_lookup = bool(EXPLICIT_LOOKUP_INTENT.search(chat_input))
+    likely_lookup = bool(LIKELY_FACTUAL_QUESTION.search(chat_input)) and not NON_LOOKUP_QUESTION.search(chat_input)
+    groups = ["web"] if explicit_lookup or likely_lookup else []
+    explicit_research = bool(EXPLICIT_RESEARCH_REQUEST.search(chat_input))
+    if explicit_research:
+        groups.append("research")
     return ClassificationResult(
-        relevant_groups=[],
-        relevant_tools=expand_groups_to_tools([]),
-        tool_policy="optional",
+        relevant_groups=groups,
+        relevant_tools=expand_groups_to_tools(groups),
+        tool_policy="required" if groups else "optional",
         memory_policy="optional",
         needs_planning=False,
         background=False,
@@ -344,6 +384,7 @@ def _fallback_result() -> ClassificationResult:
         behavior_feedback=None,
         memorable_items=[],
         is_correction=False,
+        explicit_research_request=explicit_research,
     )
 
 
@@ -374,21 +415,14 @@ async def classify_relevant_tools(
         if "self-growth" not in relevant_groups and STANDING_INSTRUCTION_INTENT.search(chat_input):
             relevant_groups.append("self-growth")
 
-        # Deterministic guard: 'knowledge' always pairs with 'web'.
-        # knowledge_search's own tool description frames it as a check-
-        # first step ("use this before starting new research... to check
-        # whether something is already known"), but nothing guaranteed its
-        # natural escalation - web_search - was actually bound alongside
-        # it. Real, live-verified incident: classified 'knowledge' alone,
-        # knowledge_search came back empty ("Nothing in my current
-        # knowledge base, sir"), and with no live-search tool left to
-        # fall back on, the model confabulated a detailed answer anyway
-        # instead of admitting it couldn't find anything. The reverse
-        # pairing isn't needed - web_search alone is a complete, valid
-        # turn on its own, nothing about it implies checking knowledge_search
-        # first.
-        if "knowledge" in relevant_groups and "web" not in relevant_groups:
+        # The legacy categories remain useful classification labels, but
+        # both map to the same combined saved-knowledge + web lookup tool.
+        explicit_lookup = bool(EXPLICIT_LOOKUP_INTENT.search(chat_input))
+        if explicit_lookup and "web" not in relevant_groups:
             relevant_groups.append("web")
+        explicit_research = bool(EXPLICIT_RESEARCH_REQUEST.search(chat_input))
+        if explicit_research and "research" not in relevant_groups:
+            relevant_groups.append("research")
 
         background, tools_after_background = apply_background_override(
             parsed.background, relevant_groups, expand_groups_to_tools(relevant_groups)
@@ -441,7 +475,7 @@ async def classify_relevant_tools(
         return ClassificationResult(
             relevant_groups=relevant_groups,
             relevant_tools=relevant_tools,
-            tool_policy=parsed.tool_policy,
+            tool_policy="required" if explicit_lookup or explicit_research else parsed.tool_policy,
             memory_policy=parsed.memory_policy,
             needs_planning=parsed.needs_planning,
             background=background,
@@ -449,7 +483,8 @@ async def classify_relevant_tools(
             behavior_feedback=behavior_feedback,
             memorable_items=memorable_items,
             is_correction=is_correction,
+            explicit_research_request=explicit_research,
         )
     except Exception:
         logger.exception("classify_relevant_tools failed, falling back to calculate-only")
-        return _fallback_result()
+        return _fallback_result(chat_input)

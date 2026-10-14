@@ -208,13 +208,13 @@ async function callPlanner(
       {
         role: "system",
         content:
-          "You are the Planner for a coding task. Given a task description, dive deep: lay out the " +
-          "real architecture of the change (what files/modules are likely involved, what approach to " +
-          "take and why, what could go wrong, what needs to be researched or double-checked once the " +
-          "Coder can actually look at the repo). You are not writing code yet, only planning - but " +
-          "the plan should be concrete enough that a Coder working from it alone, with real shell " +
-          "access to the repository, could execute it without having to re-derive the approach from " +
-          "scratch. Also decide the exact shell command that should run this project's test suite (a " +
+          "You are the coding mode of Amy's reusable Planner agent. Given a task description, return " +
+          "a concise summary, ordered implementation steps, and assumptions. Lay out the likely " +
+          "architecture/files, approach and rationale, risks, and what the Coder should inspect in " +
+          "the repository before changing it. You are planning only: do not write code or claim to " +
+          "have inspected files you were not given. Make the plan concrete enough for the Coder to " +
+          "execute without re-deriving the approach. Also decide the exact shell command that should " +
+          "run this project's test suite (a " +
           "Tester will add test coverage using whatever is idiomatic for the task's actual " +
           "language/tooling - e.g. 'node --test' for a plain Node.js project, 'python3 -m pytest' for " +
           "Python, 'go test ./...' for Go, 'cargo test' for Rust). Never default to npm test for a " +
@@ -227,17 +227,41 @@ async function callPlanner(
     format: {
       type: "object",
       properties: {
-        plan: { type: "string" },
+        summary: { type: "string" },
+        steps: { type: "array", items: { type: "string" } },
+        assumptions: { type: "array", items: { type: "string" } },
         testCommand: { type: "string" },
         template: { type: "string", enum: [...TEMPLATE_NAMES, "none"] },
       },
-      required: ["plan", "testCommand"],
+      required: ["summary", "steps", "assumptions", "testCommand", "template"],
     },
   });
 
-  const parsed = parseJsonContent(message.content, { plan: "", testCommand: "", template: "none" });
+  type CodingPlanOutput = {
+    summary: string;
+    steps: string[];
+    assumptions: string[];
+    testCommand: string;
+    template: string;
+  };
+  const parsed = parseJsonContent<CodingPlanOutput>(message.content, {
+    summary: "",
+    steps: [],
+    assumptions: [],
+    testCommand: "npm test",
+    template: "none",
+  });
+  const steps = (Array.isArray(parsed.steps) ? parsed.steps as unknown[] : [])
+    .filter((step): step is string => typeof step === "string");
+  const assumptions = (Array.isArray(parsed.assumptions) ? parsed.assumptions as unknown[] : [])
+    .filter((item): item is string => typeof item === "string");
+  const plan = [
+    typeof parsed.summary === "string" ? parsed.summary : "",
+    ...steps.map((step, index) => `${index + 1}. ${step}`),
+    ...(assumptions.length ? [`Assumptions: ${assumptions.join("; ")}`] : []),
+  ].filter(Boolean).join("\n");
   return {
-    plan: parsed.plan ?? "",
+    plan,
     testCommand: parsed.testCommand ?? "npm test",
     template: validateTemplate(parsed.template),
   };

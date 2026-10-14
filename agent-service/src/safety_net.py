@@ -25,6 +25,7 @@ ACTION_TOOLS = [
     "code_task",
     "skill_propose",
     "research_task",
+    "growth_research_request",
     "project_propose",
     # Real gap found via live testing: task_context_manage is always bound
     # (see ALWAYS_BOUND_TOOLS below), so on a turn where nothing else got
@@ -68,7 +69,7 @@ _UNFULFILLED_SEARCH_INTENT = re.compile(
     re.IGNORECASE,
 )
 
-SEARCH_TOOLS = ["web_search", "knowledge_search", "research_task"]
+SEARCH_TOOLS = ["knowledge_lookup"]
 
 _URL_IN_REPLY = re.compile(r"https?://[^\s<>\]\[(){}]+", re.IGNORECASE)
 
@@ -176,16 +177,6 @@ def _strip_trailing_punctuation(url: str) -> str:
 # knowledge-engine/src/engine/grounding.ts's isGrounded for that weaker
 # variant used internally by the research agent itself) - a citation is
 # either the real source a tool gave back, verbatim, or it's fabricated.
-def has_ungrounded_citation(reply_text: str, tool_results: list[str]) -> bool:
-    """True when the reply cites a URL that doesn't appear verbatim in any
-    tool result actually returned this turn."""
-    cited_urls = [_strip_trailing_punctuation(m.group(0)) for m in _URL_REGEX.finditer(reply_text)]
-    if not cited_urls:
-        return False
-    haystack = "\n".join(tool_results)
-    return any(url not in haystack for url in cited_urls)
-
-
 UNGROUNDED_CITATION_NUDGE = (
     " (Your last reply cited a URL/source that didn't actually appear in any tool result this turn - "
     "that source is fabricated. Only cite a URL that's verbatim in what a tool actually returned this "
@@ -194,7 +185,7 @@ UNGROUNDED_CITATION_NUDGE = (
 
 SEARCH_RETRY_NUDGE = (
     " (Your last attempt said you'd search again but didn't actually call the tool - actually call "
-    "web_search, knowledge_search, or research_task again (whichever fits) right now with a "
+    "knowledge_lookup again right now with a "
     "meaningfully different query before replying. Briefly let the user know you're trying a "
     "different angle.)"
 )
@@ -210,6 +201,7 @@ def has_unsatisfied_required_tool(
     bound_tools: list[str],
     called_tools: list[str],
     relevant_groups: list[str] | None = None,
+    required_tools: list[str] | None = None,
 ) -> bool:
     """True when the classifier decided this message needed live/authoritative
     data or a real action (toolPolicy=required), a capability-specific tool
@@ -217,6 +209,13 @@ def has_unsatisfied_required_tool(
     relevant_groups = relevant_groups or []
     if tool_policy != "required":
         return False
+    if required_tools and any(tool in bound_tools and tool not in called_tools for tool in required_tools):
+        return True
+    # A second required capability can also be bound (for example calendar
+    # lookup plus a web lookup). Calling that other tool must not satisfy an
+    # explicit factual-search request.
+    if "web" in relevant_groups and "knowledge_lookup" in bound_tools and "knowledge_lookup" not in called_tools:
+        return True
     # Real bug found via live testing: task_context_manage genuinely overlaps
     # with the 'goals' group ("things to do") - a correct task_context_manage
     # answer shouldn't be flagged just because another 'goals' tool was also
@@ -515,7 +514,7 @@ _TOOL_FAILURE_NARRATION = re.compile(
     re.IGNORECASE,
 )
 
-# web_search/knowledge_search/research_task deliberately excluded: this
+# knowledge_lookup deliberately excluded: this
 # check's whole point is "never expose a plumbing failure, just answer from
 # what you already know" - correct for calendar/weather/Spotify, but for a
 # factual-lookup tool "what you already know" is exactly the unverified

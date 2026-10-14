@@ -79,8 +79,17 @@ from .safety_net import (
     teaching_intent_retry_nudge,
 )
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# Keep turn-level activity visible without flooding logs with one line per
+# HTTP request and model retry from dependency libraries.
+for _noisy_logger in ("httpx", "httpx2", "openai", "uvicorn.access"):
+    logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+def _preview(value: str, limit: int = 300) -> str:
+    compact = " ".join(value.split())
+    return compact if len(compact) <= limit else compact[:limit] + "…"
 
 config = load_config()
 app = FastAPI()
@@ -227,6 +236,12 @@ async def _run_turn(
                         iteration += 1
                         open_tool_calls[event.part.tool_call_id] = (tool_name, iteration)
                         state.called_tools.append(tool_name)
+                        tool_args = event.part.args_as_dict() if hasattr(event.part, "args_as_dict") else {}
+                        logger.info(
+                            "tool call session=%s attempt=%d iteration=%d name=%s args=%s",
+                            session_id, state.attempt, iteration, tool_name,
+                            _preview(json.dumps(tool_args, ensure_ascii=False, default=str), 500),
+                        )
                         yield (
                             emit(
                                 "trace",
@@ -265,6 +280,11 @@ async def _run_turn(
                             _, result_iteration = open_tool_calls.get(event.part.tool_call_id, (tool_name, 0))
                         is_error = type(event.part).__name__ == "RetryPromptPart"
                         result_text = str(event.part.content)
+                        logger.info(
+                            "tool result session=%s attempt=%d iteration=%d name=%s status=%s chars=%d",
+                            session_id, state.attempt, result_iteration, tool_name,
+                            "error" if is_error else "ok", len(result_text),
+                        )
                         if is_error:
                             state.last_tool_error = (tool_name, result_text)
                         else:
@@ -283,12 +303,16 @@ async def _run_turn(
                                 },
                             )
                         )
+        usage = stream.usage
         logger.info(
-            "TIMING _run_turn session=%s attempt=%d took=%.2fs tool_calls=%d",
+            "turn attempt complete session=%s attempt=%d duration=%.2fs tools=%d tokens_in=%s tokens_out=%s requests=%s",
             session_id,
             state.attempt,
             time.monotonic() - _turn_started,
             iteration,
+            getattr(usage, "input_tokens", "?"),
+            getattr(usage, "output_tokens", "?"),
+            getattr(usage, "requests", "?"),
         )
         out.text = "".join(text_parts)
     except Exception:
@@ -310,6 +334,7 @@ async def webhook(request: Request):
 
         _turn_t0 = time.monotonic()
         try:
+            logger.info("turn started session=%s message_chars=%d message=%r", session_id, len(chat_input), _preview(chat_input))
             full_history = await session_memory.get_recent_history(config, session_id)
             message_history = session_memory.to_model_messages(full_history)
             recent_context = None
@@ -335,7 +360,18 @@ async def webhook(request: Request):
             system_prompt = ctx.system_prompt
             should_acknowledge = ctx.should_acknowledge
 
-            if classification.knowledge_gap_topic:
+            logger.info(
+                "context built session=%s history=%d tools=%s groups=%s memories=%s knowledge=%s tasks=%s goals=%s projects=%d system_chars=%d",
+                session_id, len(message_history), classification.relevant_tools, classification.relevant_groups,
+                [_preview(f"{m.domain or 'general'}: {m.content}", 140) for m in relevant_memory_results[:5]],
+                [_preview(f"{k.document_title or k.source_title or k.domain}: {k.content}", 140)
+                 for k in relevant_knowledge_results[:5]],
+                [_preview(t.objective, 100) for t in open_tasks[:3]],
+                [_preview(g.title, 100) for g in relevant_goals[:3]],
+                len(ctx.open_projects), len(system_prompt),
+            )
+
+            if classification.knowledge_gap_topic and not classification.explicit_research_request:
                 # A conversational gap is evidence for Growth, not by itself
                 # authorization for ambient research. Growth decides after
                 # recurrence/value scoring, then Planner scopes any task.
@@ -513,6 +549,11 @@ async def webhook(request: Request):
                     final_text = retry_text
 
             bound_tools = classification.relevant_tools
+            required_tools = []
+            if classification.tool_policy == "required" and "web" in classification.relevant_groups:
+                required_tools.append("knowledge_lookup")
+            if classification.explicit_research_request:
+                required_tools.append("growth_research_request")
 
             # Capped loop, not one-shot (same shape as the tool-error retry
             # above) - real, observed gap: a single retry gives the model
@@ -661,25 +702,6 @@ async def webhook(request: Request):
                 if retry_text.strip():
                     final_text = retry_text
 
-            if has_ungrounded_citation(final_text, state.tool_results):
-                asyncio.create_task(
-                    growth_db.record_observation(
-                        config, "safety_net_failure", "Reply cited a URL/source not present in any real tool result",
-                        {"reason": "ungrounded_citation", "chatInput": chat_input}, session_id=session_id,
-                    )
-                )
-                yield emit(
-                    "trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "ungrounded_citation"}
-                )
-                retry_text, chunks = await _run_turn(
-                    config, session_id, system_prompt, chat_input + UNGROUNDED_CITATION_NUDGE, bound_tools,
-                    state, emit, message_history,
-                )
-                for c in chunks:
-                    yield c
-                if retry_text.strip():
-                    final_text = retry_text
-
             if has_status_narration_mismatch(final_text, state.called_tools, state.tool_results):
                 asyncio.create_task(
                     growth_db.record_observation(
@@ -744,7 +766,8 @@ async def webhook(request: Request):
                     final_text = retry_text
 
             if has_unsatisfied_required_tool(
-                classification.tool_policy, bound_tools, state.called_tools, classification.relevant_groups
+                classification.tool_policy, bound_tools, state.called_tools, classification.relevant_groups,
+                required_tools,
             ):
                 asyncio.create_task(
                     growth_db.record_observation(
@@ -771,7 +794,8 @@ async def webhook(request: Request):
                 if retry_text.strip():
                     final_text = retry_text
                 if has_unsatisfied_required_tool(
-                    classification.tool_policy, bound_tools, state.called_tools, classification.relevant_groups
+                    classification.tool_policy, bound_tools, state.called_tools, classification.relevant_groups,
+                    required_tools,
                 ):
                     final_text = REQUIRED_TOOL_FAILURE_MESSAGE
 
@@ -841,7 +865,8 @@ async def webhook(request: Request):
                 final_text = cleaned_text
 
             yield emit("end")
-            logger.info("TIMING total-until-end session=%s took=%.2fs", session_id, time.monotonic() - _turn_t0)
+            logger.info("turn reply session=%s duration=%.2fs reply_chars=%d reply=%r", session_id,
+                        time.monotonic() - _turn_t0, len(final_text), _preview(final_text))
 
             _t = time.monotonic()
             memory_domain = ",".join(classification.relevant_groups) or None
@@ -884,7 +909,7 @@ async def webhook(request: Request):
                     config.chat_model,
                 ),
             )
-            logger.info("TIMING post-turn-writes session=%s took=%.2fs", session_id, time.monotonic() - _t)
+            logger.debug("TIMING post-turn-writes session=%s took=%.2fs", session_id, time.monotonic() - _t)
         except Exception as e:
             logger.exception("chat turn failed for session %s", session_id)
             yield emit("error", str(e))

@@ -11,6 +11,7 @@ contexts are already reviewed - no new chat-ui page needed for this.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from decimal import Decimal
 
@@ -57,6 +58,27 @@ def build_router(config: Config) -> APIRouter:
         # Read-only: what Amy can do today. Adding skills still goes through
         # the approval pipelines (skill_proposals / growth proposals).
         return {"skills": await db.list_skills(config)}
+
+    @router.post("/research-requests")
+    async def submit_research_request(body: dict):
+        """Accept an explicit request into Growth; Growth promotes it and
+        Planner scopes it before the Research agent receives any work."""
+        topic = str(body.get("topic") or "").strip()
+        if not topic:
+            return {"accepted": False, "error": "topic is required"}
+        opportunity_id = await growth_db.record_observation(
+            config,
+            "explicit_research_request",
+            topic[:200],
+            {"request": topic[:2000], "explicitUserRequest": True},
+            session_id=str(body.get("sessionId") or "") or None,
+            category="knowledge",
+            auto_promote=False,
+        )
+        if opportunity_id is None:
+            return {"accepted": False, "error": "Growth could not record the request"}
+        asyncio.create_task(growth_db.promote_observation_opportunity(config, opportunity_id))
+        return {"accepted": True, "opportunityId": opportunity_id, "status": "planning"}
 
     @router.get("/opportunities")
     async def list_opportunities(status: str | None = None, limit: int = 50):

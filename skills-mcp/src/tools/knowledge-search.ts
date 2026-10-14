@@ -16,14 +16,13 @@ export function registerKnowledgeSearch(server: McpServer, config: Config): void
       description:
         "Search documents and past research Amy already has - ingested manuals/notes, saved web " +
         "pages, and previously-completed research - returning the most relevant excerpts with " +
-        "their source cited. Use this before starting new research with research_task, to check " +
-        "whether something is already known. Synthesize a short answer in your own words from " +
+        "their source cited. This is the saved-knowledge half of knowledge_lookup; Amy's live " +
+        "chat should use knowledge_lookup so saved knowledge and the web are checked together. " +
+        "Use this tool only when a caller specifically needs a saved-knowledge-only search. " +
+        "Synthesize a short answer in your own words from " +
         "these excerpts and cite the source - don't paste multiple excerpts verbatim into the " +
-        "chat reply. If this returns no matching results, that means it's genuinely not something " +
-        "Amy has stored - call web_search next for a live lookup rather than answering from your " +
-        "own general knowledge. Never state a confident, specific answer right after this comes " +
-        "back empty without either calling web_search or telling the user directly that nothing " +
-        "was found.",
+        "chat reply. An empty result only means no saved match was found; it does not establish " +
+        "that the information is unavailable on the web.",
       inputSchema: {
         query: z.string().min(1, "query must not be empty").describe("What to search for."),
         domain: z.string().optional().describe("Narrow the search to one topic area, if known (e.g. 'automotive', 'warframe')."),

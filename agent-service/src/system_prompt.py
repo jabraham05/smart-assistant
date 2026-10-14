@@ -185,7 +185,7 @@ def build_system_prompt(input: SystemPromptInput) -> str:
     )
 
     search_result_fidelity_line = (
-        "When answering from web_search, knowledge_search, research_task, or the stored knowledge below, "
+        "When answering from knowledge_lookup or the stored knowledge below, "
         "state only specific facts, names, numbers, versions, prices, file names, or settings supported by "
         "the actual source text. Never fill gaps with plausible-sounding specifics from memory. A partial "
         "match or thin source is not a complete answer: search the web for the missing parts, or say what "

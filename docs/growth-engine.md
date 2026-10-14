@@ -4,6 +4,23 @@ Implements Phases 6-9 of `docs/unified-architecture-gap-analysis.md`'s canonical
 
 Lives inside `agent-service` rather than as its own microservice - the roadmap is explicit that this should "move the lifecycle into agent-service and the current architecture," not resurrect the n8n implementation it's based on. It does get its own Postgres database (`growth`), same one-database-per-concern convention as `memory`/`events`/`research`/`skills`.
 
+## Growth → Planner → Research ownership
+
+Growth owns the decision to pursue a knowledge opportunity. Ambient knowledge
+gaps are scored through the normal observation/opportunity lifecycle; a
+specific user request for substantial saved research is direct authorization
+and enters Growth's knowledge opportunity path immediately. Growth's
+research-planning adapter scopes approved work into a concise brief, with
+bounded saved-knowledge and web context. It does not perform the research.
+The separate Research agent in `knowledge-engine` investigates the brief
+and creates or updates the durable knowledge document. Amy's
+`knowledge_lookup` is for immediate answers and does not enqueue work.
+
+The coding workflow uses the same structured Planner contract with a coding
+profile; Coding Orchestrator remains responsible for execution and review.
+See [`planner-agent.md`](planner-agent.md) for the shared fields and
+boundaries.
+
 ## Prior art this builds on
 
 Commit `96a56acd` (branch `origin/worktree-self-improvement-cycle`, Sep 2026) built a full Reviewer/Proposer self-improvement pipeline - a decomposed-rubric LLM judge, multi-cause attribution, and golden-transcript regression checks before any persona edit - but was never merged, because it was wired entirely into the n8n `Chat` workflow, which `agent-service` has since replaced as the live request path. See `docs/unified-architecture-gap-analysis.md` §4 for the full writeup.

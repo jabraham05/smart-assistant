@@ -91,13 +91,13 @@ class Config:
     knowledge_strong_relevance_score: float
 
 
-def _int_env(name: str, default: int) -> int:
-    value = os.environ.get(name)
+def _int_env(env: dict[str, str], name: str, default: int) -> int:
+    value = env.get(name)
     return int(value) if value else default
 
 
-def _float_env(name: str, default: float) -> float:
-    value = os.environ.get(name)
+def _float_env(env: dict[str, str], name: str, default: float) -> float:
+    value = env.get(name)
     return float(value) if value else default
 
 
@@ -109,7 +109,7 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         raise RuntimeError("POSTGRES_PASSWORD is required")
 
     return Config(
-        port=_int_env("PORT", 3010),
+        port=_int_env(env, "PORT", 3010),
         ollama_host=env.get("OLLAMA_HOST") or "http://ollama:11434",
         # qwen3:8b and qwen3:14b were both retired - qwen3.5:9b is now the
         # only model pulled, for every role (chat, classifier, Growth
@@ -123,14 +123,14 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         chat_model=env.get("CHAT_MODEL") or "qwen3.5:9b",
         classifier_model=env.get("CHAT_CLASSIFIER_MODEL") or "qwen3.5:9b",
         growth_judge_model=env.get("GROWTH_JUDGE_MODEL") or "qwen3.5:9b",
-        agent_max_iterations=_int_env("CHAT_AGENT_MAX_ITERATIONS", 10),
-        num_ctx=_int_env("CHAT_NUM_CTX", 16384),
-        post_tool_timeout_seconds=_float_env("CHAT_POST_TOOL_TIMEOUT_SECONDS", 120.0),
+        agent_max_iterations=_int_env(env, "CHAT_AGENT_MAX_ITERATIONS", 10),
+        num_ctx=_int_env(env, "CHAT_NUM_CTX", 16384),
+        post_tool_timeout_seconds=_float_env(env, "CHAT_POST_TOOL_TIMEOUT_SECONDS", 120.0),
         skills_mcp_url=env.get("SKILLS_MCP_URL") or "http://skills-mcp:3001",
         skills_library_path=env.get("SKILLS_LIBRARY_PATH") or "/data/skills",
         postgres=PostgresConfig(
             host=env.get("POSTGRES_HOST") or "postgres",
-            port=_int_env("POSTGRES_PORT", 5432),
+            port=_int_env(env, "POSTGRES_PORT", 5432),
             n8n_database=env.get("N8N_DB_NAME") or "n8n",
             growth_database=env.get("GROWTH_DB_NAME") or "growth",
             skills_database=env.get("SKILLS_DB_NAME") or "skills",
@@ -140,8 +140,8 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         db_schema=env.get("CHAT_DB_SCHEMA") or "public",
         redis=RedisConfig(
             host=env.get("REDIS_HOST") or "redis",
-            port=_int_env("REDIS_PORT", 6379),
-            db=_int_env("REDIS_DB", 0),
+            port=_int_env(env, "REDIS_PORT", 6379),
+            db=_int_env(env, "REDIS_DB", 0),
         ),
         honcho_api_key=env.get("HONCHO_API_KEY") or None,
         honcho_workspace_id=env.get("HONCHO_WORKSPACE_ID") or "smart-assistant",
@@ -151,9 +151,9 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         graphiti_service_url=env.get("GRAPHITI_SERVICE_URL") or "http://graphiti-service:3012",
         # Same default value as knowledge-engine's routeToWebThreshold - both
         # are RRF scores from the identical k=60 formula.
-        memory_min_relevance_score=_float_env("MEMORY_MIN_RELEVANCE_SCORE", 0.012),
-        memory_min_keyword_overlap=_int_env("MEMORY_MIN_KEYWORD_OVERLAP", 1),
-        knowledge_min_relevance_score=_float_env("KNOWLEDGE_MIN_RELEVANCE_SCORE", 0.012),
-        knowledge_min_keyword_overlap=_int_env("KNOWLEDGE_MIN_KEYWORD_OVERLAP", 1),
-        knowledge_strong_relevance_score=_float_env("KNOWLEDGE_STRONG_RELEVANCE_SCORE", 0.02),
+        memory_min_relevance_score=_float_env(env, "MEMORY_MIN_RELEVANCE_SCORE", 0.012),
+        memory_min_keyword_overlap=_int_env(env, "MEMORY_MIN_KEYWORD_OVERLAP", 1),
+        knowledge_min_relevance_score=_float_env(env, "KNOWLEDGE_MIN_RELEVANCE_SCORE", 0.012),
+        knowledge_min_keyword_overlap=_int_env(env, "KNOWLEDGE_MIN_KEYWORD_OVERLAP", 1),
+        knowledge_strong_relevance_score=_float_env(env, "KNOWLEDGE_STRONG_RELEVANCE_SCORE", 0.02),
     )
