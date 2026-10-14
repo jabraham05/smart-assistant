@@ -26,6 +26,7 @@ from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
 
 logger = logging.getLogger(__name__)
+_CLASSIFIER_TIMEOUT_SECONDS = 30.0
 
 TOOL_GROUPS = [
     "media",
@@ -333,7 +334,7 @@ def _build_classifier_agent(ollama_host: str, model: str) -> Agent[None, Classif
     client = AsyncOpenAI(
         base_url=f"{ollama_host}/v1",
         api_key="ollama",
-        timeout=12.0,
+        timeout=_CLASSIFIER_TIMEOUT_SECONDS,
         max_retries=0,
     )
     # The supplied AsyncOpenAI client already targets Ollama's compatible
@@ -362,7 +363,7 @@ def _build_classifier_agent(ollama_host: str, model: str) -> Agent[None, Classif
         # key (bool | reasoning-effort literal) - `extra_body: {"think":
         # False}` (the OpenAI-SDK-style passthrough convention) silently
         # never reached the actual request at all.
-        model_settings={"thinking": False, "timeout": 12},
+        model_settings={"thinking": False, "timeout": _CLASSIFIER_TIMEOUT_SECONDS},
     )
 
 
