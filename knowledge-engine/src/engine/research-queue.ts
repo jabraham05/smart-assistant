@@ -110,7 +110,7 @@ export async function drainQueue(config: Config, limit: number): Promise<DrainRe
       const session = await db.insertResearchSession(config, {
         topic: item.topic,
         domain: item.domain ?? undefined,
-        triggerSource: "research_queue",
+        triggerSource: item.trigger_source || "research_queue",
         originSessionId: item.origin_session_id ?? undefined,
       });
 
@@ -119,7 +119,7 @@ export async function drainQueue(config: Config, limit: number): Promise<DrainRe
         {
           query: item.topic,
           domain: item.domain ?? undefined,
-          triggerSource: "research_queue",
+          triggerSource: item.trigger_source || "research_queue",
           originSessionId: item.origin_session_id ?? undefined,
           deferNotify: true,
         },

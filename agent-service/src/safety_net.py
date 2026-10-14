@@ -70,6 +70,84 @@ _UNFULFILLED_SEARCH_INTENT = re.compile(
 
 SEARCH_TOOLS = ["web_search", "knowledge_search", "research_task"]
 
+_URL_IN_REPLY = re.compile(r"https?://[^\s<>\]\[(){}]+", re.IGNORECASE)
+
+
+def has_ungrounded_citation(
+    reply_text: str,
+    called_tools: list[str],
+    tool_results: list[str],
+    injected_evidence: list[str] | None = None,
+) -> bool:
+    """Reject source URLs that were not returned by retrieval this turn."""
+    injected_evidence = injected_evidence or []
+    if not any(t in SEARCH_TOOLS for t in called_tools) and not injected_evidence:
+        return False
+    citations = [url.rstrip(".,;:!?") for url in _URL_IN_REPLY.findall(reply_text)]
+    if not citations:
+        return False
+    evidence = "\n".join([*tool_results, *injected_evidence]).casefold()
+    return any(url.casefold() not in evidence for url in citations)
+
+
+UNGROUNDED_CITATION_NUDGE = (
+    " (Your last reply included a source URL that wasn't present in the search results or stored sources "
+    "available this turn. Remove that link; only cite URLs actually returned by a source, or answer "
+    "without a citation.)"
+)
+UNGROUNDED_CITATION_FAILURE_MESSAGE = (
+    "I can't verify the source links for that answer, so I don't want to present them as citations."
+)
+
+_SPECIFIC_CLAIM_PATTERNS = (
+    re.compile(r"\bv\d+(?:\.\d+){1,3}\b", re.IGNORECASE),
+    re.compile(r"\$\s?\d+(?:,\d{3})*(?:\.\d+)?"),
+    re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b"),
+    re.compile(r"\b\d[\d,]*(?:\.\d+)?-[A-Za-z][A-Za-z0-9-]*\b"),
+    re.compile(r"\b[A-Za-z0-9_.-]+\.(?:py|ts|tsx|js|jsx|go|rs|java|toml|ya?ml|json|env)\b", re.IGNORECASE),
+)
+_GENERIC_FILENAMES = {"package.json", "tsconfig.json", "readme.md", "dockerfile"}
+
+
+def _specific_claims(text: str) -> list[str]:
+    claims: list[str] = []
+    for pattern in _SPECIFIC_CLAIM_PATTERNS:
+        for match in pattern.findall(text):
+            token = match if isinstance(match, str) else "".join(match)
+            if token and token.lower() not in _GENERIC_FILENAMES and token not in claims:
+                claims.append(token)
+    return claims
+
+
+def has_ungrounded_specifics(
+    reply_text: str,
+    called_tools: list[str],
+    tool_results: list[str],
+    injected_evidence: list[str] | None = None,
+) -> bool:
+    """Catch unsupported high-specificity details without penalizing paraphrase.
+
+    This is deliberately narrower than a general fact checker: it checks
+    concrete tokens that should normally be copied verbatim from evidence.
+    Injected knowledge/memory counts as evidence even when Amy called no tool.
+    """
+    evidence = [*tool_results, *(injected_evidence or [])]
+    if not evidence or not any(t in SEARCH_TOOLS for t in called_tools) and not injected_evidence:
+        return False
+    haystack = "\n".join(evidence).casefold()
+    return any(token.casefold() not in haystack for token in _specific_claims(reply_text))
+
+
+UNGROUNDED_SPECIFICS_NUDGE = (
+    " (Your last answer included a specific version, price, environment variable, filename, or numeric "
+    "limit that does not appear in the actual sources available this turn. Remove unsupported specifics; "
+    "answer only from the source text, search for missing information, or say it is unknown.)"
+)
+UNGROUNDED_SPECIFICS_FAILURE_MESSAGE = (
+    "I found some related information, but I can't verify the specific details well enough to answer "
+    "without guessing."
+)
+
 
 def has_unfulfilled_search_intent(reply_text: str, bound_tools: list[str], called_tools: list[str]) -> bool:
     """True when the reply talks about searching/checking but no search tool

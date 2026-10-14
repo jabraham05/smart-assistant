@@ -179,6 +179,9 @@ export interface ChunkSearchRow {
   domain: string | null;
   source_url: string | null;
   source_title: string | null;
+  document_created_at: string;
+  document_retrieved_at: string | null;
+  valid_until: string | null;
   rrf_score: number;
   keyword_overlap_count: number;
   query_lexeme_count: number;
@@ -277,6 +280,9 @@ export async function hybridSearchChunks(config: Config, options: HybridSearchOp
        d.id AS document_id,
        d.title AS document_title,
        d.domain,
+       d.created_at AS document_created_at,
+       d.retrieved_at AS document_retrieved_at,
+       d.valid_until,
        s.url AS source_url,
        s.title AS source_title,
        combined.rrf_score,

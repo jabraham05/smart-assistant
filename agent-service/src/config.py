@@ -86,6 +86,9 @@ class Config:
     graphiti_service_url: str
     memory_min_relevance_score: float
     memory_min_keyword_overlap: int
+    knowledge_min_relevance_score: float
+    knowledge_min_keyword_overlap: int
+    knowledge_strong_relevance_score: float
 
 
 def _int_env(name: str, default: int) -> int:
@@ -145,4 +148,7 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         # are RRF scores from the identical k=60 formula.
         memory_min_relevance_score=_float_env("MEMORY_MIN_RELEVANCE_SCORE", 0.012),
         memory_min_keyword_overlap=_int_env("MEMORY_MIN_KEYWORD_OVERLAP", 1),
+        knowledge_min_relevance_score=_float_env("KNOWLEDGE_MIN_RELEVANCE_SCORE", 0.012),
+        knowledge_min_keyword_overlap=_int_env("KNOWLEDGE_MIN_KEYWORD_OVERLAP", 1),
+        knowledge_strong_relevance_score=_float_env("KNOWLEDGE_STRONG_RELEVANCE_SCORE", 0.02),
     )
