@@ -108,6 +108,43 @@ app.post("/search", async (req, res) => {
   }
 });
 
+// POST /entries/forget - skills-mcp's memory_forget tool calls this when
+// the user explicitly says something Amy previously claimed is wrong.
+// Searches Amy's own past replies only (role: "assistant" - never the
+// user's own statements, enforced again in db.markMemoryEntriesUngrounded's
+// own WHERE clause, not just here) and retags real matches as 'ungrounded'
+// so hybridSearchMemory's grounding filter excludes them from now on.
+// Deliberately cross-session: the whole failure mode this exists for is a
+// fabrication from one conversation leaking into an unrelated later one,
+// so scoping the search to "this session only" would miss the exact case
+// that matters.
+app.post("/entries/forget", async (req, res) => {
+  const body = req.body as { query?: string; topK?: number };
+  if (!body.query || typeof body.query !== "string") {
+    return res.status(400).json({ error: "query is required" });
+  }
+  const topK = Number.isInteger(body.topK) && (body.topK as number) > 0 ? Math.min(body.topK as number, 10) : 5;
+
+  try {
+    const embedding = await embedText(config, body.query);
+    const rows = await db.hybridSearchMemory(config, embedding, body.query, { topK, role: "assistant" });
+    // Same gate knowledge-engine's router.ts uses for the identical reason:
+    // a vector search always ranks *something* top-K regardless of true
+    // relevance, so real keyword overlap (when the query has any
+    // significant lexemes at all) distinguishes a genuine match from
+    // "closest of a bad bunch" before anything gets marked.
+    const matches = rows.filter((r) => r.query_lexeme_count === 0 || r.keyword_overlap_count >= 1);
+    const markedCount = await db.markMemoryEntriesUngrounded(config, matches.map((m) => m.id));
+    res.json({
+      markedCount,
+      matches: matches.map((m) => ({ id: m.id, content: m.content, sessionId: m.session_id, createdAt: m.created_at })),
+    });
+  } catch (e) {
+    console.error("failed to forget memory entries:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 app.listen(config.port, "0.0.0.0", () => {
   console.log(`memory-engine listening on :${config.port}`);
 });
