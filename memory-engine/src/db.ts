@@ -82,6 +82,10 @@ export interface HybridSearchOptions {
   // to scope a lookup to one task's own timeline.
   domain?: string;
   taskContextId?: number;
+  // Scopes to one role - memory_forget (index.ts) uses this to search only
+  // Amy's own past claims, never the user's own statements, when looking
+  // for something to mark ungrounded.
+  role?: string;
 }
 
 // Hybrid RRF (constant k=60, standard from the original paper) fusing
@@ -94,13 +98,25 @@ export interface HybridSearchOptions {
 // mention of something is usually more relevant to *this* conversation
 // than an old one, which isn't true for knowledge-engine's world-facts
 // domains (a wiring diagram doesn't go stale).
+//
+// Every candidate list excludes grounding='ungrounded' unconditionally -
+// the exact gap behind a real incident (safety_net.py's own comment on
+// classify_memory_grounding): an invented, zero-tool-call reply gets
+// tagged 'ungrounded' correctly at ingest time, but until this exclusion
+// existed, nothing at read time ever acted on that tag - it was retrieved
+// and re-cited as "confirmed" in later, unrelated conversations just the
+// same as a real fact, compounding across many rows before anyone
+// noticed. This makes the tag load-bearing instead of write-only, and -
+// because it's applied at query time, not insert time - it retroactively
+// stops every already-stored ungrounded row from ever surfacing again,
+// with no migration or backfill needed.
 export async function hybridSearchMemory(
   config: Config,
   queryEmbedding: number[],
   queryText: string,
   options: HybridSearchOptions,
 ): Promise<MemorySearchRow[]> {
-  const { topK, domain, taskContextId } = options;
+  const { topK, domain, taskContextId, role } = options;
   const candidateLimit = Math.max(topK * 4, 20);
   const RRF_K = 60;
 
@@ -118,7 +134,9 @@ export async function hybridSearchMemory(
      vector_ranked AS (
        SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> $1::vector) AS rank
        FROM memory_entries
-       WHERE ($6::text IS NULL OR domain = $6) AND ($7::bigint IS NULL OR task_context_id = $7)
+       WHERE grounding != 'ungrounded'
+         AND ($6::text IS NULL OR domain = $6) AND ($7::bigint IS NULL OR task_context_id = $7)
+         AND ($8::text IS NULL OR role = $8)
        ORDER BY embedding <=> $1::vector
        LIMIT $4
      ),
@@ -126,14 +144,18 @@ export async function hybridSearchMemory(
        SELECT id, ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsv, plainto_tsquery('english', $2)) DESC) AS rank
        FROM memory_entries
        WHERE content_tsv @@ plainto_tsquery('english', $2)
+         AND grounding != 'ungrounded'
          AND ($6::text IS NULL OR domain = $6) AND ($7::bigint IS NULL OR task_context_id = $7)
+         AND ($8::text IS NULL OR role = $8)
        ORDER BY ts_rank(content_tsv, plainto_tsquery('english', $2)) DESC
        LIMIT $4
      ),
      recency_ranked AS (
        SELECT id, ROW_NUMBER() OVER (ORDER BY created_at DESC) AS rank
        FROM memory_entries
-       WHERE ($6::text IS NULL OR domain = $6) AND ($7::bigint IS NULL OR task_context_id = $7)
+       WHERE grounding != 'ungrounded'
+         AND ($6::text IS NULL OR domain = $6) AND ($7::bigint IS NULL OR task_context_id = $7)
+         AND ($8::text IS NULL OR role = $8)
        ORDER BY created_at DESC
        LIMIT $4
      ),
@@ -161,10 +183,39 @@ export async function hybridSearchMemory(
      CROSS JOIN query_lexemes
      ORDER BY combined.rrf_score DESC
      LIMIT $3`,
-    [`[${queryEmbedding.join(",")}]`, queryText, topK, candidateLimit, RRF_K, domain ?? null, taskContextId ?? null],
+    [
+      `[${queryEmbedding.join(",")}]`,
+      queryText,
+      topK,
+      candidateLimit,
+      RRF_K,
+      domain ?? null,
+      taskContextId ?? null,
+      role ?? null,
+    ],
   );
   // node-pg returns the SUM aggregate as a string, not a number, to avoid
   // silent precision loss - same real gotcha knowledge-engine's db.ts
   // already documents for the identical RRF query shape.
   return result.rows.map((r) => ({ ...r, rrf_score: Number(r.rrf_score) }));
+}
+
+// Retags matching rows as 'ungrounded' (never hard-deletes) - index.ts's
+// POST /entries/forget uses this when the user explicitly says something
+// Amy previously claimed is wrong. Covers the residual case the
+// grounding != 'ungrounded' filter above can't: classify_memory_grounding
+// tags a whole turn 'tool_verified' as soon as any tool was called, even
+// if a specific claim within that reply went beyond what the tool
+// actually returned - a real, acknowledged limitation (safety_net.py's
+// own comment: "NOT a truth check"). role is hard-coded to 'assistant' in
+// the WHERE clause, not just left to the caller's discretion - this must
+// never be able to touch the user's own statements, regardless of what a
+// caller passes.
+export async function markMemoryEntriesUngrounded(config: Config, ids: number[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const result = await getPool(config).query(
+    `UPDATE memory_entries SET grounding = 'ungrounded' WHERE id = ANY($1::bigint[]) AND role = 'assistant'`,
+    [ids],
+  );
+  return result.rowCount ?? 0;
 }

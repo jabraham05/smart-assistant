@@ -49,7 +49,7 @@ ToolGroup = Literal[
 GROUPS: dict[str, list[str]] = {
     "media": ["spotify_control"],
     "scheduling": ["calendar_event"],
-    "info": ["weather_get", "memory_recall"],
+    "info": ["weather_get", "memory_recall", "memory_forget"],
     "self-growth": [
         "skill_propose",
         "growth_review",
@@ -385,6 +385,23 @@ async def classify_relevant_tools(
             else tools_after_background
         )
 
+        # Deterministic guard, not just trusting the model: a correction is
+        # inherently about the immediately preceding turn, so it's
+        # impossible without one - same "don't trust the model to be
+        # disciplined when a deterministic constraint can enforce it
+        # instead" lesson as calculate.ts/safety-net.ts's tool-policy
+        # enforcement.
+        is_correction = bool(parsed.is_correction and recent_context)
+
+        # Force-expose memory_forget whenever the message itself is a
+        # correction - the exact moment it's needed, left to chance
+        # otherwise: 'info' would need to be classified AND the model
+        # would need to separately decide to call this one specific tool.
+        # Same "don't trust the model to remember on its own" lesson as
+        # memory_recall above.
+        if is_correction:
+            relevant_tools = list(dict.fromkeys([*relevant_tools, "memory_forget"]))
+
         knowledge_gap_topic = (
             parsed.knowledge_gap_topic.strip()
             if parsed.knowledge_gap_topic and parsed.knowledge_gap_topic.strip()
@@ -404,14 +421,6 @@ async def classify_relevant_tools(
             for item in parsed.memorable_items
             if item.type in MEMORABLE_ITEM_TYPES and item.content and item.content.strip()
         ]
-
-        # Deterministic guard, not just trusting the model: a correction is
-        # inherently about the immediately preceding turn, so it's
-        # impossible without one - same "don't trust the model to be
-        # disciplined when a deterministic constraint can enforce it
-        # instead" lesson as calculate.ts/safety-net.ts's tool-policy
-        # enforcement.
-        is_correction = bool(parsed.is_correction and recent_context)
 
         return ClassificationResult(
             relevant_groups=relevant_groups,

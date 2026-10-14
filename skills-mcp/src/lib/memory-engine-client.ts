@@ -38,3 +38,33 @@ export async function searchMemory(
   const data = (await res.json()) as { results?: MemorySearchResult[] };
   return data.results ?? [];
 }
+
+export interface ForgottenMemoryEntry {
+  id: number;
+  content: string;
+  sessionId: string;
+  createdAt: string;
+}
+
+// memory_forget's backend - retags Amy's own matching past replies as
+// 'ungrounded' (never deletes) so searchMemory's grounding filter excludes
+// them from now on. See memory-engine/src/db.ts's own comment on
+// hybridSearchMemory for the incident this closes: an invented reply gets
+// tagged 'ungrounded' correctly when zero tools were called, but a reply
+// that called some tool and *also* embellished a specific claim beyond
+// what that tool returned gets tagged 'tool_verified' regardless - this
+// is the explicit remedy for that gap, triggered by the user, not a
+// heuristic trying to catch it automatically.
+export async function forgetMemory(config: Config, query: string): Promise<ForgottenMemoryEntry[]> {
+  const res = await fetch(`${config.memoryEngineUrl}/entries/forget`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`memory-engine forget failed: ${res.status} ${body}`.trim());
+  }
+  const data = (await res.json()) as { matches?: ForgottenMemoryEntry[] };
+  return data.matches ?? [];
+}
