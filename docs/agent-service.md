@@ -1,46 +1,38 @@
 # `agent-service` — PydanticAI runtime, now the live chat backend
 
 Part of the [Smart Assistant](../README.md) project. Python/FastAPI
-equivalent of [`docs/chat-orchestrator.md`](chat-orchestrator.md): same
-wire contract, same per-turn pipeline shape, same `skills-mcp` tool host —
-rebuilt on [PydanticAI](https://ai.pydantic.dev/) instead of a raw
-Ollama/TypeScript tool-calling loop. Described in its own `pyproject.toml`
-as "Phase 1 of the infrastructure rebuild, running alongside
-chat-orchestrator (not replacing it) until proven via eval-harness parity +
-a real soak period" — that framing is now partly out of date (see
-"Current status" below).
+equivalent of the now-retired `chat-orchestrator` (see
+[`docs/chat-orchestrator.md`](chat-orchestrator.md), kept for history):
+same wire contract, same per-turn pipeline shape, same `skills-mcp` tool
+host — rebuilt on [PydanticAI](https://ai.pydantic.dev/) instead of a raw
+Ollama/TypeScript tool-calling loop.
 
 See [`docs/growth-engine.md`](growth-engine.md) for the Growth
 lifecycle subsystem (`growth_*.py`) that lives inside this service, and
 [`docs/unified-architecture-gap-analysis.md`](unified-architecture-gap-analysis.md)
 for the broader roadmap both this service and Growth implement pieces of.
 
-## Current status: live, not just a parity candidate
+## Current status: live
 
 `docker-compose.yml` has both `chat-ui` (`N8N_WEBHOOK_URL`) and
 `discord-bot` (`N8N_CHAT_WEBHOOK_URL`) pointed at
-`http://agent-service:3010/webhook` — **the cutover from
-`chat-orchestrator` already happened**, not just planned. Per
-`docker-compose.yml`'s own comment on the `chat-ui` service: formal
-eval-harness parity (`scripts/eval-harness.mjs`, chat-orchestrator.md's
-Phase 0 tool) **was never actually run** against `agent-service`; the
-cutover instead shipped on real live smoke tests (plain replies, a real
-`skills-mcp` tool call, repeated requests) after fixing a real streaming
-bug found in the process (see "Bugs found" below). `scripts/eval-harness.mjs`
-still defaults its target to `http://localhost:3008/webhook`
-(`chat-orchestrator`'s port) — it was never pointed at `agent-service`,
-formal parity testing is simply skipped for this cutover, not hidden
-somewhere else.
+`http://agent-service:3010/webhook`. Formal eval-harness parity
+(`scripts/eval-harness.mjs`, `chat-orchestrator.md`'s Phase 0 tool) **was
+never actually run** against `agent-service`; the cutover instead shipped
+on real live smoke tests (plain replies, a real `skills-mcp` tool call,
+repeated requests) after fixing a real streaming bug found in the process
+(see "Bugs found" below).
 
-**Rollback** (same instant-env-var-revert pattern `chat-orchestrator.md`
-documents for its own relationship to n8n's `Chat` workflow): point
-`N8N_WEBHOOK_URL`/`N8N_CHAT_WEBHOOK_URL` back to
-`http://chat-orchestrator:3006/webhook`, or further back to n8n's own
-`Chat` workflow
-(`http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat`).
-`chat-orchestrator` is deliberately left running unmodified — same
-"kept as rollback, not deleted" treatment `chat-orchestrator.md` describes
-for the `Chat` workflow it replaced.
+**Retired, 2026-10-13: `chat-orchestrator`, the nearer rollback this once
+had, has been deleted** (see `docs/chat-orchestrator.md`) - it was never
+actually needed as a rollback during its soak period. **Rollback** now
+means n8n's own `Chat` workflow, one layer further back: point
+`N8N_WEBHOOK_URL`/`N8N_CHAT_WEBHOOK_URL` to
+`http://n8n:5678/webhook/370d9565-997b-4121-aca7-1128df3dc4ea/chat`. Before
+deleting `chat-orchestrator`, its two read-only profile routes
+(`GET /persona`, `GET /user-profile` - powering chat-ui's Amy Lab
+"Profiles" tab, which read from them directly rather than `agent-service`)
+were ported here as `src/profile_routes.py`, so nothing in chat-ui broke.
 
 ## Architecture
 
@@ -84,6 +76,9 @@ since neither client changed for this migration.
   `chat-orchestrator` talks to directly.
 - **`session_memory.py`** — Redis-backed short-term turn buffer, same
   `REDIS_DB` convention as `chat-orchestrator/src/session-memory.ts`.
+- **`profile_routes.py`** — `GET /persona`/`GET /user-profile`, ported
+  from `chat-orchestrator` (now retired) when it was deleted. Powers
+  chat-ui's Amy Lab "Profiles" tab via `chat-ui/src/lib/profile-client.ts`.
 - **`skills_discovery.py`/`skills_library.py`** — reads real `SKILL.md`
   files (the [agentskills.io](https://agentskills.io/specification)
   format) from a dedicated Docker volume (`skills-library-data`), not from
@@ -113,13 +108,3 @@ project.
   across repeated identical requests ("PHASE1TEST" came back as "ASE1TEST"
   every time). Fixed in `main.py` by handling both event types.
 
-## What's not yet true elsewhere in this repo's docs
-
-- Top-level `README.md`'s directory layout section still describes
-  `chat-orchestrator` as "what `chat-ui`/`discord-bot` actually talk to
-  now" and doesn't mention `agent-service` at all — stale as of the real
-  cutover documented above (tracked for the README pass).
-- `pyproject.toml`'s own description ("running alongside chat-orchestrator
-  ... until proven") undersells where things actually stand — it's already
-  the live backend, just without the formal eval-harness parity step that
-  description implies happened first.

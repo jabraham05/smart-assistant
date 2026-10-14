@@ -5,30 +5,29 @@ list/history directly from Honcho. See
 [`docs/event-bus-and-goals.md`](event-bus-and-goals.md) for the event-bus
 visibility panel added below.
 
-**2026-10 update — the live chat backend is `agent-service`, not
-`chat-orchestrator`.** `lib/n8n-client.ts`'s `streamFromN8n()` still POSTs
-`{chatInput, sessionId}` to whatever `N8N_WEBHOOK_URL` points at — but as
-of the infra rebuild's Phase 1 (PydanticAI agent runtime), `docker-compose.yml`
-sets that to `http://agent-service:3010/webhook`, not `chat-orchestrator` or
-n8n's own `Chat` workflow. Both of those are kept running, unmodified, as an
-instant one-line rollback (`N8N_WEBHOOK_URL` back to
-`http://chat-orchestrator:3006/webhook`, or further back to n8n's own webhook
-URL) — the NDJSON wire contract is identical across all three, so no `chat-ui`
-code changed for the cutover, only the URL. See
-[`docs/chat-orchestrator.md`](chat-orchestrator.md) for the superseded
-tool-calling loop this replaces as the live path (still the documented
-rollback target).
+**2026-10 update — the live chat backend is `agent-service`.**
+`lib/n8n-client.ts`'s `streamFromN8n()` still POSTs `{chatInput, sessionId}`
+to whatever `N8N_WEBHOOK_URL` points at — but as of the infra rebuild's
+Phase 1 (PydanticAI agent runtime), `docker-compose.yml` sets that to
+`http://agent-service:3010/webhook`, not n8n's own `Chat` workflow. The
+NDJSON wire contract is identical across both, so no `chat-ui` code changed
+for the cutover, only the URL. `chat-orchestrator`, the TypeScript service
+this replaced as the live path, was initially kept running as an
+instant-rollback middle layer but has since been retired and deleted (see
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)) - the remaining
+rollback is `N8N_WEBHOOK_URL` back to n8n's own `Chat` workflow URL.
 
-**Known stale dependency, not yet fixed**: `GET /api/amy/persona` and
-`GET /api/amy/user-profile` (`src/app/api/amy/persona/route.ts`,
-`.../user-profile/route.ts`) still read from `chat-orchestrator` via
-`lib/chat-orchestrator-client.ts` (its `/persona`/`/user-profile` routes),
-not from `agent-service` — found during the iPhone PWA audit (see
-`docs/iphone-pwa-implementation-plan.md` §1's "Gap found" note). Low risk
-today since `chat-orchestrator` is still deliberately kept running as the
-rollback target, but these two reads would silently break if
-`chat-orchestrator` is ever actually decommissioned while chat itself keeps
-working fine through `agent-service`.
+**2026-10-13 — the stale-dependency gap below is now fixed.** `GET
+/api/amy/persona` and `GET /api/amy/user-profile`
+(`src/app/api/amy/persona/route.ts`, `.../user-profile/route.ts`) read
+from `lib/profile-client.ts` now, which calls `agent-service`'s own
+`/persona`/`/user-profile` routes (`profile_routes.py` - see
+`docs/agent-service.md`). This had to be fixed before `chat-orchestrator`
+could be deleted; left unaddressed, it would have broken Amy Lab's
+"Profiles" tab silently while chat itself kept working fine. Originally
+found during the iPhone PWA audit (see
+`docs/iphone-pwa-implementation-plan.md` §1's "Gap found" note) and left
+unresolved at the time.
 
 ## 2026-09-21 — session sidebar was silently unusable once real usage accumulated
 

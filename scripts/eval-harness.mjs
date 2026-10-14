@@ -1,16 +1,21 @@
 #!/usr/bin/env node
-// Fires a fixture set of messages at chat-orchestrator (or, for regression
-// comparison, its test instance / the old n8n Chat workflow rollback path)
-// and records what actually happened for each one: the real reply,
-// latency, and (via the dashboard's read-only DB query API, since
-// event-bus itself has no host-published port) the classification event
-// chat-orchestrator publishes per turn. This is the baseline every later
-// Coordinator phase diffs against - see the plan's Phase 0.
+// Fires a fixture set of messages at agent-service (or an n8n Chat Trigger
+// Production URL for rollback-path comparison) and records what actually
+// happened for each one: the real reply, latency, and (via the dashboard's
+// read-only DB query API, since event-bus itself has no host-published
+// port) the classification event the Coordinator publishes per turn. This
+// was the baseline every later Coordinator phase diffed against during
+// chat-orchestrator's own build - see docs/chat-orchestrator.md's Phase 0.
 //
-// Usage: node scripts/eval-harness.mjs <fixture.json> [chatOrchestratorUrl]
-//   chatOrchestratorUrl defaults to http://localhost:3008/webhook (prod).
-//   Use http://localhost:3009/webhook for chat-orchestrator-test, or
-//   an n8n Chat Trigger Production URL for rollback-path comparison
+// Originally pointed at chat-orchestrator (now retired and deleted - see
+// docs/chat-orchestrator.md). Never actually run against agent-service
+// (the cutover shipped on live smoke tests instead - see
+// docs/agent-service.md's "Current status" section), so treat this as
+// unverified against the current live service, not a proven-working tool.
+//
+// Usage: node scripts/eval-harness.mjs <fixture.json> [targetUrl]
+//   targetUrl defaults to http://localhost:3010/webhook (agent-service).
+//   Use an n8n Chat Trigger Production URL for rollback-path comparison
 //   (classification-event lookup will just come back empty in that case -
 //   n8n's workflow never had an equivalent instrumented event).
 
@@ -18,11 +23,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 const [, , fixturePath, urlArg] = process.argv;
 if (!fixturePath) {
-  console.error("Usage: node scripts/eval-harness.mjs <fixture.json> [chatOrchestratorUrl]");
+  console.error("Usage: node scripts/eval-harness.mjs <fixture.json> [targetUrl]");
   process.exit(1);
 }
 
-const webhookUrl = urlArg || "http://localhost:3008/webhook";
+const webhookUrl = urlArg || "http://localhost:3010/webhook";
 const dashboardQueryUrl = process.env.DASHBOARD_URL
   ? `${process.env.DASHBOARD_URL}/api/database/query`
   : "http://localhost:3006/api/database/query";

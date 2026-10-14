@@ -30,22 +30,18 @@ eventually tested) on its own.
   overview (n8n, skills-mcp, Ollama, Honcho, postgres, redis)
 - [`docs/chat-workflow.md`](docs/chat-workflow.md) — the main `Chat` n8n
   workflow: pipeline diagram, tool-calling reliability saga, trigger/response
-  mode gotchas (superseded for real traffic, first by `chat-orchestrator`
-  then by `agent-service`, kept published as the outermost rollback — see
-  below)
-- [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md) — self-hosted
-  replacement for the `Chat` workflow's tool-calling (a raw Ollama
-  tool-calling loop against a real MCP client) and the **Coordinator**
-  built on top of it: classification-driven tool/memory/planning policy,
-  enforcement, verification, and progress narration. Itself superseded as
-  of 2026-10 by `agent-service` (a Python/PydanticAI port of this same
-  Coordinator — see `docs/unified-architecture-gap-analysis.md`); left
-  running unmodified as the middle rollback layer, no longer what
-  `chat-ui`/`discord-bot` actually talk to
+  mode gotchas (superseded for real traffic by `agent-service`, kept
+  published as the rollback — see below)
+- [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md) — **retired and
+  deleted, 2026-10-13** (kept for history); was the self-hosted replacement
+  for the `Chat` workflow's tool-calling and the **Coordinator** built on
+  top of it, superseded by `agent-service` (a Python/PydanticAI port of the
+  same Coordinator). Originally left running as a middle rollback layer,
+  but that rollback was never needed, so the service and its source
+  directory were removed outright — see `docs/unified-architecture-gap-analysis.md`
 - [`docs/agent-service.md`](docs/agent-service.md) — PydanticAI/Python port
-  of the Coordinator, the actual live chat backend now; architecture,
-  config, rollback instructions, and the real streaming bug found
-  standing it up
+  of the Coordinator, the live chat backend; architecture, config,
+  rollback instructions, and the real streaming bug found standing it up
 - [`docs/unified-architecture-gap-analysis.md`](docs/unified-architecture-gap-analysis.md)
   — conceptual design reference for the "5-pillar rebuild"
   (PydanticAI → OpenHands → Graphiti → Scrapling → DSPy) that produced
@@ -140,9 +136,9 @@ eventually tested) on its own.
   `/internal/spotify-action` (see
   [`docs/smart-mirror-dashboard.md`](docs/smart-mirror-dashboard.md)),
   wired into `docker-compose.yml` (builds from `skills-mcp/Dockerfile`,
-  internal-only, no published port). `agent-service` (and `chat-orchestrator`
-  as rollback) reach it via a real MCP client; n8n's `Chat` workflow (the
-  outermost rollback) reaches it via an `MCP Client Tool` node.
+  internal-only, no published port). `agent-service` reaches it via a real
+  MCP client; n8n's `Chat` workflow (the rollback) reaches it via an
+  `MCP Client Tool` node.
 - `knowledge-engine/` — document ingestion, hybrid (vector + keyword)
   retrieval with first-class citations, and web research (see
   [`docs/knowledge-engine.md`](docs/knowledge-engine.md)); reuses the
@@ -173,21 +169,14 @@ eventually tested) on its own.
 - `scripts/start-coding-task.mjs` — explicit trigger for the coding-agent
   pipeline, mirroring `chat.mjs`'s role as a reference client for the
   `Chat` webhook.
-- `agent-service/` — Python/PydanticAI port of `chat-orchestrator`'s
-  Coordinator; the actual live backend for `chat-ui`/`discord-bot` now
+- `agent-service/` — Python/PydanticAI port of the Coordinator (a
+  TypeScript service called `chat-orchestrator`, now retired and deleted —
+  see [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)); the live
+  backend for `chat-ui`/`discord-bot`
   (`docker-compose.yml`'s `N8N_WEBHOOK_URL`/`N8N_CHAT_WEBHOOK_URL` →
   `agent-service:3010/webhook`). Also hosts the Growth engine (see
   [`docs/growth-engine.md`](docs/growth-engine.md)) and its `/growth/*`
   routes backing the Amy Lab dashboard.
-- `chat-orchestrator/` — self-hosted tool-calling for real chat traffic,
-  replacing the `Chat` workflow's `AI Agent`/`MCP Client Tool` node (see
-  [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)); superseded by
-  `agent-service` above, left running unmodified as the instant rollback.
-  Runs as two instances (`chat-orchestrator` prod, `chat-orchestrator-test`)
-  differing only by env var (Redis DB index, Postgres schema for
-  persona/skills reads). `chat.mjs` can be pointed at either directly via
-  `N8N_CHAT_WEBHOOK_URL=http://localhost:3008/webhook` (prod) or `:3009`
-  (test) with no script changes, since the NDJSON contract is identical.
 - `dspy-optimizer/`, `graphiti-service/`, `scrapling-service/`,
   `openhands-runner/` — the other four pillars of the same rebuild that
   produced `agent-service` (see
@@ -342,31 +331,31 @@ prototype's shape held up unchanged.
   [`docs/event-bus-and-goals.md`](docs/event-bus-and-goals.md).
 - Automated test suites for most services. `event-bus` (`classify.ts`/
   `goal-matching.ts`/`step-notifications.ts`), `knowledge-engine` (55
-  tests over its pure/deterministic pieces), `chat-orchestrator` (66
-  tests across `classify-tools`/`safety-net`/`agent-loop`/`system-prompt`/
-  `memory-engine-client`/`pg-types`/`skills-catalog`'s pure pieces), and
-  `agent-service` (86 tests, a parity port of `chat-orchestrator`'s own
-  suite plus `classify`/`detached-stream`/`system-prompt` coverage) all
-  have real coverage now — see each doc under `docs/`.
-  `coding-orchestrator`, `sandbox-runner`, `skills-mcp`, `memory-engine`,
-  `chat-ui`, and `discord-bot` still have none — every "verified" claim
-  for those is manual/live testing against the real stack. Next planned
-  piece of work, one service at a time.
-- **Coordinator rough edges**, now `agent-service`'s since it's the live
-  implementation (`docs/chat-orchestrator.md`'s own "Known rough edges"
-  note describes the same issues as they stood in the TS version):
+  tests over its pure/deterministic pieces), and `agent-service` (86
+  tests — originally a parity port of `chat-orchestrator`'s own suite,
+  now the only copy since that service was retired and deleted; covers
+  `classify`/`safety_net`/`detached_stream`/`system_prompt`) all have
+  real coverage now — see each doc under `docs/`. `coding-orchestrator`,
+  `sandbox-runner`, `skills-mcp`, `memory-engine`, `chat-ui`, and
+  `discord-bot` still have none — every "verified" claim for those is
+  manual/live testing against the real stack. Next planned piece of
+  work, one service at a time.
+- **Coordinator rough edges** (`docs/chat-orchestrator.md`'s own "Known
+  rough edges" note describes the same issues as they stood in the
+  now-deleted TS version; presumed still present in `agent-service`, the
+  live implementation, but not independently re-verified there):
   `dashboard_control`'s 90–107s latency outlier, never root-caused;
   `task_context_manage` being excluded from `toolPolicy: required`'s
   bound-tool counting, which can cause an occasional false-positive
   enforcement retry; Phase 7 (deterministic-only confidence/supersession
   for `memory-engine`) and Phase 8 (sub-workflow decomposition) remain
   tabled pending real evidence of need, not started.
-- Formally retiring the rollback chain and closing task #59
-  (leaked-tool-call recovery) — real traffic now runs through
-  `agent-service`, two supersession layers deep from the original n8n
-  `Chat` workflow (`Chat` → `chat-orchestrator` → `agent-service`, see
-  `docs/unified-architecture-gap-analysis.md`), but the decision to
-  actually unpublish `Chat`, decommission `chat-orchestrator`, and remove
-  the `n8n_chat_histories` dual-writes hasn't been made yet for either
-  layer; see [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)'s
-  "Revisit trigger" note.
+- Formally retiring the n8n `Chat` workflow rollback path and closing
+  task #59 (leaked-tool-call recovery) — real traffic runs through
+  `agent-service` now, with `chat-orchestrator` (the nearer rollback
+  layer this once had) already retired and deleted, 2026-10-13 (see
+  `docs/unified-architecture-gap-analysis.md`). The decision to actually
+  unpublish `Chat` and remove the `n8n_chat_histories` dual-writes
+  hasn't been made yet; see
+  [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)'s "Revisit
+  trigger" note.

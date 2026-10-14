@@ -14,9 +14,9 @@ Amy is built as a set of small, single-purpose services, each with its own Postg
 
 | Service | Role | Rebuild pillar | Status |
 |---|---|---|---|
-| `chat-orchestrator/` | Original Node/TS turn orchestrator (the "Coordinator") | — (pre-rebuild) | Still deployed, kept only as instant rollback. No longer the live path for `chat-ui`/`discord-bot`. |
+| `chat-orchestrator/` | Original Node/TS turn orchestrator (the "Coordinator") | — (pre-rebuild) | **Retired and deleted, 2026-10-13** (see `docs/chat-orchestrator.md`, kept for history). Had been left running as an instant rollback after the cutover below, but that rollback was never needed. |
 | `agent-service/` | Python/PydanticAI port of the Coordinator | 1 | **Live** — `chat-ui` and `discord-bot` point here (`docker-compose.yml`, `N8N_WEBHOOK_URL`/`N8N_CHAT_WEBHOOK_URL` → `agent-service:3010/webhook`). |
-| `skills-mcp/` | MCP server hosting all agent-callable tools | — | Live, consumed by n8n, chat-orchestrator/agent-service, coding-orchestrator. |
+| `skills-mcp/` | MCP server hosting all agent-callable tools | — | Live, consumed by n8n, agent-service, coding-orchestrator. |
 | `memory-engine/` | Self-hosted deterministic cross-conversation recall | — | Live, mature. Replaced Honcho's hosted dialectic API for this purpose. |
 | `knowledge-engine/` | Document/world-knowledge store + web research + router | — | Live, most mature subsystem in the repo. |
 | `graphiti-service/` | Decision/project/growth ledger graph (FalkorDB + Ollama) | 3 | Live; wired from three callers now — event-bus (goal creation), knowledge-engine (entity creation/consolidation), and `agent-service`'s Growth engine (`growth_graphiti.py`, fires at `proposed`/`consolidated` — see `docs/growth-engine.md` §6.5 follow-up #4). Also gained a `GET /graph` route (real node/edge structure, not just flattened facts) backing Amy Lab's Knowledge Graph tab. |

@@ -22,8 +22,6 @@ $Services = @(
   "event-bus",
   "knowledge-engine",
   "memory-engine",
-  "chat-orchestrator",
-  "chat-orchestrator-test",
   "agent-service",
   "chat-ui",
   "skills-mcp",
