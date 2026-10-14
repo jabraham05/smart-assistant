@@ -1,16 +1,9 @@
-"""Direct port of chat-orchestrator/src/classify-tools.ts's Coordinator
-classification step - a raw structured-output call, now via PydanticAI's
-Agent(output_type=...) instead of a hand-written JSON-schema `format` dict.
-Ported near-unchanged (same category list, same GROUPS mapping, same prompt
-text) since this step already bypassed native tool-calling entirely and is
-mitigating a real, measured, client-independent qwen3:8b limitation - it
-isn't part of what's broken, and PydanticAI's own structured-output
-validation/retry (see module docstring in agent.py) only strengthens it.
+"""Classify a user turn into the capabilities and policies Amy should use.
 
-Verify early: self-hosted Ollama's grammar-constrained response_format/
-json_schema needs v0.5.0+ (confirmed present: 0.32.3 at time of writing -
-well past this floor) for this Agent's output_type to be enforced reliably
-rather than just requested.
+This is a hot-path routing call, so it uses Ollama's native `/api/chat`
+endpoint directly. Native `think: false` and a bounded JSON-schema response
+avoid the OpenAI-compatible endpoint's unreliable thinking-mode handling and
+unbounded reasoning output.
 """
 
 from __future__ import annotations
@@ -19,14 +12,15 @@ import logging
 import re
 from typing import Literal
 
-from openai import AsyncOpenAI
+import httpx
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, NativeOutput
-from pydantic_ai.models.ollama import OllamaModel
-from pydantic_ai.providers.ollama import OllamaProvider
 
 logger = logging.getLogger(__name__)
-_CLASSIFIER_TIMEOUT_SECONDS = 30.0
+# This is a latency-sensitive routing call made on every message. Use Ollama's
+# native API so `think: false` is honored, and cap output so a routing decision
+# cannot turn into a long reasoning/completion task.
+_CLASSIFIER_TIMEOUT_SECONDS = 12.0
+_CLASSIFIER_MAX_OUTPUT_TOKENS = 256
 
 TOOL_GROUPS = [
     "media",
@@ -265,7 +259,7 @@ class ClassifierOutput(BaseModel):
     memorable_items: list[MemorableItemOutput] = Field(alias="memorableItems")
     is_correction: bool = Field(alias="isCorrection")
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "forbid"}
 
 
 class BehaviorFeedback(BaseModel):
@@ -326,45 +320,29 @@ def apply_background_override(
     return True, list(dict.fromkeys([*relevant_tools, "growth_research_request", "research_task_status"]))
 
 
-def _build_classifier_agent(ollama_host: str, model: str) -> Agent[None, ClassifierOutput]:
-    # The SDK defaults to retrying timed-out requests. On the local Ollama
-    # endpoint that multiplied a 30-second timeout into ~90 seconds on the
-    # chat hot path. Keep classifier failure bounded and let deterministic
-    # fallback routing preserve essential tools.
-    client = AsyncOpenAI(
-        base_url=f"{ollama_host}/v1",
-        api_key="ollama",
-        timeout=_CLASSIFIER_TIMEOUT_SECONDS,
-        max_retries=0,
-    )
-    # The supplied AsyncOpenAI client already targets Ollama's compatible
-    # /v1 endpoint. OllamaProvider accepts either that client or a base_url,
-    # not both.
-    return Agent(
-        OllamaModel(model_name=model, provider=OllamaProvider(openai_client=client)),
-        # NativeOutput, not PydanticAI's default tool-call-based structured
-        # output - a real, live-verified finding: the default mode routes
-        # ClassifierOutput through a synthetic "final_result" tool call,
-        # which is exactly the qwen3:8b tool-calling reliability cliff this
-        # whole classification step exists to avoid (classify-tools.ts's own
-        # header comment: "deliberately not native tool-calling, since
-        # that's the exact mechanism proven unreliable"). NativeOutput uses
-        # Ollama's grammar-constrained response_format/json_schema decoding
-        # instead - confirmed working live against qwen3:8b on this
-        # project's actual Ollama version (0.32.3).
-        output_type=NativeOutput(ClassifierOutput),
-        retries=0,
-        instructions=_CLASSIFIER_SYSTEM_PROMPT,
-        # think=False equivalent - qwen3 defaults to thinking-mode ON even
-        # when unrequested (a real, measured ~2.9s -> ~0.09s latency finding
-        # from the smart-mirror dashboard work), and this call is
-        # latency-sensitive since it runs on every single message.
-        # Real finding: OpenAIChatModelSettings has a dedicated `thinking`
-        # key (bool | reasoning-effort literal) - `extra_body: {"think":
-        # False}` (the OpenAI-SDK-style passthrough convention) silently
-        # never reached the actual request at all.
-        model_settings={"thinking": False, "timeout": _CLASSIFIER_TIMEOUT_SECONDS},
-    )
+async def _classify_with_ollama(
+    ollama_host: str, model: str, prompt: str
+) -> ClassifierOutput:
+    """Classify through Ollama's native API with thinking disabled and JSON constrained."""
+    schema = ClassifierOutput.model_json_schema(by_alias=True)
+    payload = {
+        "model": model,
+        "stream": False,
+        "think": False,
+        "format": schema,
+        "options": {"num_predict": _CLASSIFIER_MAX_OUTPUT_TOKENS},
+        "messages": [
+            {"role": "system", "content": _CLASSIFIER_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    async with httpx.AsyncClient(timeout=_CLASSIFIER_TIMEOUT_SECONDS) as client:
+        response = await client.post(f"{ollama_host}/api/chat", json=payload)
+        response.raise_for_status()
+    content = response.json().get("message", {}).get("content", "")
+    if not content:
+        raise ValueError("Ollama classifier response had no message content")
+    return ClassifierOutput.model_validate_json(content)
 
 
 def _fallback_result(chat_input: str) -> ClassificationResult:
@@ -402,12 +380,10 @@ async def classify_relevant_tools(
     recent_context: str | None = None,
 ) -> ClassificationResult:
     try:
-        agent = _build_classifier_agent(ollama_host, model)
         prompt = chat_input
         if recent_context:
             prompt = f"Prior exchange (for reference only):\n{recent_context}\n\n{chat_input}"
-        result = await agent.run(prompt)
-        parsed = result.output
+        parsed = await _classify_with_ollama(ollama_host, model, prompt)
 
         relevant_groups = [g for g in parsed.relevant_groups if g in TOOL_GROUPS]
 
