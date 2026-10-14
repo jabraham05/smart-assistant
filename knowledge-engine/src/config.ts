@@ -119,7 +119,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     tavilyApiKey: env.TAVILY_API_KEY || undefined,
     routeToWebThreshold: env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD ? Number(env.KNOWLEDGE_ROUTE_TO_WEB_THRESHOLD) : 0.012,
     minKeywordOverlap: env.KNOWLEDGE_MIN_KEYWORD_OVERLAP ? Number(env.KNOWLEDGE_MIN_KEYWORD_OVERLAP) : 1,
-    researchModel: env.KNOWLEDGE_RESEARCH_MODEL || "qwen3:8b",
+    researchModel: env.KNOWLEDGE_RESEARCH_MODEL || "qwen3.5:9b",
     researchMaxIterations: env.KNOWLEDGE_RESEARCH_MAX_ITERATIONS ? Number(env.KNOWLEDGE_RESEARCH_MAX_ITERATIONS) : 12,
     n8nDatabase: env.N8N_DB_NAME || "n8n",
     honchoApiKey: env.HONCHO_API_KEY || undefined,

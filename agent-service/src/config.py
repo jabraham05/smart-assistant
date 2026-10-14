@@ -110,10 +110,12 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         # chat-orchestrator-test (3009) - runs alongside both during Phase 1.
         port=_int_env("PORT", 3010),
         ollama_host=env.get("OLLAMA_HOST") or "http://ollama:11434",
-        # Same model chat-orchestrator uses - this migration is about the
-        # runtime/orchestration mechanism, not a model swap.
-        chat_model=env.get("CHAT_MODEL") or "qwen3:8b",
-        classifier_model=env.get("CHAT_CLASSIFIER_MODEL") or "qwen3:8b",
+        # qwen3:8b was retired (benchmarked weaker general accuracy than
+        # qwen3.5:9b at the same tool-calling reliability - see
+        # scripts/benchmark-results/) - qwen3.5:9b is now the only
+        # general-purpose model kept pulled alongside qwen3:14b.
+        chat_model=env.get("CHAT_MODEL") or "qwen3.5:9b",
+        classifier_model=env.get("CHAT_CLASSIFIER_MODEL") or "qwen3.5:9b",
         growth_judge_model=env.get("GROWTH_JUDGE_MODEL") or "qwen3:14b",
         agent_max_iterations=_int_env("CHAT_AGENT_MAX_ITERATIONS", 10),
         num_ctx=_int_env("CHAT_NUM_CTX", 16384),

@@ -43,7 +43,7 @@ def load_config(env: dict[str, str] | None = None) -> Config:
     return Config(
         port=_int_env("PORT", 3012),
         ollama_host=env.get("OLLAMA_HOST") or "http://ollama:11434",
-        extraction_model=env.get("EXTRACTION_MODEL") or "qwen3:8b",
+        extraction_model=env.get("EXTRACTION_MODEL") or "qwen3.5:9b",
         embedding_model=env.get("EMBEDDING_MODEL") or "nomic-embed-text",
         embedding_dim=_int_env("EMBEDDING_DIM", 768),
         falkordb_host=env.get("FALKORDB_HOST") or "falkordb",

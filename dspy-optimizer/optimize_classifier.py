@@ -28,7 +28,7 @@ from pathlib import Path
 import dspy
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "qwen3:8b")
+CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "qwen3.5:9b")
 FIXTURE_PATH = Path(__file__).resolve().parent.parent / "scripts" / "eval-fixtures" / "v0-baseline.json"
 OUTPUT_DIR = Path(__file__).resolve().parent / "results"
 
