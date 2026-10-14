@@ -8,7 +8,12 @@ from src.classify import apply_background_override, expand_groups_to_tools
 
 
 def test_expand_groups_to_tools_always_includes_calculate_and_task_context_manage():
-    assert set(expand_groups_to_tools([])) == {"calculate", "task_context_manage", "skill_examples"}
+    assert set(expand_groups_to_tools([])) == {
+        "calculate",
+        "task_context_manage",
+        "skill_examples",
+        "knowledge_lookup",
+    }
 
 
 def test_expand_groups_to_tools_maps_single_group():
@@ -16,6 +21,7 @@ def test_expand_groups_to_tools_maps_single_group():
         "calculate",
         "task_context_manage",
         "skill_examples",
+        "knowledge_lookup",
         "spotify_control",
     }
 
@@ -26,6 +32,7 @@ def test_expand_groups_to_tools_dedupes_and_ignores_unknown_groups():
         "calculate",
         "task_context_manage",
         "skill_examples",
+        "knowledge_lookup",
         "skill_propose",
         "growth_review",
         "teaching_session_manage",
@@ -44,6 +51,7 @@ def test_expand_groups_to_tools_combines_multiple_groups():
         "calculate",
         "task_context_manage",
         "skill_examples",
+        "knowledge_lookup",
         "spotify_control",
         "calendar_event",
     }
@@ -60,7 +68,7 @@ def test_apply_background_override_adds_research_tools_when_research_classified(
     tools = expand_groups_to_tools(["research"])
     background, relevant_tools = apply_background_override(True, ["research"], tools)
     assert background is True
-    assert "research_task" in relevant_tools
+    assert "growth_research_request" in relevant_tools
     assert "research_task_status" in relevant_tools
 
 
@@ -68,7 +76,7 @@ def test_apply_background_override_adds_research_tools_when_web_classified():
     tools = expand_groups_to_tools(["web"])
     background, relevant_tools = apply_background_override(True, ["web"], tools)
     assert background is True
-    assert "research_task" in relevant_tools
+    assert "growth_research_request" in relevant_tools
 
 
 def test_apply_background_override_falls_back_when_nothing_backgroundable():

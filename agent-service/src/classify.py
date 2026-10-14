@@ -292,8 +292,26 @@ def expand_groups_to_tools(relevant_groups: list[str]) -> list[str]:
     too, same reasoning as memory_recall being force-added for relevant/
     required memoryPolicy below - it's a drill-in for whichever skill ends
     up actually bound this turn (Skills v2, see skills_discovery.py), not
-    tied to any one classifier group."""
-    tools: set[str] = {"calculate", "task_context_manage", "skill_examples"}
+    tied to any one classifier group.
+
+    'knowledge_lookup' joined this list for the identical reason calculate
+    did: a classifier miss can't be allowed to silently drop it. Live-
+    verified twice in one session: "What is the Hermes agent harness
+    framework? Tell me its capabilities." and "Is Zanthorax a real
+    programming framework?" both classified as groups=['info'] only (a
+    category explicitly scoped to facts ABOUT THE USER, not general lookups)
+    - with no lookup tool bound at all, the second one answered anyway,
+    confidently inventing that "Zanthorax" is a Voltron character. No prompt
+    wording fix generalizes across phrasings reliably enough to risk that
+    failure mode - tightening one phrasing pattern (the Hermes one) did
+    nothing for the very next one tried (the Zanthorax one). Unlike the
+    other always-bound tools, this one used to be classification-gated on
+    purpose, back when a lookup meant an unbounded, uncapped tool result -
+    now that knowledge_lookup's own per-item content is capped and grounding
+    has a deterministic backstop (has_ungrounded_specifics), over-binding it
+    on a turn that didn't need it costs little, while under-binding it on a
+    turn that did costs a confidently wrong answer with nothing to catch it."""
+    tools: set[str] = {"calculate", "task_context_manage", "skill_examples", "knowledge_lookup"}
     for group in relevant_groups:
         for member in GROUPS.get(group, []):
             tools.add(member)
