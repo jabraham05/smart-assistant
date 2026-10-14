@@ -95,6 +95,13 @@ _NODE_NAME = "AI Agent"
 # Same cap as chat-orchestrator's own tool-error retry loop.
 _MAX_TOOL_ERROR_RETRIES = 3
 
+# Lower than _MAX_TOOL_ERROR_RETRIES - a model that narrates "I'll check X"
+# instead of actually calling the tool is refusing to call it, not hitting a
+# transient failure a few more attempts would plausibly fix. Two real
+# chances, then an honest "couldn't complete this" beats shipping the same
+# dead-end narration a third time.
+_MAX_SEARCH_INTENT_RETRIES = 2
+
 # Real, live-verified finding: asking the model to narrate before a slow
 # tool-heavy turn (system_prompt.py's narrate_line) does not work - tracing
 # a real web-search turn showed the stream going straight from the classify
@@ -489,7 +496,23 @@ async def webhook(request: Request):
 
             bound_tools = classification.relevant_tools
 
-            if has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools):
+            # Capped loop, not one-shot (same shape as the tool-error retry
+            # above) - real, observed gap: a single retry gives the model
+            # one chance to actually call the tool, but a model that
+            # narrates "I'll check X" instead of calling it can just as
+            # easily do the exact same thing again on the retry (confirmed
+            # live: "I'll check `knowledge_search` on 'Hermes agent harness
+            # architecture 2026'..." shipped to the user as the entire final
+            # reply, with no further retry attempted). Looping gives it a
+            # second real chance; if it still won't call the tool after
+            # that, ship an honest "couldn't complete this" instead of the
+            # same dead-end narration a third time.
+            search_intent_retries = 0
+            while (
+                has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools)
+                and search_intent_retries < _MAX_SEARCH_INTENT_RETRIES
+            ):
+                search_intent_retries += 1
                 asyncio.create_task(
                     growth_db.record_observation(
                         config, "safety_net_failure", "Reply implied a search without calling a search tool",
@@ -507,6 +530,12 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+
+            if has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools):
+                final_text = (
+                    "I wasn't able to actually complete a search for that just now, sir - rather than guess, "
+                    "ask me again and I'll try again."
+                )
 
             if is_confabulated_action(final_text, bound_tools, state.called_tools):
                 asyncio.create_task(
