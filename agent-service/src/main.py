@@ -43,6 +43,7 @@ from . import (
     honcho_client,
     knowledge_client,
     memory_client,
+    profile_routes,
     session_memory,
 )
 from .agent import AgentDeps, build_agent
@@ -80,6 +81,7 @@ logger = logging.getLogger(__name__)
 config = load_config()
 app = FastAPI()
 app.include_router(growth_routes.build_router(config))
+app.include_router(profile_routes.build_router(config))
 
 
 @app.on_event("startup")

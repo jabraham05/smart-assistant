@@ -1,25 +1,43 @@
-# `chat-orchestrator` — self-hosted tool-calling for Chat, replacing n8n's AI Agent
+# `chat-orchestrator` — retired, superseded by `agent-service` — self-hosted tool-calling for Chat, replacing n8n's AI Agent
 
-Part of the [Smart Assistant](../README.md) project. See
-[`docs/chat-workflow.md`](chat-workflow.md) for the n8n workflow this
-replaces (kept published as a rollback, not deleted) and
-[`docs/coding-agent-pipeline.md`](coding-agent-pipeline.md) for the
-raw-Ollama-tool-loop pattern this reuses.
+**Retired and deleted, 2026-10-13.** `agent-service` (a Python/PydanticAI
+port of this same Coordinator) had already been what `chat-ui`/`discord-bot`
+actually talk to for a while (`docker-compose.yml`'s `N8N_WEBHOOK_URL`/
+`N8N_CHAT_WEBHOOK_URL` both point at `agent-service:3010`), cut over after
+eval-harness parity plus a real soak period — see
+`docs/unified-architecture-gap-analysis.md` for the rebuild's full
+rationale and `docs/growth-engine.md` for what's been built on top of
+`agent-service` since. `chat-orchestrator` was initially left running
+unmodified as the instant rollback, same relationship it once had with
+n8n's `AI Agent`, but that rollback was never needed and the decision was
+made to retire it outright: the `chat-orchestrator`/`chat-orchestrator-test`
+services are gone from `docker-compose.yml` and the `chat-orchestrator/`
+source directory has been deleted. The remaining rollback for live chat
+traffic is n8n's own `Chat` workflow (see `docs/chat-workflow.md`), one
+layer further back than before.
 
-**Superseded, 2026-10, same rollback relationship it once had with n8n's
-`AI Agent`**: `agent-service` (a Python/PydanticAI port of this same
-Coordinator) is now what `chat-ui`/`discord-bot` actually talk to
-(`docker-compose.yml`'s `N8N_WEBHOOK_URL`/`N8N_CHAT_WEBHOOK_URL` both point
-at `agent-service:3010`), cut over after eval-harness parity plus a real
-soak period. This service is left running unmodified as the instant
-rollback — see `docs/unified-architecture-gap-analysis.md` for the
-rebuild's full rationale and `docs/growth-engine.md` for what's been built
-on top of `agent-service` since. The history below (phases 0–8, safety-net
-checks, dated entries) describes this TypeScript implementation as it
-stood when it was still the live path; `agent-service`'s own safety net has
-since diverged and grown past it (see `agent-service/src/safety_net.py`) —
-treat this doc as this service's own record, not a live description of
-what runs in production today.
+One real follow-up this retirement required: chat-ui's Amy Lab "Profiles"
+tab (`GET /api/amy/persona`, `GET /api/amy/user-profile`) read directly
+from `chat-orchestrator`'s own `/persona`/`/user-profile` routes, a gap
+that was flagged but never closed during the original agent-service
+cutover (see `docs/chat-ui.md`'s 2026-10 note). Both routes were ported to
+`agent-service` (`src/profile_routes.py`, reusing the exact
+`db.get_persona_system_prompt`/`honcho_client.get_user_card` lookups
+`agent-service`'s own system-prompt assembly already relies on) before
+`chat-orchestrator` was deleted, and `chat-ui`'s client
+(`lib/chat-orchestrator-client.ts` → `lib/profile-client.ts`) was repointed
+at `agent-service` accordingly.
+
+This file is kept for history — the phases 0–8 build narrative, safety-net
+checks, and dated entries below describe this TypeScript implementation as
+it stood when it was the live path. `agent-service`'s own safety net had
+already diverged and grown past it well before this retirement (see
+`agent-service/src/safety_net.py`); none of the code this doc describes
+exists in the repo anymore. Part of the [Smart Assistant](../README.md)
+project. See [`docs/chat-workflow.md`](chat-workflow.md) for the n8n
+workflow this once replaced (still kept published as the outermost
+rollback) and [`docs/coding-agent-pipeline.md`](coding-agent-pipeline.md)
+for the raw-Ollama-tool-loop pattern this reused.
 
 **2026-09-21 — built because n8n's `AI Agent` + `MCP Client Tool` node is
 the one integration in this whole project with an extensive, unresolved
