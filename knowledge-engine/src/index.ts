@@ -20,6 +20,7 @@ import {
 } from "./db.js";
 import { ingestDocument } from "./engine/ingest.js";
 import { search } from "./engine/search.js";
+import { gatherWebPassages } from "./engine/web-search.js";
 import { checkKnowledge, runWebResearchAndPersist } from "./engine/research.js";
 import { enqueueTopic, drainQueue } from "./engine/research-queue.js";
 import { consolidateProject, consolidateFromExistingKnowledge } from "./engine/consolidate.js";
@@ -117,6 +118,40 @@ app.post("/search", async (req, res) => {
     res.json({ results });
   } catch (e) {
     console.error("failed to search:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /web-search - the fast, inline-chat half of the search→rank→extract
+// pipeline (see engine/web-search.ts): searches the live web, fetches the
+// top candidate pages, chunks and ranks every passage against the query,
+// and returns only the ones that clear the relevance floor. No LLM call
+// here - skills-mcp's web_search tool hands these passages straight to
+// whichever chat model is already running the turn, same as it used to
+// hand over raw Tavily snippets, just pre-filtered now instead of raw.
+// Deliberately synchronous: unlike /research's background agent run, this
+// is meant to finish within one tool call during a live conversation.
+app.post("/web-search", async (req, res) => {
+  const body = req.body as {
+    query?: string;
+    maxSources?: number;
+    maxPassages?: number;
+    topic?: "general" | "news";
+  };
+
+  if (!body.query || typeof body.query !== "string") {
+    return res.status(400).json({ error: "query is required" });
+  }
+
+  try {
+    const { passages, noMatch } = await gatherWebPassages(config, body.query, {
+      maxSources: body.maxSources,
+      maxPassages: body.maxPassages,
+      topic: body.topic,
+    });
+    res.json({ passages, noMatch });
+  } catch (e) {
+    console.error("failed to web-search:", e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });

@@ -1,19 +1,16 @@
 import type { Config } from "../config.js";
-import { runAgentLoop, truncateToolResult, type AgentTool } from "../agent-loop.js";
-import { tavilySearch } from "../lib/tavily.js";
-import { extractUrl } from "../lib/html-extract.js";
-import { search } from "./search.js";
+import { ollamaChat, parseJsonContent } from "../ollama.js";
+import { gatherWebPassages } from "./web-search.js";
 import { isGrounded } from "./grounding.js";
 
 export interface Finding {
   claim: string;
   sourceUrls: string[];
-  // Deterministic, computed at record_finding time (see grounding.ts) -
-  // false means the cited source(s) were never actually fetched this
-  // session, or the claim's keywords don't match what was fetched.
-  // verify.ts resolves these straight to confidence:"unverified" with no
-  // LLM call; persist-research.ts never writes a citation/chunk row for
-  // them.
+  // Deterministic, computed below - false means the synthesis model cited
+  // a passage for a claim that passage's own text doesn't actually
+  // support. verify.ts resolves these straight to confidence:"unverified"
+  // with no LLM call; persist-research.ts never writes a citation/chunk
+  // row for them.
   grounded: boolean;
 }
 
@@ -23,111 +20,80 @@ export interface ResearchAgentResult {
   exhaustedIterations: boolean;
 }
 
-const SYSTEM_PROMPT = `You are Amy's research agent. Given a topic, find concrete, well-sourced facts about it.
+// Only ever sees pre-filtered, already-relevant, already-fetched passages
+// (see web-retrieval.ts) - never a raw page, never a free-floating search
+// snippet, and never a tool it could use to go fetch something ungrounded
+// on its own. Its entire job is extraction from text it's handed, not
+// research - that's deliberate: the old design let the model decide what
+// to search, what to read, and what counted as a fact, entirely through
+// its own in-context reasoning over noisy raw pages, which is exactly what
+// produced confidently-stated, unverifiable Warframe entities (Kali,
+// Veknom, "Vay Hala", "Plasma Rifle") despite many rounds of explicit
+// correction. Narrowing what the model is trusted to do - summarize vetted
+// text instead of orchestrating its own retrieval - is the actual fix, not
+// another round of prompting the same failure mode away.
+const SYNTHESIS_SYSTEM_PROMPT =
+  "You are extracting concrete, citable facts strictly from the numbered passages below - never from your " +
+  "own general knowledge, and never by generalizing past what a passage actually states. Each passage was " +
+  "already fetched and confirmed relevant; your only job is to pull out the specific facts they state, each " +
+  "tagged with the exact passage number that backs it. If a name, claim, or entity is not explicitly stated " +
+  "in a passage, do not include it, even if it sounds plausible. If none of the passages actually answer the " +
+  "topic, return an empty findings list rather than padding one out. Respond with exactly one JSON object: " +
+  '{"findings": [{"claim": string, "passageNumber": integer}]}.';
 
-Always call search_knowledge first to see what's already known before searching the web - don't rediscover
-facts already in the knowledge base. Use web_search to find candidate pages, then fetch_page on the most
-promising URLs to read their actual content (web_search results are only short snippets, not enough to cite
-from directly). Call record_finding once for every concrete, citable fact you learn, with the real source
-URL(s) that back it - not for vague impressions or your own summarizing commentary.
-
-When you've recorded enough findings to answer the topic, or you've exhausted reasonable searches, reply with
-a short plain-text summary and stop calling tools.`;
-
-// Reimplements the old research_pipeline's "search repeatedly, end with a
-// SOURCES: block parsed from prose" pattern as structured incremental tool
-// calls instead - record_finding replaces the fragile regex-parsed
-// SOURCES: block entirely, since the model now reports each source
-// alongside the specific claim it backs, not just a flat list at the end.
 export async function runResearchAgent(config: Config, topic: string, domain?: string): Promise<ResearchAgentResult> {
-  const findings: Finding[] = [];
-  // Real content fetched this session, keyed by the exact URL fetch_page
-  // was called with - isGrounded checks a record_finding's sourceUrls
-  // against this, not against whatever web_search merely listed as a
-  // snippet.
-  const fetchedPages = new Map<string, string>();
-
-  const tools: AgentTool[] = [
-    {
-      name: "search_knowledge",
-      description: "Search Amy's existing knowledge base for information already known about a topic.",
-      parameters: {
-        type: "object",
-        properties: { query: { type: "string" } },
-        required: ["query"],
-      },
-      execute: async (args) => {
-        const results = await search(config, { query: String(args.query), domain, topK: 5 });
-        if (results.length === 0) return "No matching results in the knowledge base.";
-        return results
-          .map((r, i) => `[${i + 1}] (score ${r.score.toFixed(3)}) ${r.content}\nSource: ${r.source.url ?? r.documentTitle ?? "unknown"}`)
-          .join("\n\n");
-      },
-    },
-    {
-      name: "web_search",
-      description: "Search the live web for pages about a topic. Returns short snippets, not full page content - use fetch_page to read a promising result in full.",
-      parameters: {
-        type: "object",
-        properties: { query: { type: "string" } },
-        required: ["query"],
-      },
-      execute: async (args) => {
-        if (!config.tavilyApiKey) return "Error: web search is not configured.";
-        const results = await tavilySearch(config.tavilyApiKey, String(args.query), { maxResults: 5 });
-        return results.map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.content}`).join("\n\n");
-      },
-    },
-    {
-      name: "fetch_page",
-      description: "Fetch and read the full text content of a specific URL, e.g. one found via web_search.",
-      parameters: {
-        type: "object",
-        properties: { url: { type: "string" } },
-        required: ["url"],
-      },
-      execute: async (args) => {
-        const url = String(args.url);
-        const page = await extractUrl(config.scraplingServiceUrl, url);
-        fetchedPages.set(url, page.text);
-        return truncateToolResult(page.text);
-      },
-    },
-    {
-      name: "record_finding",
-      description: "Record one concrete, citable fact you've learned, with the real source URL(s) that back it.",
-      parameters: {
-        type: "object",
-        properties: {
-          claim: { type: "string" },
-          sourceUrls: { type: "array", items: { type: "string" } },
-        },
-        required: ["claim", "sourceUrls"],
-      },
-      execute: async (args) => {
-        const claim = String(args.claim);
-        const sourceUrls = Array.isArray(args.sourceUrls) ? args.sourceUrls.map(String) : [];
-        const grounded = isGrounded(claim, sourceUrls, fetchedPages);
-        findings.push({ claim, sourceUrls, grounded });
-        return grounded
-          ? "Recorded."
-          : "Recorded, but flagged unverified - the cited source(s) weren't actually fetched via " +
-            "fetch_page this session, or the claim doesn't match the fetched content. This will be " +
-            "stored tagged as unverified, not as a confirmed finding. If you can, fetch_page the real " +
-            "source and record_finding again with a claim that matches what it actually says.";
-      },
-    },
-  ];
-
-  const loopResult = await runAgentLoop({
-    ollamaHost: config.ollamaHost,
-    model: config.researchModel,
-    systemPrompt: SYSTEM_PROMPT,
-    userPrompt: `Research topic: ${topic}`,
-    tools,
-    maxIterations: config.researchMaxIterations,
-    label: `research topic="${topic}"`,
+  const { passages, noMatch } = await gatherWebPassages(config, topic, {
+    maxSources: 6,
+    maxPassages: 10,
+    minScore: 0.35,
   });
 
-  return { findings, iterations: loopResult.iterations, exhaustedIterations: loopResult.exhaustedIterations };
+  if (noMatch) {
+    return { findings: [], iterations: 1, exhaustedIterations: false };
+  }
+
+  const passagesText = passages.map((p, i) => `[${i + 1}] (source: ${p.url})\n${p.text}`).join("\n\n");
+
+  const { message } = await ollamaChat(config.ollamaHost, {
+    model: config.researchModel,
+    think: false,
+    timeoutMs: 120_000,
+    messages: [
+      { role: "system", content: SYNTHESIS_SYSTEM_PROMPT },
+      { role: "user", content: `Research topic: ${topic}\n\nPassages:\n${passagesText}` },
+    ],
+    format: {
+      type: "object",
+      properties: {
+        findings: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { claim: { type: "string" }, passageNumber: { type: "integer" } },
+            required: ["claim", "passageNumber"],
+          },
+        },
+      },
+      required: ["findings"],
+    },
+  });
+
+  const parsed = parseJsonContent<{ findings: { claim: string; passageNumber: number }[] }>(message.content, {
+    findings: [],
+  });
+
+  const findings: Finding[] = parsed.findings
+    .filter((f) => Number.isInteger(f.passageNumber) && f.passageNumber >= 1 && f.passageNumber <= passages.length)
+    .map((f) => {
+      const passage = passages[f.passageNumber - 1];
+      // Re-checks the claim against the *specific* passage it says backs
+      // it (not just "was anything fetched this session" like the old
+      // design) - catches the model citing passage [3] for a claim that's
+      // actually only supported by passage [1], or embellishing past what
+      // the cited passage actually says.
+      const grounded = isGrounded(f.claim, [passage.url], new Map([[passage.url, passage.text]]));
+      return { claim: f.claim, sourceUrls: [passage.url], grounded };
+    });
+
+  return { findings, iterations: 1, exhaustedIterations: false };
 }
