@@ -148,6 +148,80 @@ const ACCURACY_TESTS = [
   { name: "reverse-spell", prompt: "Spell the word 'necessary' backwards, letters only, no spaces.", check: (t) => /yrassecen/i.test(t.replace(/[^a-z]/gi, "")) },
 ];
 
+// ---------------------------------------------------------------------------
+// Coding-agent tests - same tool schema coding-orchestrator/src/pipeline.ts
+// actually binds (run_command/write_file), to gauge whether a model could
+// drive that agent loop, not just generic tool-calling.
+// ---------------------------------------------------------------------------
+const CODING_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "run_command",
+      description: "Run a shell command in the working directory and return its output.",
+      parameters: {
+        type: "object",
+        properties: { command: { type: "string", description: "The shell command to run." } },
+        required: ["command"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "write_file",
+      description:
+        "Write a file's exact content, given a filename and the full content. Use this instead of " +
+        "a shell command when writing a whole file from scratch or replacing it entirely.",
+      parameters: {
+        type: "object",
+        properties: { filename: { type: "string" }, content: { type: "string" } },
+        required: ["filename", "content"],
+      },
+    },
+  },
+];
+
+const CODING_TOOL_TESTS = [
+  {
+    name: "run-tests",
+    prompt: "Run the project's test suite using npm.",
+    expectedTool: "run_command",
+    checkArgs: (a) => /npm (test|run test)/i.test(a.command || ""),
+  },
+  {
+    name: "write-file",
+    prompt:
+      "Create a file called hello.py that defines a function greet() returning the string 'Hello, World!'.",
+    expectedTool: "write_file",
+    checkArgs: (a) =>
+      /hello\.py/i.test(a.filename || "") && /def\s+greet/.test(a.content || "") && /Hello, World!/.test(a.content || ""),
+  },
+];
+
+const CODING_ACCURACY_TESTS = [
+  {
+    name: "off-by-one",
+    prompt:
+      "This Python loop is meant to print the numbers 1 through 10 inclusive:\n\nfor i in range(10):\n    print(i)\n\n" +
+      "In one short sentence, what's wrong with it?",
+    check: (t) => /range\(1,\s*11\)|starts? at 0|0 to 9|0 through 9|doesn'?t include 10|missing 10/i.test(t),
+  },
+  {
+    name: "reverse-string",
+    prompt: "Write a single line of Python that reverses the string stored in variable s. Answer with just the code.",
+    check: (t) => /s\s*\[\s*::\s*-1\s*\]/.test(t),
+  },
+  {
+    name: "find-bug",
+    prompt:
+      "This JavaScript function is supposed to return the sum of an array but always returns 0:\n\n" +
+      "function sum(arr) {\n  let total = 0;\n  arr.forEach(n => { let total = total + n; });\n  return total;\n}\n\n" +
+      "In one short sentence, what's the bug?",
+    check: (t) => /shadow|redeclar|inner|local|scope|block-scoped|block scoped|new variable/i.test(t),
+  },
+];
+
 const LATENCY_PROMPT = "Write a two-sentence summary of why the sky is blue.";
 
 // ---------------------------------------------------------------------------
@@ -229,6 +303,8 @@ async function benchmarkModel(model) {
     model,
     toolTests: [],
     accuracyTests: [],
+    codingToolTests: [],
+    codingAccuracyTests: [],
     latencyRuns: [],
     errors: [],
   };
@@ -282,6 +358,38 @@ async function benchmarkModel(model) {
     }
   }
 
+  // Coding tool-calling tests (same schema coding-orchestrator binds)
+  for (const test of CODING_TOOL_TESTS) {
+    try {
+      const r = await chat(model, [{ role: "user", content: test.prompt }], { tools: CODING_TOOLS });
+      const match = r.toolCalls.find((c) => c.function?.name === test.expectedTool);
+      const pass = !!match && test.checkArgs(parseArgs(match));
+      const detail = match
+        ? `called ${test.expectedTool}(${JSON.stringify(parseArgs(match)).slice(0, 120)})`
+        : r.toolCalls.length
+        ? `called wrong tool: ${r.toolCalls.map((c) => c.function?.name).join(",")}`
+        : "no tool called";
+      console.error(`  [code-tool] ${test.name}: ${pass ? "PASS" : "FAIL"} — ${detail} (${r.totalMs.toFixed(0)}ms)`);
+      result.codingToolTests.push({ name: test.name, pass, detail, ttftMs: r.ttftMs, totalMs: r.totalMs });
+    } catch (err) {
+      console.error(`  [code-tool] ${test.name}: ERROR — ${err.message}`);
+      result.codingToolTests.push({ name: test.name, pass: false, detail: `error: ${err.message}` });
+    }
+  }
+
+  // Coding accuracy/reasoning tests
+  for (const test of CODING_ACCURACY_TESTS) {
+    try {
+      const r = await chat(model, [{ role: "user", content: test.prompt }]);
+      const pass = test.check(r.content);
+      console.error(`  [code-acc]  ${test.name}: ${pass ? "PASS" : "FAIL"} — "${r.content.trim().slice(0, 60)}" (${r.totalMs.toFixed(0)}ms)`);
+      result.codingAccuracyTests.push({ name: test.name, pass, response: r.content.trim(), ttftMs: r.ttftMs, totalMs: r.totalMs });
+    } catch (err) {
+      console.error(`  [code-acc]  ${test.name}: ERROR — ${err.message}`);
+      result.codingAccuracyTests.push({ name: test.name, pass: false, response: `error: ${err.message}` });
+    }
+  }
+
   // Latency reps (fixed prompt, repeated)
   for (let i = 0; i < reps; i++) {
     try {
@@ -305,10 +413,18 @@ function avg(arr) {
 function summarize(result) {
   const toolPassRate = result.toolTests.length ? result.toolTests.filter((t) => t.pass).length / result.toolTests.length : null;
   const accPassRate = result.accuracyTests.length ? result.accuracyTests.filter((t) => t.pass).length / result.accuracyTests.length : null;
+  const codeToolPassRate = result.codingToolTests.length
+    ? result.codingToolTests.filter((t) => t.pass).length / result.codingToolTests.length
+    : null;
+  const codeAccPassRate = result.codingAccuracyTests.length
+    ? result.codingAccuracyTests.filter((t) => t.pass).length / result.codingAccuracyTests.length
+    : null;
   return {
     model: result.model,
     toolAccuracyPct: toolPassRate !== null ? +(toolPassRate * 100).toFixed(1) : null,
     generalAccuracyPct: accPassRate !== null ? +(accPassRate * 100).toFixed(1) : null,
+    codingToolPct: codeToolPassRate !== null ? +(codeToolPassRate * 100).toFixed(1) : null,
+    codingAccuracyPct: codeAccPassRate !== null ? +(codeAccPassRate * 100).toFixed(1) : null,
     avgTtftMs: avg(result.latencyRuns.map((r) => r.ttftMs))?.toFixed(0) ?? null,
     avgTotalMs: avg(result.latencyRuns.map((r) => r.totalMs))?.toFixed(0) ?? null,
     avgTokensPerSec: avg(result.latencyRuns.map((r) => r.tokensPerSec))?.toFixed(1) ?? null,
@@ -317,8 +433,18 @@ function summarize(result) {
 }
 
 function printTable(summaries) {
-  const cols = ["model", "toolAccuracyPct", "generalAccuracyPct", "avgTtftMs", "avgTotalMs", "avgTokensPerSec", "errors"];
-  const headers = ["Model", "Tool-call %", "Accuracy %", "TTFT ms", "Total ms", "Tok/s", "Errors"];
+  const cols = [
+    "model",
+    "toolAccuracyPct",
+    "generalAccuracyPct",
+    "codingToolPct",
+    "codingAccuracyPct",
+    "avgTtftMs",
+    "avgTotalMs",
+    "avgTokensPerSec",
+    "errors",
+  ];
+  const headers = ["Model", "Tool-call %", "Accuracy %", "Code-tool %", "Code-acc %", "TTFT ms", "Total ms", "Tok/s", "Errors"];
   const widths = cols.map((c, i) => Math.max(headers[i].length, ...summaries.map((s) => String(s[c] ?? "-").length)) + 2);
 
   const line = (vals) => vals.map((v, i) => String(v ?? "-").padEnd(widths[i])).join("");
@@ -348,11 +474,14 @@ const mdPath = join(resultsDir, `${stamp}.md`);
 writeFileSync(jsonPath, JSON.stringify({ config: { models, reps, think }, results: allResults, summaries }, null, 2));
 
 const mdRows = summaries
-  .map((s) => `| ${s.model} | ${s.toolAccuracyPct ?? "-"} | ${s.generalAccuracyPct ?? "-"} | ${s.avgTtftMs ?? "-"} | ${s.avgTotalMs ?? "-"} | ${s.avgTokensPerSec ?? "-"} | ${s.errors} |`)
+  .map(
+    (s) =>
+      `| ${s.model} | ${s.toolAccuracyPct ?? "-"} | ${s.generalAccuracyPct ?? "-"} | ${s.codingToolPct ?? "-"} | ${s.codingAccuracyPct ?? "-"} | ${s.avgTtftMs ?? "-"} | ${s.avgTotalMs ?? "-"} | ${s.avgTokensPerSec ?? "-"} | ${s.errors} |`,
+  )
   .join("\n");
 writeFileSync(
   mdPath,
-  `# Model benchmark — ${stamp}\n\nthink=${think}, reps=${reps}\n\n| Model | Tool-call % | Accuracy % | TTFT ms | Total ms | Tok/s | Errors |\n|---|---|---|---|---|---|---|\n${mdRows}\n`
+  `# Model benchmark — ${stamp}\n\nthink=${think}, reps=${reps}\n\n| Model | Tool-call % | Accuracy % | Code-tool % | Code-acc % | TTFT ms | Total ms | Tok/s | Errors |\n|---|---|---|---|---|---|---|---|---|\n${mdRows}\n`
 );
 
 console.log(`\nWrote ${jsonPath}\nWrote ${mdPath}`);
