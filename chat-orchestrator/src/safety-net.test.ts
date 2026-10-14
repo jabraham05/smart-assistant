@@ -4,6 +4,7 @@ import {
   isConfabulatedAction,
   hasUnfulfilledSearchIntent,
   hasUnsatisfiedRequiredTool,
+  hasUngroundedCitation,
   classifyMemoryGrounding,
   stripEmoji,
   stripKnownStockClosers,
@@ -117,6 +118,43 @@ test("hasUnsatisfiedRequiredTool still flags an unrelated group even if task_con
       ["info"],
     ),
     true,
+  );
+});
+
+// Real incident that motivated this: a fake "ModKit Community Guide" source
+// (https://modkit.gg/warframe/) got cited as verified while a real
+// research_task result for the same topic, correctly sourced, went unused.
+test("hasUngroundedCitation flags a cited URL that no tool result actually contains", () => {
+  assert.equal(
+    hasUngroundedCitation(
+      "Source: https://modkit.gg/warframe/",
+      ["Finding: https://warframe.fandom.com/wiki/Modding"],
+    ),
+    true,
+  );
+});
+
+test("hasUngroundedCitation does not flag a URL that a tool result actually returned", () => {
+  assert.equal(
+    hasUngroundedCitation(
+      "Source: https://warframe.fandom.com/wiki/Modding",
+      ["[1] Modding Guide\nhttps://warframe.fandom.com/wiki/Modding\nsome snippet"],
+    ),
+    false,
+  );
+});
+
+test("hasUngroundedCitation does not flag plain text with no cited URL", () => {
+  assert.equal(hasUngroundedCitation("Base damage and elemental mods stack differently.", []), false);
+});
+
+test("hasUngroundedCitation ignores trailing sentence punctuation around the URL", () => {
+  assert.equal(
+    hasUngroundedCitation(
+      "See https://warframe.fandom.com/wiki/Modding.",
+      ["https://warframe.fandom.com/wiki/Modding"],
+    ),
+    false,
   );
 });
 

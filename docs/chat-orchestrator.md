@@ -6,6 +6,21 @@ replaces (kept published as a rollback, not deleted) and
 [`docs/coding-agent-pipeline.md`](coding-agent-pipeline.md) for the
 raw-Ollama-tool-loop pattern this reuses.
 
+**Superseded, 2026-10, same rollback relationship it once had with n8n's
+`AI Agent`**: `agent-service` (a Python/PydanticAI port of this same
+Coordinator) is now what `chat-ui`/`discord-bot` actually talk to
+(`docker-compose.yml`'s `N8N_WEBHOOK_URL`/`N8N_CHAT_WEBHOOK_URL` both point
+at `agent-service:3010`), cut over after eval-harness parity plus a real
+soak period. This service is left running unmodified as the instant
+rollback — see `docs/unified-architecture-gap-analysis.md` for the
+rebuild's full rationale and `docs/growth-engine.md` for what's been built
+on top of `agent-service` since. The history below (phases 0–8, safety-net
+checks, dated entries) describes this TypeScript implementation as it
+stood when it was still the live path; `agent-service`'s own safety net has
+since diverged and grown past it (see `agent-service/src/safety_net.py`) —
+treat this doc as this service's own record, not a live description of
+what runs in production today.
+
 **2026-09-21 — built because n8n's `AI Agent` + `MCP Client Tool` node is
 the one integration in this whole project with an extensive, unresolved
 history of `qwen3:8b` tool-calling failures** (see
@@ -89,17 +104,28 @@ Per-turn pipeline (`src/index.ts`):
    `http://skills-mcp:3001/mcp?chatSessionId=...` — same endpoint and
    same session-correlation query param the old `MCP Client Tool` node
    used — filtered to the classified subset from step 2.
-7. **Minimal safety net** (`src/safety-net.ts`) — only the
-   mechanism-independent checks survive from the old `Detect Garbage
-   Output` node. The old regex zoo (leaked MCP error strings, leaked
-   internal node/tool names, fake tool-call JSON blobs, "function call"
-   narration) was specifically symptomatic of the two n8n bugs this
-   migration removes — a structurally-detected `tool_calls` response
-   can't produce those shapes. What's kept: one-shot empty-output retry
-   (mirrors `coding-orchestrator`'s own retry), one-shot
-   unfulfilled-search-intent retry (model narrates "let me search..."
-   without an actual search tool call), and a one-shot confabulated-action
-   retry (model claims "I've scheduled that" with no matching tool call).
+7. **Safety net** (`src/safety-net.ts`, enforcement wired into `index.ts`)
+   — started as only the mechanism-independent checks that survive from
+   the old `Detect Garbage Output` node (the old regex zoo — leaked MCP
+   error strings, leaked internal node/tool names, fake tool-call JSON
+   blobs, "function call" narration — was specifically symptomatic of the
+   two n8n bugs this migration removes; a structurally-detected
+   `tool_calls` response can't produce those shapes), then grew well past
+   that as real dogfooding surfaced new failure modes (see the dated
+   entries below for each one's origin story). Current set, each a
+   one-shot retry unless noted: empty-output retry (mirrors
+   `coding-orchestrator`'s own retry); unfulfilled-search-intent retry
+   (model narrates "let me search..." without an actual search tool
+   call); confabulated-action retry (model claims "I've scheduled that"
+   with no matching tool call); unsatisfied-required-tool retry
+   (`toolPolicy: 'required'` classified but the tool was never called);
+   ungrounded-citation retry (model cites a URL/source that doesn't
+   appear verbatim in any tool result this turn — see the 2026-10-12
+   dated entry below); and a deterministic tool-error retry loop (not
+   one-shot — loops up to `MAX_TOOL_ERROR_RETRIES` (3) times, feeding the
+   actual tool error text back each attempt). A final deterministic tone
+   backstop (`stripEmoji`/`stripKnownStockClosers`) runs unconditionally
+   after every retry above has settled.
 8. **Persist**: Honcho (`peer_id: 'user'`/`'amy'`, same as before) and the
    service's own Redis-backed short-term buffer (`src/session-memory.ts`,
    `REDIS_DB`: `0` prod / `1` test) — replaces n8n's Postgres Chat Memory
@@ -597,3 +623,89 @@ flat unlabeled dump; "list my active goals" shows "Goal #18" etc.
 consistently. The specific cross-table confusion from the original
 session can no longer happen the same way, since "8" is never displayed
 without saying which table it's from.
+
+### 2026-10-12 — ungrounded-citation retry, and narrowing the tool-failure-disclosure exemption
+
+Real incident from a live transcript: asked about a niche gaming topic, the
+model cited a fake "ModKit Community Guide"
+(`https://modkit.gg/warframe/`) as a verified finding, while a real
+`research_task` result for the same topic — correctly sourced to a
+`reddit.com` thread and a `warframe.fandom.com` page — sat one tool call
+away, unused. The existing unfulfilled-search-intent/unsatisfied-required-
+tool checks only verify *that* a real tool was called this turn, not that
+the reply's specific claims actually came from it — a model can call a
+real search tool and still fabricate an unrelated citation in the same
+reply.
+
+New `hasUngroundedCitation` (`safety-net.ts`) extracts every
+`https?://` URL from the reply and flags it if it doesn't appear verbatim
+in any tool result accumulated so far this turn (`toolResultTexts`, built
+from every `tool_result` trace event across all attempts, same
+persistent-across-retries scope as `calledTools`). Exact-URL matching, not
+keyword overlap — a citation is either the real source a tool gave back,
+verbatim, or it's fabricated (see `knowledge-engine/src/engine/grounding.ts`'s
+`isGrounded` for the deliberately weaker keyword-overlap variant used
+internally by the research agent itself; that's the wrong bar here).
+Wired as a new one-shot retry, `reason: "ungrounded_citation"`.
+
+**Same incident exposed a second, more subtle bug**: `TOOL_FAILURE_RELEVANT_TOOLS`
+previously included `web_search`/`knowledge_search` — meaning an honest
+"I wasn't able to verify that via search" disclosure for either tool got
+retried away as if it were an undesirable plumbing-failure narration (the
+check's actual intent, correct for `calendar_event`/`weather_get`/
+`spotify_control`: never expose a plumbing failure, just answer from what
+you already know). For a factual-lookup tool, "answer from what you
+already know" is exactly the unverified guess the persona's own
+priority-#1 (accuracy) forbids — this was quietly driving the same kind of
+fabrication the citation check above closes, from the opposite direction.
+Fixed by dropping `web_search`/`knowledge_search` (and `research_task`,
+same reasoning) from `TOOL_FAILURE_RELEVANT_TOOLS` entirely — an honest
+"couldn't verify" disclosure for these three is now the correct, un-retried
+behavior.
+
+Ported identically to `agent-service/src/safety_net.py`
+(`has_ungrounded_citation`/`UNGROUNDED_CITATION_NUDGE`), which runs this
+same check as a real production safety net — see that service's own
+history in `docs/unified-architecture-gap-analysis.md` /
+`docs/growth-engine.md`.
+
+### 2026-10-12 — ungrounded-citation retry, and a safety-net check that was punishing honesty
+
+Real incident, live transcript: Amy cited a fake "ModKit Community Guide"
+source (`https://modkit.gg/warframe/`) as a verified finding, while a real
+`research_task` result for the same topic — correctly sourced to a
+reddit.com thread and a warframe.fandom.com page — sat one tool call away,
+unused. Calling a real search/research tool this turn isn't enough on its
+own (that's what `hasUnfulfilledSearchIntent`/`hasUnsatisfiedRequiredTool`
+already check) — the reply can still name a URL that was never actually in
+anything a tool returned this turn.
+
+New one-shot check in both `agent-service/src/safety_net.py` and
+`chat-orchestrator/src/safety-net.ts` — `has_ungrounded_citation`/
+`hasUngroundedCitation`: extracts every `https?://` URL the reply cites and
+flags it if it doesn't appear verbatim in any tool result returned this
+turn (exact-URL matching, not keyword overlap — see
+`knowledge-engine/src/engine/grounding.ts`'s `isGrounded` for that weaker
+variant used internally by the research agent itself; a citation is either
+the real source a tool gave back, verbatim, or it's fabricated). On the
+chat-orchestrator side, tool-result text is now accumulated across every
+attempt this turn (`toolResultTexts`, same persistent-across-attempts scope
+as `calledTools`) so evidence from an earlier attempt still counts as
+grounding for whichever attempt's reply ultimately ships. New
+`reason: "ungrounded_citation"` added to the retry trace union on the
+TS side.
+
+**Second bug exposed by the same transcript, `agent-service` side
+only** (`has_tool_failure_narration`/`TOOL_FAILURE_RELEVANT_TOOLS` has no
+chat-orchestrator equivalent): digging into why the model fabricated a
+source instead of just saying "couldn't verify that,"
+`TOOL_FAILURE_RELEVANT_TOOLS` included `web_search`/`knowledge_search` —
+meaning an honest "I wasn't able to verify that via web search" disclosure
+was itself being retried away as a tool-failure-narration violation. That
+check's whole point is "never expose a plumbing failure, just answer from
+what you already know," which is correct for
+`calendar_event`/`weather_get`/`spotify_control` but exactly backwards for
+a factual-lookup tool — for those, "what you already know" is precisely the
+unverified guess the persona's own priority #1 (accuracy) forbids. Fixed by
+dropping `web_search`/`knowledge_search` from that list — an honest
+disclosure for either is the correct behavior now, not a bug to retry away.

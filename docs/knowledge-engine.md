@@ -498,9 +498,10 @@ with citations).
   genuine many-to-many structured relationships a flat metadata-filtered
   chunk table can't represent, not a hypothetical one.
 - Automated tests beyond the pure/deterministic pieces (`chunk-text`,
-  `detect-heading`, `cluster-findings`, `router`, `config` — 29 tests
-  total via Node's built-in test runner). The agent loop, ingestion
-  pipeline, and hybrid search itself are verified live only, same
+  `detect-heading`, `cluster-findings`, `router`, `config`, plus `entities`/
+  `grounding`/`verify`/`pg-types` added since — 55 tests total as of
+  2026-10-11 via Node's built-in test runner, `npm test`). The agent loop,
+  ingestion pipeline, and hybrid search itself are verified live only, same
   "manual/live testing against the real stack" caveat the README notes
   for `coding-orchestrator`/`sandbox-runner`/`skills-mcp`.
 - `fetch_page`'s reliability against JS-heavy pages (Reddit, forums,
@@ -712,3 +713,93 @@ Same test for `task_context_manage`. Approved a real "wax the car" project
 - it went straight to `status='done'` with a real synthesized document
 (confirming the knowledge base already had automotive content covering
 it), instead of the previous dead-end 409.
+
+## 2026-10-01 — deterministic knowledge-grounding: tag ungrounded memory, block unverified research citations
+
+Two related fixes against the same failure shape: a model stating something
+as fact that it never actually verified. `engine/grounding.ts`'s
+`isGrounded(claim, sourceUrls, fetchedPages)` is a deterministic,
+no-LLM check (stopword-filtered keyword overlap, same technique
+`cluster-findings.ts` already uses, ≥0.6 of the claim's significant
+keywords must appear in a source that was actually `fetch_page`'d this
+session) — catches a model fabricating a plausible-sounding source URL or
+citing a real-but-unfetched one, the same incident shape that previously
+poisoned memory via a different path (a fabricated "Qwen3.8-LiveTranslate
+API"/WebRTC claim — see `chat-orchestrator/src/system-prompt.ts`).
+
+Wired into `engine/research-agent.ts`'s `record_finding` tool: every
+finding is tagged `grounded: boolean` at record time. `engine/verify.ts`
+resolves every ungrounded finding straight to `confidence: "unverified"`
+with no LLM judgment call at all — agreement between two fabrications
+proves nothing, so `verifyClusters()` only runs its real (LLM)
+agree/disagree check among a cluster's grounded members.
+
+The memory side of the same fix lives in `memory-engine` — see
+[`docs/memory-engine.md`](memory-engine.md)'s own entry — plus
+`chat-orchestrator`/`agent-service`'s `classify_memory_grounding` and
+`system-prompt.ts`'s rendering of an `ungrounded` tag differently from a
+`tool_verified`/`user_stated` one (see
+[`docs/chat-orchestrator.md`](chat-orchestrator.md)).
+
+## 2026-10-01 — `entities`: a durable registry + human-readable file store (Phase 1 of the "Amy's world" rework)
+
+First piece of a broader rework giving Amy's own knowledge about
+herself/projects/the user a durable, independently-readable form — not
+just structured rows a SQL client can see. New `entities` table
+(`postgres/init/23-create-entities-table.sql`, same `research` database):
+`type` (`'project'` to start; `user_fact`/`preference`/`learning`/
+`decision`/`document` reserved for later phases), `name`, `description`,
+`status`, `source_table`/`source_id` (a loose pointer back at the row this
+entity mirrors, e.g. `projects`/`42` — not a replacement for that table,
+unification is a later phase), `source_path`, `graphiti_id`. No CHECK
+constraint on `type`/`status`, same free-text convention `findings
+.confidence`/`memory_entries.grounding` already established.
+
+**`engine/entities.ts`**: `createEntity()` inserts the Postgres row first
+(the structured source of truth), then writes a paired markdown file under
+`KNOWLEDGE_STORE_PATH` (`toFrontmatter()` — plain `key: value` lines, no
+YAML dependency) and records its path back onto the row — if the file
+write fails, the entity still exists for retry/inspection rather than
+having no durable artifact at all. `listKnowledgeStoreFiles()`/
+`readKnowledgeStoreFile()` are a raw directory browser over
+`KNOWLEDGE_STORE_PATH`, independent of the `entities` registry (catches
+anything written there, including future producers with no `entities`
+row) — `readKnowledgeStoreFile` validates a client-supplied relative path
+never resolves outside the store root before reading it.
+
+**New routes**: `POST /entities`, `GET /entities?type=`, `GET
+/entities/:id` (includes the backing file's content), `PATCH
+/entities/:id`, `GET /knowledge-store/files`, `GET
+/knowledge-store/files/content?path=`. Only caller so far is
+`engine/consolidate.ts` on project completion (creates an entity, fires a
+best-effort Graphiti episode write via `GRAPHITI_SERVICE_URL`, then
+backfills `graphiti_id` onto the entity once/if that succeeds) — no
+chat-invoked tool wraps `POST /entities` yet, same "infra first, tool
+wiring later" shape the research queue's own `GET` endpoint followed. The
+file-browsing routes power `chat-ui`'s Amy Lab "Files" tab (see
+[`docs/chat-ui.md`](chat-ui.md)); `graphiti-service` itself (the actual
+FalkorDB-backed graph writer) is covered from the architecture side in
+[`docs/unified-architecture-gap-analysis.md`](unified-architecture-gap-analysis.md)
+(§3) — as of this entry it's narrow: goal-creation (event-bus), project
+approval, and project-consolidation/entity-creation (both here) are the
+only events that produce episodes.
+
+## 2026-10-11 — BIGINT ids/counts now cross the API as real numbers, not strings
+
+`node-pg` returns `BIGINT` (`int8`, OID 20) as a string by default. Every
+id in this service's schema is a BIGINT `IDENTITY` column and every
+`count(*)` is `int8`, so ids crossed every route as `"12"` while every TS
+row type said `number` — callers papered over it with `Number()` at
+comparison sites (see `docs/event-bus-and-goals.md`'s now-superseded
+`task_context_id` fix for one concrete instance). Found live by the native
+iOS app's strict JSON decoder rejecting a stringified id. New
+`src/pg-types.ts` registers a type parser for OID 20 that returns a real
+number (throwing, not rounding, past `2^53`) and is imported for its side
+effect by every file that opens a `Pool` — three new tests in
+`pg-types.test.ts`. `NUMERIC`/`SUM` (OID 1700, the RRF-score aggregate
+`hybridSearchChunks`/`hybridSearchMemory` already cast with an explicit
+`Number()`) is deliberately left alone. Shipped identically across every
+Node service in the project in one commit, since `chat-ui` compares ids
+across services (e.g. a project's `coding_task_id` against a
+coding-orchestrator task id) — those only match if both sides agree on
+type.

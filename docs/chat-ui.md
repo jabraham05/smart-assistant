@@ -1,10 +1,34 @@
 # `chat-ui` — Next.js chat client
 
-Part of the [Smart Assistant](../README.md) project. Proxies chat through
-`chat-orchestrator` (see [`docs/chat-orchestrator.md`](chat-orchestrator.md);
-n8n's `Chat` workflow before that) and reads session list/history directly
-from Honcho. See [`docs/event-bus-and-goals.md`](event-bus-and-goals.md)
-for the event-bus visibility panel added below.
+Part of the [Smart Assistant](../README.md) project. Reads session
+list/history directly from Honcho. See
+[`docs/event-bus-and-goals.md`](event-bus-and-goals.md) for the event-bus
+visibility panel added below.
+
+**2026-10 update — the live chat backend is `agent-service`, not
+`chat-orchestrator`.** `lib/n8n-client.ts`'s `streamFromN8n()` still POSTs
+`{chatInput, sessionId}` to whatever `N8N_WEBHOOK_URL` points at — but as
+of the infra rebuild's Phase 1 (PydanticAI agent runtime), `docker-compose.yml`
+sets that to `http://agent-service:3010/webhook`, not `chat-orchestrator` or
+n8n's own `Chat` workflow. Both of those are kept running, unmodified, as an
+instant one-line rollback (`N8N_WEBHOOK_URL` back to
+`http://chat-orchestrator:3006/webhook`, or further back to n8n's own webhook
+URL) — the NDJSON wire contract is identical across all three, so no `chat-ui`
+code changed for the cutover, only the URL. See
+[`docs/chat-orchestrator.md`](chat-orchestrator.md) for the superseded
+tool-calling loop this replaces as the live path (still the documented
+rollback target).
+
+**Known stale dependency, not yet fixed**: `GET /api/amy/persona` and
+`GET /api/amy/user-profile` (`src/app/api/amy/persona/route.ts`,
+`.../user-profile/route.ts`) still read from `chat-orchestrator` via
+`lib/chat-orchestrator-client.ts` (its `/persona`/`/user-profile` routes),
+not from `agent-service` — found during the iPhone PWA audit (see
+`docs/iphone-pwa-implementation-plan.md` §1's "Gap found" note). Low risk
+today since `chat-orchestrator` is still deliberately kept running as the
+rollback target, but these two reads would silently break if
+`chat-orchestrator` is ever actually decommissioned while chat itself keeps
+working fine through `agent-service`.
 
 ## 2026-09-21 — session sidebar was silently unusable once real usage accumulated
 
@@ -248,3 +272,51 @@ coding-type row links to its PR (`coding_task_pr_url`, enriched
 server-side by knowledge-engine's `listProjects` since `coding_tasks`
 lives in a different database with no SQL join available) instead of
 `/research/[id]`. The grid moved from 3 to 4 cards (2x2 on desktop).
+
+## 2026-09-23 — console UI rework, shared-secret auth, and `/amy` → `/amy-lab`
+
+**Visual/navigation rework** (`b1850fba`, same day as the Coding Tasks card
+above): reworked into a dark, techy console look, and nav restructured into
+Home/Chat/Artifacts/Amy Lab, each a real top-level route. The old `/amy`
+page and `components/amy/ProjectsDashboard.tsx` described in the entries
+above were **renamed and restructured** into `/amy-lab` +
+`components/amy-lab/AmyLab.tsx` as part of this — `ProjectsDashboard.tsx`
+itself no longer exists; its approve/reject project functionality lives on
+inside `AmyLab.tsx`'s "Projects" category instead (see the Memory Library
+restructure below). The fixed `Sidebar.tsx` column was replaced by
+`AppDrawer.tsx` (collapsible, works on narrow/mobile widths) + `LogoutButton.tsx`.
+
+**Auth, added the same day**: a single shared-secret login
+(`AMY_AUTH_PASSWORD`, `src/lib/auth.ts` + `src/proxy.ts`) — every route
+except `/login`/`/api/auth/login`/`/api/health`/the PWA install assets now
+requires a valid session, checked via an HMAC-signed token carried either as
+a cookie (`amy_session`, browser/PWA clients) or a `Bearer` header (native
+clients, e.g. the iOS app — see `docs/native-ios-app-plan.md`). Single-user
+system, so one password, not a user table. This exists because `chat-ui` was
+about to become reachable beyond localhost (Tailscale) with no auth at all
+otherwise — see `docs/iphone-pwa-implementation-plan.md` §4.3/§8.
+
+**PWA shell**: `manifest.ts`, `apple-icon.png`, and the other icon assets
+were added so the app installs as a home-screen PWA. The broader "turn
+chat-ui into a full mobile PWA" plan this came out of
+(`docs/iphone-pwa-implementation-plan.md`) was itself superseded shortly
+after by a pivot to a real SwiftUI app (`docs/native-ios-app-plan.md`) —
+these specific pieces (auth, manifest/icons, `AppDrawer`) shipped and stayed;
+the rest of that plan did not continue.
+
+## 2026-10-07/09 — Amy Lab "Memory Library" restructure + Growth dashboard
+
+`AmyLab.tsx` was restructured twice more, both documented in full in
+[`docs/growth-engine.md`](growth-engine.md) (not duplicated here since that
+doc already covers the chat-ui half in detail): a "Memory Library" pass
+(`79fd6432`) regrouping every existing Amy Lab feature plus four new ones
+(categorized profile, provenance drill-through, a cross-source Timeline,
+real System Prompt sizes) under seven top-level categories — User / Amy /
+Growth / Projects / Memories / Knowledge / Session, each with its own
+sub-tabs — and a follow-up (`5749be53`) that built out the "Growth"
+category into a full five-tab dashboard (Overview/Opportunities/Review
+Queue/Learning Plans/History) for the Growth engine's observation →
+proposal → consolidation lifecycle. `lib/growth-client.ts` calls
+`agent-service`'s `/growth/*` routes directly via a new `AGENT_SERVICE_URL`
+env var — `chat-ui`'s first direct line to `agent-service` beyond the chat
+webhook itself.

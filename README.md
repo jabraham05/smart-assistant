@@ -1,15 +1,23 @@
 # Smart Assistant
 
-A self-hosted, self-learning personal AI assistant. n8n orchestrates a local
-Ollama model as the "brain," Honcho (hosted cloud) provides long-term memory
-of who you are, and postgres/redis back everything. Long-term goal: an
-ever-growing library of skills (n8n workflows), a background job that
-proposes new skills on its own (with a human approval gate before anything
-goes live), and a Raspberry Pi voice interface. A Raspberry Pi smart-mirror
-dashboard is already live — Amy is its data source and controller (see
+A self-hosted, self-learning personal AI assistant. `agent-service`
+(Python/PydanticAI) is the live Coordinator orchestrating a local Ollama
+model as the "brain" against real tools (`skills-mcp`); n8n's original
+`Chat` workflow still exists only as the outermost rollback (see
+[`docs/chat-workflow.md`](docs/chat-workflow.md) and
+[`docs/agent-service.md`](docs/agent-service.md)). Honcho (hosted cloud)
+provides long-term memory of who you are, and postgres/redis back
+everything. Long-term goal: an ever-growing library of skills, a
+background job that proposes new skills on its own (with a human approval
+gate before anything goes live — now generalized into the Growth engine,
+see [`docs/growth-engine.md`](docs/growth-engine.md)), and a Raspberry Pi
+voice interface. A Raspberry Pi smart-mirror dashboard is already live —
+Amy is its data source and controller (see
 [`docs/smart-mirror-dashboard.md`](docs/smart-mirror-dashboard.md)); voice
 control works end-to-end except the actual microphone/wake-word leg, still
-unbuilt hardware-wise.
+unbuilt hardware-wise. A native iOS app (see
+[`docs/native-ios-app-plan.md`](docs/native-ios-app-plan.md)) is also live
+for chat, the Home dashboard, and Amy Lab/Growth/Memory.
 
 This README covers setup and directory layout. Everything else —
 architecture, and each individual system's design/history/gotchas — lives
@@ -22,14 +30,39 @@ eventually tested) on its own.
   overview (n8n, skills-mcp, Ollama, Honcho, postgres, redis)
 - [`docs/chat-workflow.md`](docs/chat-workflow.md) — the main `Chat` n8n
   workflow: pipeline diagram, tool-calling reliability saga, trigger/response
-  mode gotchas (superseded for real traffic by `chat-orchestrator`, kept
-  published as the rollback — see below)
+  mode gotchas (superseded for real traffic, first by `chat-orchestrator`
+  then by `agent-service`, kept published as the outermost rollback — see
+  below)
 - [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md) — self-hosted
   replacement for the `Chat` workflow's tool-calling (a raw Ollama
-  tool-calling loop against a real MCP client, what `chat-ui`/
-  `discord-bot` actually talk to now) and the **Coordinator** built on top
-  of it: classification-driven tool/memory/planning policy, enforcement,
-  verification, and progress narration
+  tool-calling loop against a real MCP client) and the **Coordinator**
+  built on top of it: classification-driven tool/memory/planning policy,
+  enforcement, verification, and progress narration. Itself superseded as
+  of 2026-10 by `agent-service` (a Python/PydanticAI port of this same
+  Coordinator — see `docs/unified-architecture-gap-analysis.md`); left
+  running unmodified as the middle rollback layer, no longer what
+  `chat-ui`/`discord-bot` actually talk to
+- [`docs/agent-service.md`](docs/agent-service.md) — PydanticAI/Python port
+  of the Coordinator, the actual live chat backend now; architecture,
+  config, rollback instructions, and the real streaming bug found
+  standing it up
+- [`docs/unified-architecture-gap-analysis.md`](docs/unified-architecture-gap-analysis.md)
+  — conceptual design reference for the "5-pillar rebuild"
+  (PydanticAI → OpenHands → Graphiti → Scrapling → DSPy) that produced
+  `agent-service`, `openhands-runner`, `graphiti-service`,
+  `scrapling-service`, and `dspy-optimizer`; maps the rebuild against a
+  proposed unified architecture and tracks the real gaps (a unified
+  Growth lifecycle, first-class dynamically-loaded skills)
+- [`docs/growth-engine.md`](docs/growth-engine.md) — `agent-service`'s
+  self-improvement lifecycle: turn-logging → opportunity scoring →
+  proposals → experiments/evaluations → human-gated consolidation, plus
+  the Teaching layer and the Amy Lab dashboard that surfaces all of it
+- [`docs/dspy-optimizer.md`](docs/dspy-optimizer.md) — offline, non-live
+  few-shot optimizer for `agent-service`'s tool-group classifier prompt;
+  a human-run tool, not a runtime dependency
+- [`docs/scrapling-service.md`](docs/scrapling-service.md) — real page
+  fetching/extraction (JS rendering, anti-bot evasion) backing
+  `knowledge-engine`'s web research
 - [`docs/memory-engine.md`](docs/memory-engine.md) — self-hosted
   cross-conversation memory (hybrid ranked search, no LLM in the hot
   path), the Coordinator's `memoryPolicy` backend
@@ -54,6 +87,14 @@ eventually tested) on its own.
   writes, and tests real code changes in an isolated sandbox
 - [`docs/smart-mirror-dashboard.md`](docs/smart-mirror-dashboard.md) —
   Raspberry Pi dashboard + voice
+- [`docs/native-ios-app-plan.md`](docs/native-ios-app-plan.md) — the real
+  SwiftUI app (`ios/`), pivoted away from the installable-PWA path; chat,
+  Home dashboard, and Amy Lab/Growth/Memory milestones are live, voice
+  (push-to-talk) hasn't started yet
+- [`docs/iphone-pwa-implementation-plan.md`](docs/iphone-pwa-implementation-plan.md)
+  — superseded by the native iOS pivot above, kept for history (some
+  recommendations did ship into `chat-ui` — bearer-token auth, PWA
+  manifest/icons, the responsive `AppDrawer`)
 - [`docs/home-assistant.md`](docs/home-assistant.md) — self-hosted Home
   Assistant, phone-presence tracking
 - [`docs/discord-bridge.md`](docs/discord-bridge.md) — Discord DM client
@@ -90,15 +131,18 @@ eventually tested) on its own.
   webhook (see [`docs/discord-bridge.md`](docs/discord-bridge.md)).
 - `skills-mcp/` — MCP server hosting agent-callable tools
   (`memory_recall`, `weather_get`, `skill_propose`, `calendar_event`,
-  `code_task`, `spotify_control`, `dashboard_control`, `web_search`,
-  `knowledge_search`, `knowledge_ingest`, `research_task`,
+  `drive_search`, `code_task`, `spotify_control`, `dashboard_control`,
+  `web_search`, `knowledge_search`, `knowledge_ingest`, `research_task`,
   `research_task_status`, `goal_manage`, `task_context_manage`,
+  `status_overview`, `project_propose`, `project_complete`,
+  `growth_review`, `teaching_session_manage`, `skill_examples`,
   `calculate`), plus internal (non-MCP) routes `/internal/dashboard-data` and
   `/internal/spotify-action` (see
   [`docs/smart-mirror-dashboard.md`](docs/smart-mirror-dashboard.md)),
   wired into `docker-compose.yml` (builds from `skills-mcp/Dockerfile`,
-  internal-only, no published port). n8n's `Chat` workflow reaches it via an
-  `MCP Client Tool` node.
+  internal-only, no published port). `agent-service` (and `chat-orchestrator`
+  as rollback) reach it via a real MCP client; n8n's `Chat` workflow (the
+  outermost rollback) reaches it via an `MCP Client Tool` node.
 - `knowledge-engine/` — document ingestion, hybrid (vector + keyword)
   retrieval with first-class citations, and web research (see
   [`docs/knowledge-engine.md`](docs/knowledge-engine.md)); reuses the
@@ -129,14 +173,34 @@ eventually tested) on its own.
 - `scripts/start-coding-task.mjs` — explicit trigger for the coding-agent
   pipeline, mirroring `chat.mjs`'s role as a reference client for the
   `Chat` webhook.
+- `agent-service/` — Python/PydanticAI port of `chat-orchestrator`'s
+  Coordinator; the actual live backend for `chat-ui`/`discord-bot` now
+  (`docker-compose.yml`'s `N8N_WEBHOOK_URL`/`N8N_CHAT_WEBHOOK_URL` →
+  `agent-service:3010/webhook`). Also hosts the Growth engine (see
+  [`docs/growth-engine.md`](docs/growth-engine.md)) and its `/growth/*`
+  routes backing the Amy Lab dashboard.
 - `chat-orchestrator/` — self-hosted tool-calling for real chat traffic,
   replacing the `Chat` workflow's `AI Agent`/`MCP Client Tool` node (see
-  [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)); runs as two
-  instances (`chat-orchestrator` prod, `chat-orchestrator-test`) differing
-  only by env var (Redis DB index, Postgres schema for persona/skills
-  reads). `chat.mjs` can be pointed at either directly via
+  [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)); superseded by
+  `agent-service` above, left running unmodified as the instant rollback.
+  Runs as two instances (`chat-orchestrator` prod, `chat-orchestrator-test`)
+  differing only by env var (Redis DB index, Postgres schema for
+  persona/skills reads). `chat.mjs` can be pointed at either directly via
   `N8N_CHAT_WEBHOOK_URL=http://localhost:3008/webhook` (prod) or `:3009`
   (test) with no script changes, since the NDJSON contract is identical.
+- `dspy-optimizer/`, `graphiti-service/`, `scrapling-service/`,
+  `openhands-runner/` — the other four pillars of the same rebuild that
+  produced `agent-service` (see
+  [`docs/unified-architecture-gap-analysis.md`](docs/unified-architecture-gap-analysis.md)):
+  an offline classifier-prompt optimizer, the decision/project/growth
+  ledger graph (FalkorDB + Ollama), real page fetching/extraction backing
+  knowledge-engine's web research, and the OpenHands SDK wrapper
+  `coding-orchestrator` can optionally use instead of its own
+  hand-rolled agent loop.
+- `ios/` — real Xcode-generated SwiftUI app (see
+  [`docs/native-ios-app-plan.md`](docs/native-ios-app-plan.md)); chat,
+  Home dashboard, and Amy Lab/Growth/Memory are live, voice
+  (push-to-talk) is the next milestone.
 - `honcho-src/` — a clone of the Honcho OSS repo from when self-hosting was
   attempted. Unused now that Honcho runs hosted. Gitignored; safe to delete,
   kept only in case self-hosting is revisited (cost/privacy reasons).
@@ -149,7 +213,11 @@ eventually tested) on its own.
   n8n — on tool-calling accuracy, general accuracy, and latency; writes
   JSON+Markdown reports to `benchmark-results/`, which backs the specific
   model-comparison numbers referenced in
-  [`docs/chat-workflow.md`](docs/chat-workflow.md)'s tool-calling gotcha).
+  [`docs/chat-workflow.md`](docs/chat-workflow.md)'s tool-calling gotcha),
+  and `benchmark-memory-retrieval.mjs` (same report-writing convention,
+  compares `memory-engine`'s self-hosted hybrid search against Honcho's
+  hosted dialectic `/chat` endpoint on real stored conversation history —
+  requires `HONCHO_API_KEY`).
 
 ## Setup
 
@@ -273,26 +341,32 @@ prototype's shape held up unchanged.
   the stale-goal nudge — see
   [`docs/event-bus-and-goals.md`](docs/event-bus-and-goals.md).
 - Automated test suites for most services. `event-bus` (`classify.ts`/
-  `goal-matching.ts`/`step-notifications.ts`), `knowledge-engine` (29
-  tests over its pure/deterministic pieces), and `chat-orchestrator` (21
-  tests over `classify-tools`/`safety-net`/`agent-loop`'s pure pieces) all
-  have real coverage now — see each doc under `docs/`. `coding-orchestrator`,
-  `sandbox-runner`, `skills-mcp`, `memory-engine`, `chat-ui`, and
-  `discord-bot` still have none — every "verified" claim for those is
-  manual/live testing against the real stack. Next planned piece of work,
-  one service at a time.
-- **Coordinator rough edges** (see
-  [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)'s "Known rough
-  edges" note): `dashboard_control`'s 90–107s latency outlier, never
-  root-caused; `task_context_manage` being excluded from `toolPolicy:
-  required`'s bound-tool counting, which can cause an occasional
-  false-positive enforcement retry; Phase 7 (deterministic-only
-  confidence/supersession for `memory-engine`) and Phase 8 (sub-workflow
-  decomposition) remain tabled pending real evidence of need, not started.
-- Formally retiring the n8n `Chat` workflow rollback path and closing task
-  #59 (leaked-tool-call recovery) — `chat-orchestrator` has been live for
-  real traffic for a while now with the Coordinator on top of it, but the
-  decision to actually unpublish `Chat` and remove the `n8n_chat_histories`
-  dual-writes hasn't been made yet; see
-  [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)'s "Revisit
-  trigger" note.
+  `goal-matching.ts`/`step-notifications.ts`), `knowledge-engine` (55
+  tests over its pure/deterministic pieces), `chat-orchestrator` (66
+  tests across `classify-tools`/`safety-net`/`agent-loop`/`system-prompt`/
+  `memory-engine-client`/`pg-types`/`skills-catalog`'s pure pieces), and
+  `agent-service` (86 tests, a parity port of `chat-orchestrator`'s own
+  suite plus `classify`/`detached-stream`/`system-prompt` coverage) all
+  have real coverage now — see each doc under `docs/`.
+  `coding-orchestrator`, `sandbox-runner`, `skills-mcp`, `memory-engine`,
+  `chat-ui`, and `discord-bot` still have none — every "verified" claim
+  for those is manual/live testing against the real stack. Next planned
+  piece of work, one service at a time.
+- **Coordinator rough edges**, now `agent-service`'s since it's the live
+  implementation (`docs/chat-orchestrator.md`'s own "Known rough edges"
+  note describes the same issues as they stood in the TS version):
+  `dashboard_control`'s 90–107s latency outlier, never root-caused;
+  `task_context_manage` being excluded from `toolPolicy: required`'s
+  bound-tool counting, which can cause an occasional false-positive
+  enforcement retry; Phase 7 (deterministic-only confidence/supersession
+  for `memory-engine`) and Phase 8 (sub-workflow decomposition) remain
+  tabled pending real evidence of need, not started.
+- Formally retiring the rollback chain and closing task #59
+  (leaked-tool-call recovery) — real traffic now runs through
+  `agent-service`, two supersession layers deep from the original n8n
+  `Chat` workflow (`Chat` → `chat-orchestrator` → `agent-service`, see
+  `docs/unified-architecture-gap-analysis.md`), but the decision to
+  actually unpublish `Chat`, decommission `chat-orchestrator`, and remove
+  the `n8n_chat_histories` dual-writes hasn't been made yet for either
+  layer; see [`docs/chat-orchestrator.md`](docs/chat-orchestrator.md)'s
+  "Revisit trigger" note.

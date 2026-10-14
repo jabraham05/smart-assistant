@@ -75,6 +75,36 @@ export const SEARCH_RETRY_NUDGE =
   "meaningfully different query before replying. Briefly let the user know you're trying a " +
   "different angle.)";
 
+const URL_REGEX = /https?:\/\/[^\s)\]}>"']+/g;
+
+function stripTrailingPunctuation(url: string): string {
+  return url.replace(/[.,;:!?]+$/, "");
+}
+
+// Real incident that motivated this: Amy cited a fake source ("ModKit
+// Community Guide", https://modkit.gg/warframe/) as a "verified" finding
+// while a real research_task result for the same topic - correctly sourced
+// to a reddit.com thread and a warframe.fandom.com page - sat one tool call
+// away, unused. Calling a real search/research tool this turn isn't enough
+// on its own (that's what hasUnfulfilledSearchIntent/hasUnsatisfiedRequiredTool
+// above already check) - the reply can still name a URL that was never
+// actually in anything a tool returned this turn. Exact-URL matching, not
+// keyword overlap (see knowledge-engine/src/engine/grounding.ts's
+// isGrounded for that weaker variant used internally by the research
+// agent) - a citation is either the real source a tool gave back, verbatim,
+// or it's fabricated.
+export function hasUngroundedCitation(replyText: string, toolResultTexts: string[]): boolean {
+  const citedUrls = [...replyText.matchAll(URL_REGEX)].map((m) => stripTrailingPunctuation(m[0]));
+  if (citedUrls.length === 0) return false;
+  const haystack = toolResultTexts.join("\n");
+  return citedUrls.some((url) => !haystack.includes(url));
+}
+
+export const UNGROUNDED_CITATION_RETRY_NUDGE =
+  " (Your last reply cited a URL/source that didn't actually appear in any tool result this turn - " +
+  "that source is fabricated. Only cite a URL that's verbatim in what a tool actually returned this " +
+  "turn, or drop the citation and say plainly you couldn't verify it.)";
+
 // Tools that don't count toward toolPolicy=required - both are bound to
 // every turn regardless of classification (see classify-tools.ts's
 // expandGroupsToTools), so their presence says nothing about whether the

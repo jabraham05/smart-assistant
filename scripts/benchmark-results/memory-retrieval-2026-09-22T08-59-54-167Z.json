@@ -1,0 +1,744 @@
+{
+  "config": {
+    "targets": [
+      "memory-engine",
+      "honcho-minimal",
+      "honcho-low"
+    ],
+    "queries": [
+      "brake-fluid",
+      "fuel-tank-empty",
+      "fuel-tank-full",
+      "bitcoin-block-time",
+      "gtr-research",
+      "nordstrom-job",
+      "robotic-arm-project",
+      "workout-split",
+      "porsche-manual",
+      "removed-goals"
+    ]
+  },
+  "results": {
+    "memory-engine": {
+      "cases": [
+        {
+          "name": "brake-fluid",
+          "coverage": "historical",
+          "pass": false,
+          "totalMs": 144.95785700000002,
+          "response": "do some research on the best dash cams for a Porsche Cayman\n---\nStarting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will i",
+          "raw": [
+            {
+              "content": "do some research on the best dash cams for a Porsche Cayman",
+              "role": "user",
+              "sessionId": "cli-1790047631656",
+              "domain": "research",
+              "taskContextId": "8",
+              "createdAt": "2026-09-22T03:27:19.524Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "Starting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will it be used in a home, lab, or industrial setting?\n\n### 2. **Choose the Type of Robotic Arm**\n   - Decide whether you want a **serial** (like a human arm) or **parallel** (like a robotic gripper) robotic arm.\n   - Think about the **degrees of freedom (DoF)** you need. For example, a 3-axis arm can move in three directions, while a 6-axis arm can handle more complex movements.\n\n### 3. **Plan the Mechanical Design**\n   - Sketch the arm and determine the **link lengths**, **joint types**, and **end effector** (the tool at the end of the arm, like a gripper or a pen).\n   - Consider materials: **3D-printed parts**, **metal**, or a combination.\n\n### 4. **Select Components**\n   - **Motors**: Decide between **servo motors** (for precise control) or **stepper motors** (for more torque and control).\n   - **Microcontroller**: Choose a board like **Arduino** or **Raspberry Pi** to control the motors and sensors.\n   - **Sensors**: Consider **encoders** for position feedback or **force sensors** for detecting pressure.\n\n### 5. **Set Up the Electronics**\n   - Connect the motors and sensors to the microcontroller.\n   - Make sure you have a suitable **power supply** to power the motors and microcontroller.\n\n### 6. **Write the Code**\n   - Write code to control the arm's movements. Start with basic movements and gradually add complexity.\n   - Use libraries or frameworks to simplify the process, especially if you're using an Arduino or Raspberry Pi.\n\n### 7. **Assemble and Test**\n   - Build the arm step by step, ensuring each component is properly connected.\n   - Test the arm’s movements and make adjustments as needed.\n\n### 8. **Iterate and Improve**\n   - After the initial build, test the arm in different scenarios and make improvements based on performance.\n\nWould you like to start with one of these steps, or is there a specific part you’d like to explore first?",
+              "role": "assistant",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.685Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "so where do is tart with for the arm project",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.552Z",
+              "score": 0.016129032258064516
+            },
+            {
+              "content": "I don't have access to your Porsche manual. However, I found some relevant information from the Porsche Cayman 987 (2007-08) Quick Reference Guide and the Owner's Manual. Here are a few excerpts:\n\n1. **Seat Memory Settings**:  \n   - **Storing Position**: Switch on the ignition, set the position, and keep the memory button M depressed while pressing person button 2 or 3.  \n   - **Recalling Position**: Switch ignition on or open the driver’s door, then press the person button until the seat reaches its final position.\n\n2. **Tire Pressure**:  \n   - **17, 18-inch wheels**: Front 29 psi (2.0 bar), rear 36 psi (2.5 bar).  \n   - **19-inch wheels**: Front 32 psi (2.2 bar), rear 36 psi (2.5 bar).  \n   - *Note: These pressures apply only to the tire makes and types approved by Porsche.*\n\n3. **Fuel Tank**:  \n   - Refill volume is approximately 16.9 U.S. gallons (64 liters), including about 2.6 U.S. gallons (10 liters) reserve.  \n   - Fuel octane rating: Premium.\n\n4. **Luggage Compartment**:  \n   - The front and rear lids can be unlocked using the pull-button next to the driver’s seat or the radio remote control.\n\nIf you need more specific information or have further questions, feel free to ask!",
+              "role": "assistant",
+              "sessionId": "cli-1790047409207",
+              "domain": "knowledge",
+              "taskContextId": "8",
+              "createdAt": "2026-09-22T03:23:37.270Z",
+              "score": 0.016129032258064516
+            },
+            {
+              "content": "I've looked into the best dash cams for a Porsche Cayman and found some key considerations and recommendations based on your vehicle's specific needs:\n\n### 1. **Compatibility with Porsche Cayman**\n- **Mounting**: Dash cams should be compatible with the Porsche Cayman's dashboard and should not interfere with the driver's view.\n- **Weather Resistance**: Since the Cayman is often driven in various weather conditions, a dash cam with weather resistance is a good choice.\n\n### 2. **Recommended Dash Cams**\n- **Garmin Dash Cam (Garmin 650)**: This model is known for its high-quality video and reliability. It also has a built-in GPS and can be mounted easily on the dashboard.\n- **XtremeSight X300**: This dash cam offers 4K video resolution and a wide-angle lens, making it ideal for capturing detailed footage. It also has a built-in GPS and can be mounted easily.\n- **iRex IR-C200**: This model is known for its high-quality video and durability. It also has a built-in GPS and can be mounted easily on the dashboard.\n\n### 3. **Additional Features**\n- **Night Vision**: A good dash cam should have night vision to capture clear footage in low-light conditions.\n- **Storage**: Make sure the dash cam has enough storage capacity to record footage for an extended period.\n- **Mounting**: Choose a dash cam that can be mounted easily on the dashboard and does not interfere with the driver's view.\n\nI hope this helps! Let me know if you need any further information.",
+              "role": "assistant",
+              "sessionId": "cli-1790047631656",
+              "domain": "research",
+              "taskContextId": "8",
+              "createdAt": "2026-09-22T03:27:19.594Z",
+              "score": 0.015873015873015872
+            }
+          ]
+        },
+        {
+          "name": "fuel-tank-empty",
+          "coverage": "historical",
+          "pass": false,
+          "totalMs": 52.9242490000006,
+          "response": "what did you find from the research\n---\nStarting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will it be used in a home, lab",
+          "raw": [
+            {
+              "content": "what did you find from the research",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "research",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:56:11.068Z",
+              "score": 0.02923602219376867
+            },
+            {
+              "content": "Starting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will it be used in a home, lab, or industrial setting?\n\n### 2. **Choose the Type of Robotic Arm**\n   - Decide whether you want a **serial** (like a human arm) or **parallel** (like a robotic gripper) robotic arm.\n   - Think about the **degrees of freedom (DoF)** you need. For example, a 3-axis arm can move in three directions, while a 6-axis arm can handle more complex movements.\n\n### 3. **Plan the Mechanical Design**\n   - Sketch the arm and determine the **link lengths**, **joint types**, and **end effector** (the tool at the end of the arm, like a gripper or a pen).\n   - Consider materials: **3D-printed parts**, **metal**, or a combination.\n\n### 4. **Select Components**\n   - **Motors**: Decide between **servo motors** (for precise control) or **stepper motors** (for more torque and control).\n   - **Microcontroller**: Choose a board like **Arduino** or **Raspberry Pi** to control the motors and sensors.\n   - **Sensors**: Consider **encoders** for position feedback or **force sensors** for detecting pressure.\n\n### 5. **Set Up the Electronics**\n   - Connect the motors and sensors to the microcontroller.\n   - Make sure you have a suitable **power supply** to power the motors and microcontroller.\n\n### 6. **Write the Code**\n   - Write code to control the arm's movements. Start with basic movements and gradually add complexity.\n   - Use libraries or frameworks to simplify the process, especially if you're using an Arduino or Raspberry Pi.\n\n### 7. **Assemble and Test**\n   - Build the arm step by step, ensuring each component is properly connected.\n   - Test the arm’s movements and make adjustments as needed.\n\n### 8. **Iterate and Improve**\n   - After the initial build, test the arm in different scenarios and make improvements based on performance.\n\nWould you like to start with one of these steps, or is there a specific part you’d like to explore first?",
+              "role": "assistant",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.685Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "just so you know, my car's fuel sender is reading low and I'm pretty sure it's the sender unit itself, not the gauge",
+              "role": "user",
+              "sessionId": "cli-1790024546515",
+              "domain": null,
+              "taskContextId": null,
+              "createdAt": "2026-09-21T21:02:29.656Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "so where do is tart with for the arm project",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.552Z",
+              "score": 0.016129032258064516
+            },
+            {
+              "content": "I know that your car's fuel sender is reading low, and you're pretty sure it's the sender unit itself, not the gauge. Is there anything else you'd like to check or discuss about the car?",
+              "role": "assistant",
+              "sessionId": "eval-1790025881663-4",
+              "domain": null,
+              "taskContextId": null,
+              "createdAt": "2026-09-21T21:24:44.618Z",
+              "score": 0.016129032258064516
+            }
+          ]
+        },
+        {
+          "name": "fuel-tank-full",
+          "coverage": "historical",
+          "pass": false,
+          "totalMs": 54.72725799999898,
+          "response": "what did you find from the research\n---\nso what have you found out about thr robotic arm\n---\nStarting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)",
+          "raw": [
+            {
+              "content": "what did you find from the research",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "research",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:56:11.068Z",
+              "score": 0.02923602219376867
+            },
+            {
+              "content": "so what have you found out about thr robotic arm",
+              "role": "user",
+              "sessionId": "1c5dc43f-d3de-43e6-b89c-3bfcef0b675c",
+              "domain": "research",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:46:00.365Z",
+              "score": 0.026547116736990155
+            },
+            {
+              "content": "Starting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will it be used in a home, lab, or industrial setting?\n\n### 2. **Choose the Type of Robotic Arm**\n   - Decide whether you want a **serial** (like a human arm) or **parallel** (like a robotic gripper) robotic arm.\n   - Think about the **degrees of freedom (DoF)** you need. For example, a 3-axis arm can move in three directions, while a 6-axis arm can handle more complex movements.\n\n### 3. **Plan the Mechanical Design**\n   - Sketch the arm and determine the **link lengths**, **joint types**, and **end effector** (the tool at the end of the arm, like a gripper or a pen).\n   - Consider materials: **3D-printed parts**, **metal**, or a combination.\n\n### 4. **Select Components**\n   - **Motors**: Decide between **servo motors** (for precise control) or **stepper motors** (for more torque and control).\n   - **Microcontroller**: Choose a board like **Arduino** or **Raspberry Pi** to control the motors and sensors.\n   - **Sensors**: Consider **encoders** for position feedback or **force sensors** for detecting pressure.\n\n### 5. **Set Up the Electronics**\n   - Connect the motors and sensors to the microcontroller.\n   - Make sure you have a suitable **power supply** to power the motors and microcontroller.\n\n### 6. **Write the Code**\n   - Write code to control the arm's movements. Start with basic movements and gradually add complexity.\n   - Use libraries or frameworks to simplify the process, especially if you're using an Arduino or Raspberry Pi.\n\n### 7. **Assemble and Test**\n   - Build the arm step by step, ensuring each component is properly connected.\n   - Test the arm’s movements and make adjustments as needed.\n\n### 8. **Iterate and Improve**\n   - After the initial build, test the arm in different scenarios and make improvements based on performance.\n\nWould you like to start with one of these steps, or is there a specific part you’d like to explore first?",
+              "role": "assistant",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.685Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "just so you know, my car's fuel sender is reading low and I'm pretty sure it's the sender unit itself, not the gauge",
+              "role": "user",
+              "sessionId": "cli-1790024546515",
+              "domain": null,
+              "taskContextId": null,
+              "createdAt": "2026-09-21T21:02:29.656Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "so where do is tart with for the arm project",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.552Z",
+              "score": 0.016129032258064516
+            }
+          ]
+        },
+        {
+          "name": "bitcoin-block-time",
+          "coverage": "historical",
+          "pass": false,
+          "totalMs": 50.82966699999997,
+          "response": "The stock market is showing mixed signals, with Dow futures climbing as oil prices retreat, suggesting improved market sentiment. Analysts note that falling oil prices are helping revive risk appetite after a period dominated by inflation and interest-rate concerns. However, geopolitical tensions, such as the Middle East conflict and Houthi attacks on Saudi infrastructure, remain a potential risk.\n\nAdditionally, there's a growing focus on AI regulation, which is influencing investor and policyma",
+          "raw": [
+            {
+              "content": "The stock market is showing mixed signals, with Dow futures climbing as oil prices retreat, suggesting improved market sentiment. Analysts note that falling oil prices are helping revive risk appetite after a period dominated by inflation and interest-rate concerns. However, geopolitical tensions, such as the Middle East conflict and Houthi attacks on Saudi infrastructure, remain a potential risk.\n\nAdditionally, there's a growing focus on AI regulation, which is influencing investor and policymaker discussions. The Fed is also in the spotlight, with a 60% chance of a rate hike on September 16, marking the first potential increase since July 2023. Despite the rate hike, historical data suggests that markets have often performed well in the year following such a move.",
+              "role": "assistant",
+              "sessionId": "eval-1790034085577-8",
+              "domain": "web",
+              "taskContextId": "5",
+              "createdAt": "2026-09-21T23:41:39.268Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "Starting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will it be used in a home, lab, or industrial setting?\n\n### 2. **Choose the Type of Robotic Arm**\n   - Decide whether you want a **serial** (like a human arm) or **parallel** (like a robotic gripper) robotic arm.\n   - Think about the **degrees of freedom (DoF)** you need. For example, a 3-axis arm can move in three directions, while a 6-axis arm can handle more complex movements.\n\n### 3. **Plan the Mechanical Design**\n   - Sketch the arm and determine the **link lengths**, **joint types**, and **end effector** (the tool at the end of the arm, like a gripper or a pen).\n   - Consider materials: **3D-printed parts**, **metal**, or a combination.\n\n### 4. **Select Components**\n   - **Motors**: Decide between **servo motors** (for precise control) or **stepper motors** (for more torque and control).\n   - **Microcontroller**: Choose a board like **Arduino** or **Raspberry Pi** to control the motors and sensors.\n   - **Sensors**: Consider **encoders** for position feedback or **force sensors** for detecting pressure.\n\n### 5. **Set Up the Electronics**\n   - Connect the motors and sensors to the microcontroller.\n   - Make sure you have a suitable **power supply** to power the motors and microcontroller.\n\n### 6. **Write the Code**\n   - Write code to control the arm's movements. Start with basic movements and gradually add complexity.\n   - Use libraries or frameworks to simplify the process, especially if you're using an Arduino or Raspberry Pi.\n\n### 7. **Assemble and Test**\n   - Build the arm step by step, ensuring each component is properly connected.\n   - Test the arm’s movements and make adjustments as needed.\n\n### 8. **Iterate and Improve**\n   - After the initial build, test the arm in different scenarios and make improvements based on performance.\n\nWould you like to start with one of these steps, or is there a specific part you’d like to explore first?",
+              "role": "assistant",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.685Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "so where do is tart with for the arm project",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.552Z",
+              "score": 0.016129032258064516
+            },
+            {
+              "content": "I'm trying a different angle now, focusing on how quantum computing is reshaping encryption standards and the timeline for quantum-safe cryptography adoption. Give me a moment.",
+              "role": "assistant",
+              "sessionId": "eval-1790034242377-23",
+              "domain": "research",
+              "taskContextId": "4",
+              "createdAt": "2026-09-21T23:44:11.252Z",
+              "score": 0.016129032258064516
+            },
+            {
+              "content": "any updates on that research task I asked about?",
+              "role": "user",
+              "sessionId": "eval-1790034242377-23",
+              "domain": "research",
+              "taskContextId": "4",
+              "createdAt": "2026-09-21T23:44:11.267Z",
+              "score": 0.015873015873015872
+            }
+          ]
+        },
+        {
+          "name": "gtr-research",
+          "coverage": "historical",
+          "pass": false,
+          "totalMs": 56.2015390000015,
+          "response": "It seems there's no active research task for this conversation. If you'd like, I can start a new research task on building a robotic arm and learning robotics. Would you like me to proceed with that?\n---\nwhat did you find from the research\n---\nI've started a research task to gather best practices and resources for getting started with building a robotic arm and learning robotics. Once the research is complete, I'll share the findings with you. Would you like me to proceed with that?\n---\nGreat! I",
+          "raw": [
+            {
+              "content": "It seems there's no active research task for this conversation. If you'd like, I can start a new research task on building a robotic arm and learning robotics. Would you like me to proceed with that?",
+              "role": "assistant",
+              "sessionId": "1c5dc43f-d3de-43e6-b89c-3bfcef0b675c",
+              "domain": "research",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:46:22.205Z",
+              "score": 0.028985507246376812
+            },
+            {
+              "content": "what did you find from the research",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "research",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:56:11.068Z",
+              "score": 0.027651515151515153
+            },
+            {
+              "content": "I've started a research task to gather best practices and resources for getting started with building a robotic arm and learning robotics. Once the research is complete, I'll share the findings with you. Would you like me to proceed with that?",
+              "role": "assistant",
+              "sessionId": "1c5dc43f-d3de-43e6-b89c-3bfcef0b675c",
+              "domain": "research",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:46:00.378Z",
+              "score": 0.027598020555767034
+            },
+            {
+              "content": "Great! I've created a goal titled **\"Build a submarine\"** to track your project. This goal includes keywords like submarine, mechanics, electronics, and programming to help organize related tasks and information.\n\nWould you like to start by researching the best practices and resources for getting started with building a submarine?",
+              "role": "assistant",
+              "sessionId": "rq-verify-test-2",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:36:23.541Z",
+              "score": 0.02668564312399929
+            },
+            {
+              "content": "any updates on that research task I asked about?",
+              "role": "user",
+              "sessionId": "eval-1790026101938-23",
+              "domain": null,
+              "taskContextId": null,
+              "createdAt": "2026-09-21T21:28:29.490Z",
+              "score": 0.01639344262295082
+            }
+          ]
+        },
+        {
+          "name": "nordstrom-job",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 50.238954000000376,
+          "response": "I wasn't able to complete that using my tools just now — want me to try again?\n---\nso ive applied to nordstrom and have made it past the final round, and right now am waiting to hear back from them\n---\nStarting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environmen",
+          "raw": [
+            {
+              "content": "I wasn't able to complete that using my tools just now — want me to try again?",
+              "role": "assistant",
+              "sessionId": "6826461c-ae35-40a3-902f-2cc57e704a11",
+              "domain": "info",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:06:47.212Z",
+              "score": 0.02715098147128967
+            },
+            {
+              "content": "so ive applied to nordstrom and have made it past the final round, and right now am waiting to hear back from them",
+              "role": "user",
+              "sessionId": "discord-746463391039881246",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T07:08:30.768Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "Starting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will it be used in a home, lab, or industrial setting?\n\n### 2. **Choose the Type of Robotic Arm**\n   - Decide whether you want a **serial** (like a human arm) or **parallel** (like a robotic gripper) robotic arm.\n   - Think about the **degrees of freedom (DoF)** you need. For example, a 3-axis arm can move in three directions, while a 6-axis arm can handle more complex movements.\n\n### 3. **Plan the Mechanical Design**\n   - Sketch the arm and determine the **link lengths**, **joint types**, and **end effector** (the tool at the end of the arm, like a gripper or a pen).\n   - Consider materials: **3D-printed parts**, **metal**, or a combination.\n\n### 4. **Select Components**\n   - **Motors**: Decide between **servo motors** (for precise control) or **stepper motors** (for more torque and control).\n   - **Microcontroller**: Choose a board like **Arduino** or **Raspberry Pi** to control the motors and sensors.\n   - **Sensors**: Consider **encoders** for position feedback or **force sensors** for detecting pressure.\n\n### 5. **Set Up the Electronics**\n   - Connect the motors and sensors to the microcontroller.\n   - Make sure you have a suitable **power supply** to power the motors and microcontroller.\n\n### 6. **Write the Code**\n   - Write code to control the arm's movements. Start with basic movements and gradually add complexity.\n   - Use libraries or frameworks to simplify the process, especially if you're using an Arduino or Raspberry Pi.\n\n### 7. **Assemble and Test**\n   - Build the arm step by step, ensuring each component is properly connected.\n   - Test the arm’s movements and make adjustments as needed.\n\n### 8. **Iterate and Improve**\n   - After the initial build, test the arm in different scenarios and make improvements based on performance.\n\nWould you like to start with one of these steps, or is there a specific part you’d like to explore first?",
+              "role": "assistant",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.685Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "Great news that you've made it past the final round at Nordstrom! I've logged this as a progress update for your job search goal. Keep an eye out for their response — you're in a strong position. What’s next?",
+              "role": "assistant",
+              "sessionId": "discord-746463391039881246",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T07:08:30.754Z",
+              "score": 0.016129032258064516
+            },
+            {
+              "content": "so where do is tart with for the arm project",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.552Z",
+              "score": 0.016129032258064516
+            }
+          ]
+        },
+        {
+          "name": "robotic-arm-project",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 55.02240800000072,
+          "response": "Starting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will it be used in a home, lab, or industrial setting?\n\n### 2. **Choos",
+          "raw": [
+            {
+              "content": "Starting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will it be used in a home, lab, or industrial setting?\n\n### 2. **Choose the Type of Robotic Arm**\n   - Decide whether you want a **serial** (like a human arm) or **parallel** (like a robotic gripper) robotic arm.\n   - Think about the **degrees of freedom (DoF)** you need. For example, a 3-axis arm can move in three directions, while a 6-axis arm can handle more complex movements.\n\n### 3. **Plan the Mechanical Design**\n   - Sketch the arm and determine the **link lengths**, **joint types**, and **end effector** (the tool at the end of the arm, like a gripper or a pen).\n   - Consider materials: **3D-printed parts**, **metal**, or a combination.\n\n### 4. **Select Components**\n   - **Motors**: Decide between **servo motors** (for precise control) or **stepper motors** (for more torque and control).\n   - **Microcontroller**: Choose a board like **Arduino** or **Raspberry Pi** to control the motors and sensors.\n   - **Sensors**: Consider **encoders** for position feedback or **force sensors** for detecting pressure.\n\n### 5. **Set Up the Electronics**\n   - Connect the motors and sensors to the microcontroller.\n   - Make sure you have a suitable **power supply** to power the motors and microcontroller.\n\n### 6. **Write the Code**\n   - Write code to control the arm's movements. Start with basic movements and gradually add complexity.\n   - Use libraries or frameworks to simplify the process, especially if you're using an Arduino or Raspberry Pi.\n\n### 7. **Assemble and Test**\n   - Build the arm step by step, ensuring each component is properly connected.\n   - Test the arm’s movements and make adjustments as needed.\n\n### 8. **Iterate and Improve**\n   - After the initial build, test the arm in different scenarios and make improvements based on performance.\n\nWould you like to start with one of these steps, or is there a specific part you’d like to explore first?",
+              "role": "assistant",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.685Z",
+              "score": 0.031099324975891997
+            },
+            {
+              "content": "so the robotic arm what have you found",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "self-growth",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:55:37.899Z",
+              "score": 0.030090497737556562
+            },
+            {
+              "content": "I have a new project idea, I want to build a robotics arm",
+              "role": "user",
+              "sessionId": "rq-verify-test-1",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:35:54.283Z",
+              "score": 0.029726775956284153
+            },
+            {
+              "content": "so what have you found out about thr robotic arm",
+              "role": "user",
+              "sessionId": "1c5dc43f-d3de-43e6-b89c-3bfcef0b675c",
+              "domain": "research",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:46:00.365Z",
+              "score": 0.029513888888888888
+            },
+            {
+              "content": "so where do is tart with for the arm project",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.552Z",
+              "score": 0.029462365591397848
+            }
+          ]
+        },
+        {
+          "name": "workout-split",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 54.999214999996184,
+          "response": "ok so i want to work out tmrw, whats a good workout. i have been doing arnold split and today was chest and back for me\n---\nStarting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement,",
+          "raw": [
+            {
+              "content": "ok so i want to work out tmrw, whats a good workout. i have been doing arnold split and today was chest and back for me",
+              "role": "user",
+              "sessionId": "0933329b-6271-40f7-93ae-f9bab0a9d781",
+              "domain": "info",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T07:51:14.336Z",
+              "score": 0.03278688524590164
+            },
+            {
+              "content": "Starting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will it be used in a home, lab, or industrial setting?\n\n### 2. **Choose the Type of Robotic Arm**\n   - Decide whether you want a **serial** (like a human arm) or **parallel** (like a robotic gripper) robotic arm.\n   - Think about the **degrees of freedom (DoF)** you need. For example, a 3-axis arm can move in three directions, while a 6-axis arm can handle more complex movements.\n\n### 3. **Plan the Mechanical Design**\n   - Sketch the arm and determine the **link lengths**, **joint types**, and **end effector** (the tool at the end of the arm, like a gripper or a pen).\n   - Consider materials: **3D-printed parts**, **metal**, or a combination.\n\n### 4. **Select Components**\n   - **Motors**: Decide between **servo motors** (for precise control) or **stepper motors** (for more torque and control).\n   - **Microcontroller**: Choose a board like **Arduino** or **Raspberry Pi** to control the motors and sensors.\n   - **Sensors**: Consider **encoders** for position feedback or **force sensors** for detecting pressure.\n\n### 5. **Set Up the Electronics**\n   - Connect the motors and sensors to the microcontroller.\n   - Make sure you have a suitable **power supply** to power the motors and microcontroller.\n\n### 6. **Write the Code**\n   - Write code to control the arm's movements. Start with basic movements and gradually add complexity.\n   - Use libraries or frameworks to simplify the process, especially if you're using an Arduino or Raspberry Pi.\n\n### 7. **Assemble and Test**\n   - Build the arm step by step, ensuring each component is properly connected.\n   - Test the arm’s movements and make adjustments as needed.\n\n### 8. **Iterate and Improve**\n   - After the initial build, test the arm in different scenarios and make improvements based on performance.\n\nWould you like to start with one of these steps, or is there a specific part you’d like to explore first?",
+              "role": "assistant",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.685Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "can you learn a new skill for tracking my workouts?",
+              "role": "user",
+              "sessionId": "eval-1790025884583-5",
+              "domain": null,
+              "taskContextId": null,
+              "createdAt": "2026-09-21T21:24:52.585Z",
+              "score": 0.016129032258064516
+            },
+            {
+              "content": "so where do is tart with for the arm project",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.552Z",
+              "score": 0.016129032258064516
+            },
+            {
+              "content": "can you learn a new skill for tracking my workouts?",
+              "role": "user",
+              "sessionId": "eval-1790040623428-5",
+              "domain": "self-growth",
+              "taskContextId": "4",
+              "createdAt": "2026-09-22T01:30:30.748Z",
+              "score": 0.015873015873015872
+            }
+          ]
+        },
+        {
+          "name": "porsche-manual",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 57.79565300000104,
+          "response": "I found some information about the Porsche Cayman/Cayman S (987) Owner's Manual. Here's a summary of what I found:\n\n1. **Manual Title**: Porsche Cayman/Cayman S (987) Owner's Manual\n2. **Content**: The manual includes information about the car's features, technical data, and operating instructions. It covers topics like seat memory settings, tire pressure specifications, and vehicle technical data.\n3. **Technical Data**: The manual provides details about the car's weight, axle loads, and other s",
+          "raw": [
+            {
+              "content": "I found some information about the Porsche Cayman/Cayman S (987) Owner's Manual. Here's a summary of what I found:\n\n1. **Manual Title**: Porsche Cayman/Cayman S (987) Owner's Manual\n2. **Content**: The manual includes information about the car's features, technical data, and operating instructions. It covers topics like seat memory settings, tire pressure specifications, and vehicle technical data.\n3. **Technical Data**: The manual provides details about the car's weight, axle loads, and other specifications.\n\nIf you need more specific information or have a particular question about the manual, feel free to ask. What’s next?",
+              "role": "assistant",
+              "sessionId": "discord-746463391039881246",
+              "domain": "knowledge",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T04:21:10.942Z",
+              "score": 0.03154495777446597
+            },
+            {
+              "content": "Starting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will it be used in a home, lab, or industrial setting?\n\n### 2. **Choose the Type of Robotic Arm**\n   - Decide whether you want a **serial** (like a human arm) or **parallel** (like a robotic gripper) robotic arm.\n   - Think about the **degrees of freedom (DoF)** you need. For example, a 3-axis arm can move in three directions, while a 6-axis arm can handle more complex movements.\n\n### 3. **Plan the Mechanical Design**\n   - Sketch the arm and determine the **link lengths**, **joint types**, and **end effector** (the tool at the end of the arm, like a gripper or a pen).\n   - Consider materials: **3D-printed parts**, **metal**, or a combination.\n\n### 4. **Select Components**\n   - **Motors**: Decide between **servo motors** (for precise control) or **stepper motors** (for more torque and control).\n   - **Microcontroller**: Choose a board like **Arduino** or **Raspberry Pi** to control the motors and sensors.\n   - **Sensors**: Consider **encoders** for position feedback or **force sensors** for detecting pressure.\n\n### 5. **Set Up the Electronics**\n   - Connect the motors and sensors to the microcontroller.\n   - Make sure you have a suitable **power supply** to power the motors and microcontroller.\n\n### 6. **Write the Code**\n   - Write code to control the arm's movements. Start with basic movements and gradually add complexity.\n   - Use libraries or frameworks to simplify the process, especially if you're using an Arduino or Raspberry Pi.\n\n### 7. **Assemble and Test**\n   - Build the arm step by step, ensuring each component is properly connected.\n   - Test the arm’s movements and make adjustments as needed.\n\n### 8. **Iterate and Improve**\n   - After the initial build, test the arm in different scenarios and make improvements based on performance.\n\nWould you like to start with one of these steps, or is there a specific part you’d like to explore first?",
+              "role": "assistant",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.685Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "Can you find the manual for my car",
+              "role": "user",
+              "sessionId": "discord-746463391039881246",
+              "domain": "knowledge",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T04:21:10.934Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "so where do is tart with for the arm project",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.552Z",
+              "score": 0.016129032258064516
+            },
+            {
+              "content": "I don’t have anything on that. Would you like me to look up something else about your car, or is there something specific you’d like to check?",
+              "role": "assistant",
+              "sessionId": "eval-1790033950825-4",
+              "domain": "info",
+              "taskContextId": "5",
+              "createdAt": "2026-09-21T23:39:19.734Z",
+              "score": 0.016129032258064516
+            }
+          ]
+        },
+        {
+          "name": "removed-goals",
+          "coverage": "recent",
+          "pass": false,
+          "totalMs": 64.73878800000239,
+          "response": "I wasn't able to complete that using my tools just now — want me to try again?\n---\nStarting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Ap",
+          "raw": [
+            {
+              "content": "I wasn't able to complete that using my tools just now — want me to try again?",
+              "role": "assistant",
+              "sessionId": "6826461c-ae35-40a3-902f-2cc57e704a11",
+              "domain": "info",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:06:47.212Z",
+              "score": 0.026171741361614778
+            },
+            {
+              "content": "Starting a robotic arm project can be broken down into a few clear, manageable steps. Here's a simple way to begin:\n\n### 1. **Define the Purpose and Scope**\n   - **Purpose**: What is the robotic arm meant to do? (e.g., pick and place objects, perform delicate tasks, assist in a specific environment)\n   - **Scope**: How complex should it be? (e.g., 3-axis for basic movement, 6-axis for more precise tasks)\n   - **Application**: Will it be used in a home, lab, or industrial setting?\n\n### 2. **Choose the Type of Robotic Arm**\n   - Decide whether you want a **serial** (like a human arm) or **parallel** (like a robotic gripper) robotic arm.\n   - Think about the **degrees of freedom (DoF)** you need. For example, a 3-axis arm can move in three directions, while a 6-axis arm can handle more complex movements.\n\n### 3. **Plan the Mechanical Design**\n   - Sketch the arm and determine the **link lengths**, **joint types**, and **end effector** (the tool at the end of the arm, like a gripper or a pen).\n   - Consider materials: **3D-printed parts**, **metal**, or a combination.\n\n### 4. **Select Components**\n   - **Motors**: Decide between **servo motors** (for precise control) or **stepper motors** (for more torque and control).\n   - **Microcontroller**: Choose a board like **Arduino** or **Raspberry Pi** to control the motors and sensors.\n   - **Sensors**: Consider **encoders** for position feedback or **force sensors** for detecting pressure.\n\n### 5. **Set Up the Electronics**\n   - Connect the motors and sensors to the microcontroller.\n   - Make sure you have a suitable **power supply** to power the motors and microcontroller.\n\n### 6. **Write the Code**\n   - Write code to control the arm's movements. Start with basic movements and gradually add complexity.\n   - Use libraries or frameworks to simplify the process, especially if you're using an Arduino or Raspberry Pi.\n\n### 7. **Assemble and Test**\n   - Build the arm step by step, ensuring each component is properly connected.\n   - Test the arm’s movements and make adjustments as needed.\n\n### 8. **Iterate and Improve**\n   - After the initial build, test the arm in different scenarios and make improvements based on performance.\n\nWould you like to start with one of these steps, or is there a specific part you’d like to explore first?",
+              "role": "assistant",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.685Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "It looks like there was an issue updating your goal for \"Watch Sunday football games.\" Let me check that again to make sure I have the correct goal ID. Could you confirm which goal you meant to update or provide more details?",
+              "role": "assistant",
+              "sessionId": "41e128ae-942b-437d-877b-266b396cdb00",
+              "domain": "web,goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T07:58:35.208Z",
+              "score": 0.01639344262295082
+            },
+            {
+              "content": "what goals am I tracking right now?",
+              "role": "user",
+              "sessionId": "eval-1790034122021-12",
+              "domain": "goals",
+              "taskContextId": "5",
+              "createdAt": "2026-09-21T23:42:11.074Z",
+              "score": 0.016129032258064516
+            },
+            {
+              "content": "so where do is tart with for the arm project",
+              "role": "user",
+              "sessionId": "e57426e9-08a8-4dec-9b5b-9a43eeb9942f",
+              "domain": "goals",
+              "taskContextId": "10",
+              "createdAt": "2026-09-22T08:57:17.552Z",
+              "score": 0.016129032258064516
+            }
+          ]
+        }
+      ],
+      "errors": []
+    },
+    "honcho-minimal": {
+      "cases": [
+        {
+          "name": "brake-fluid",
+          "coverage": "historical",
+          "pass": true,
+          "totalMs": 3183.1561650000003,
+          "response": "I can help with that. Based on memory about similar queries for Porsche Cayman brake fluid, the typical recommendation is:\n\n- Brake fluid that meets or exceeds OEM specification, commonly DOT 4 with high boiling points.\n- Many Porsche models (including Cayman) specify a Dot 4 brake fluid meeting the ISO 4925 Class 4 specification, often with a minimum dry boiling point around 260°C (or higher depending on the exact model/year). Some Porsche docs reference DOT 4 Plus or higher (e.g., DOT 4 0+ or "
+        },
+        {
+          "name": "fuel-tank-empty",
+          "coverage": "historical",
+          "pass": true,
+          "totalMs": 1176.839371000001,
+          "response": "Based on the memory, your empty fuel tank sender reading was 240 ohms."
+        },
+        {
+          "name": "fuel-tank-full",
+          "coverage": "historical",
+          "pass": true,
+          "totalMs": 2510.8673199999994,
+          "response": "Answer: The full tank fuel sender reading you measured was 480 ohms.\n\nContext notes:\n- Multiple observations confirm a full tank reading of 480 ohms (e.g., 09:45:57, 09:49:36, 09:54:06, 09:51:45, 09:48:49, and 09:53:08 all mention 480 ohms as the full-tank value).\n- There is also a note at 21:02:29 that the fuel sender is reading low, but that does not change the explicit full-tank measurement you asked about. If you want, I can help reconcile the low-reading context with the 480-ohm full-tank r"
+        },
+        {
+          "name": "bitcoin-block-time",
+          "coverage": "historical",
+          "pass": true,
+          "totalMs": 1308.2437139999984,
+          "response": "The Bitcoin whitepaper states that blocks are mined, on average, every 10 minutes."
+        },
+        {
+          "name": "gtr-research",
+          "coverage": "historical",
+          "pass": true,
+          "totalMs": 3643.993515000002,
+          "response": "Here’s what I can recall about your research on the upcoming Nissan GT-R successor:\n\n- You’ve explicitly requested in-depth research on rumors surrounding the Nissan GT-R successor. This was noted on 2026-09-18 and again on 2026-09-19, with a confirmation that you want this research remembered for later (2026-09-18 07:55:21).\n- The focus has been on rumors and speculative information rather than confirmed official details.\n- There isn’t a stored conclusion in this thread that confirms a definiti"
+        },
+        {
+          "name": "nordstrom-job",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 1111.6760109999996,
+          "response": "You applied to Nordstrom and made it to the final round."
+        },
+        {
+          "name": "robotic-arm-project",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 2407.123876999998,
+          "response": "From the observations, you’re starting a new robotics project centered on a robotic arm. Specifically:\n\n- The explicit notes show you’re “working on a robotic arm project” and you’re thinking about/building a robotic arm.\n- You want to “learn robotics,” “research the best practices and where to start for an arm,” and you want to “start with the arm project.”\n\nBottom line: The new project you’re researching is a robotic arm project (learning, planning, and building a robotic arm with a focus on b"
+        },
+        {
+          "name": "workout-split",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 2145.2488569999987,
+          "response": "Answer: You’ve been doing the Arnold split.\n\nContext from memory:\n- Explicit observations show: “user has been doing Arnold split” (2026-09-22 07:53:13).\n- Additional notes indicate related patterns: cardio on incline treadmill, and routine structure (6 exercises: 2 shoulders, 2 biceps, 2 triceps; chest and back today; planning shoulders, biceps, and triceps tomorrow). This aligns with a typical Arnold split pattern (Shoulders/Back, Chest/Arms, Legs, etc., with focus on shoulders/biceps/triceps "
+        },
+        {
+          "name": "porsche-manual",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 1599.0812589999987,
+          "response": "From the stored observations, you have a 2007 Porsche 987 Cayman base model. You asked about access to its owner's manual and specific details like brake fluid and maintenance schedule quirks for related Porsche models. So the car you asked the owner's manual for is the 2007 Porsche 987 Cayman base model."
+        },
+        {
+          "name": "removed-goals",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 4011.9550910000034,
+          "response": "Here’s what I can infer from the memory observations you provided:\n\n- As of 2026-09-22 07:58:35, you were tracking these goals: \n  1) Track job search\n  2) Increase general knowledge through daily news\n  3) Learn guitar\n  4) Learn cooking\n  5) Sports betting\n  6) Watch Sunday football games\n\n- There isn’t a recorded observation explicitly stating that you removed any specific goals recently. Several entries mention you’re tracking goals or asking about goal status, but none indicate a recent rem"
+        }
+      ],
+      "errors": []
+    },
+    "honcho-low": {
+      "cases": [
+        {
+          "name": "brake-fluid",
+          "coverage": "historical",
+          "pass": true,
+          "totalMs": 4101.714832,
+          "response": "I don’t have a direct memory of the exact brake fluid specification for your Cayman in the observations you shared. However, I can guide you to the most common, manufacturer-specified options and how to confirm for your exact model.\n\nWhat brake fluid is typically recommended for a Porsche Cayman:\n- Most newer Porsche models use DOT 4 brake fluid. Many owners’ manuals specify a DOT 4 formulation (often not demineralized) with high boiling point requirements.\n- Some high-performance variants or ve"
+        },
+        {
+          "name": "fuel-tank-empty",
+          "coverage": "historical",
+          "pass": true,
+          "totalMs": 1599.3201420000005,
+          "response": "Based on the memory, the empty fuel tank sender reading you reported is 240 ohms.\n\nKey context:\n- 2026-09-20 09:41:45: \"user provided an empty tank read of 240 ohms\"\n- Also notes about full tank readings consistently around 480 ohms, and questions about the range and possible sender fault, but the explicit empty reading is 240 ohms."
+        },
+        {
+          "name": "fuel-tank-full",
+          "coverage": "historical",
+          "pass": true,
+          "totalMs": 2082.405079,
+          "response": "Answer: The full fuel tank sender reading you measured was 480 ohms.\n\nContext:\n- Multiple observations on 2026-09-20 show the full tank reading consistently at 480 ohms (e.g., “full tank read of 480 ohms,” “full tank at 480 ohms,” “a full tank at 480 ohms,” etc.).\n- There is also a note on 2026-09-21 that the fuel sender is reading low, and another note suggesting the sender unit may be faulty, but the explicit full-tank reading reported in your measurements is 480 ohms."
+        },
+        {
+          "name": "bitcoin-block-time",
+          "coverage": "historical",
+          "pass": true,
+          "totalMs": 1051.7820809999994,
+          "response": "The Bitcoin whitepaper states that blocks are mined about every 10 minutes."
+        },
+        {
+          "name": "gtr-research",
+          "coverage": "historical",
+          "pass": true,
+          "totalMs": 4594.6326469999985,
+          "response": "Here’s what I can recall about your research on the Nissan GT-R successor:\n\n- You’ve specifically framed this as “upcoming Nissan GT-R successor rumors” and asked for in-depth research. This indicates you’re looking for the latest rumors, anticipated specs, release timelines, and credible sources.\n- The observations show multiple entries from mid to late September 2026 noting your interest in this topic and asking for this research to be remembered for later. So the intent is to have this tracke"
+        },
+        {
+          "name": "nordstrom-job",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 1100.203559999998,
+          "response": "Based on the memory observations, you applied to Nordstrom and you made it to the final round with Nordstrom."
+        },
+        {
+          "name": "robotic-arm-project",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 2590.193825999999,
+          "response": "Short answer: You’re researching or planning a new project involving a robotic arm.\n\nFrom the memory of your recent notes:\n- You’ve explicitly said you’re working on a robotic arm project and thinking about building one.\n- Multiple entries indicate you want to learn robotics, start the arm project, and research best practices for an arm.\n- The recurring theme is you initiating a new robotics arm project and seeking guidance on where to start and how to proceed.\n\nIf you want a precise identificat"
+        },
+        {
+          "name": "workout-split",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 2802.9328819999937,
+          "response": "From the observations, you’ve been doing the Arnold split. Notable details:\n- It’s indicated explicitly: “user has been doing Arnold split” (2026-09-22 07:53:13).\n- Associated routine notes align with an Arnold-style plan (6 exercises typically: 2 shoulders, 2 biceps, 2 triceps; chest and back workouts noted; planning for shoulders, biceps, and triceps next day).\n\nIf you want, I can pull more context around that conclusion (e.g., which days you train which muscle groups on the Arnold split, or a"
+        },
+        {
+          "name": "porsche-manual",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 1528.729167999998,
+          "response": "Based on the memory observations, you own a Porsche, specifically a 2007 Porsche 987 Cayman base model. The notes also show multiple mentions of you asking about the owner's manual and brake fluid for the Cayman. So the car you have and asked for the owner's manual for is the 2007 Porsche 987 Cayman (base model)."
+        },
+        {
+          "name": "removed-goals",
+          "coverage": "recent",
+          "pass": true,
+          "totalMs": 2096.7084319999994,
+          "response": "Based on the memory observations, you recently added two active goals:\n\n- Learn cooking\n- Learn guitar\n\nThese were added as active goals on 2026-09-22 at 03:10:09. If you’re asking about removals specifically, I don’t see any explicit observations of goals being removed in the provided history. If you want, I can search further for any deletion/removal events or confirm whether any removals occurred after this snapshot."
+        }
+      ],
+      "errors": []
+    }
+  },
+  "summaries": [
+    {
+      "target": "memory-engine",
+      "passRatePct": 40,
+      "recentPassRatePct": 80,
+      "historicalPassRatePct": 0,
+      "avgLatencyMs": "64",
+      "errors": 0
+    },
+    {
+      "target": "honcho-minimal",
+      "passRatePct": 100,
+      "recentPassRatePct": 100,
+      "historicalPassRatePct": 100,
+      "avgLatencyMs": "2310",
+      "errors": 0
+    },
+    {
+      "target": "honcho-low",
+      "passRatePct": 100,
+      "recentPassRatePct": 100,
+      "historicalPassRatePct": 100,
+      "avgLatencyMs": "2355",
+      "errors": 0
+    }
+  ]
+}

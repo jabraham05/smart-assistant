@@ -106,10 +106,11 @@ visibility panel (see [`docs/chat-ui.md`](chat-ui.md)) — a plain read of
 debugging/observability surface on a single-user internal service, not a
 consumer-facing API.
 
-**Also not yet documented here**: `event-bus/src/calendar-watch.ts` (the
-calendar poll-and-diff watcher, `CALENDAR_REMINDER_LEAD_MINUTES`/
-`CALENDAR_POLL_LOOKAHEAD_HOURS`) shares this service but doesn't have a
-write-up yet — a known gap, not a sign it's unused.
+**`event-bus/src/calendar-watch.ts`** (the calendar poll-and-diff watcher,
+`CALENDAR_REMINDER_LEAD_MINUTES`/`CALENDAR_POLL_LOOKAHEAD_HOURS`) shares this
+service — see the 2026-09-22 TaskContext/digest entry below for its
+`isWakeEvent` write-up; `calendar-watch.test.ts` (5 tests) landed alongside
+that same Phase 1b work.
 
 **2026-09-17 — first real automated tests in this project, not just manual
 verification.** Every "verified" claim above (and across every other
@@ -200,8 +201,16 @@ stale-goal nudge already use.
 `!==` against a parsed `Number`, but `node-pg` returns `BIGINT` columns as
 JS strings — the comparison always failed, so `advance_step` reported
 failure back to the model even when the underlying `UPDATE` succeeded.
-Fixed with `Number(updated.task_context_id) !== taskContextId` on both
-sides of the check.
+Fixed at the time with `Number(updated.task_context_id) !== taskContextId`
+on both sides of the check. **Superseded 2026-10-11**: `src/pg-types.ts`
+now registers a global BIGINT (`int8`/OID 20) type parser for this service
+(and every other Node service in the project), so `node-pg` returns real
+JS numbers for every id/count column at the driver level — the per-call
+`Number()` wrapper above is gone from this comparison now that the
+underlying string-vs-number mismatch can't happen in the first place. See
+`docs/knowledge-engine.md`/`docs/memory-engine.md` for the same change in
+those services; found live by the native iOS app's strict JSON decoder
+rejecting a BIGINT-as-string id.
 
 ## 2026-09-22 — event-bus's two hooks into the self-learning research queue
 
@@ -285,3 +294,65 @@ full window more.
 fired anyway, and the two real stuck topics (`research_queue` ids 4 and
 5) both drained successfully to `status='done'` with real
 `research_session_id`s attached.
+
+## 2026-09-23 — `GET /home-activity`: a curated feed, separate from the raw `events` firehose
+
+Home previously showed the unscoped `GET /events` firehose as "Recent
+Activity" - every row, undifferentiated. `activity.ts`'s `DIGEST_ALLOWLIST`
+(same `source.type` key format as `classify.ts`'s `RULES`) names exactly
+which event pairs are digest-worthy (`research.research_completed`,
+`research.research_completed_awaiting_digest`, `project.project_created`,
+`task_context.task_context_created`, `task_context.task_context_updated`);
+`summarizeEvent()` renders each into one human-readable line, computed
+server-side so every consumer renders identical text. `GET /home-activity`
+(`?limit=`) merges `db.listDigestEvents` (that allowlist) with
+`db.listRecentGoalProgress` (goal progress lives in `goal_progress_log`,
+not `events`, so it's a separate category merged in rather than listed in
+the allowlist), sorted newest-first. Separate from both `GET /events` (the
+unscoped firehose, still used by Chat's debug sidebar) and `GET
+/home-summary` (current state, not history). `project.project_created` and
+`task_context.task_context_updated` are new (source-wise) event types this
+introduced, both published fire-and-forget from their respective creators
+(knowledge-engine's `POST /projects`, this service's own `PATCH
+/task-contexts/:id`) purely to feed this feed.
+
+Also added `GET /task-contexts/:id/activity`: the per-task detail page
+behind this feed, merging `task_context_log` notes, `task_context_steps`
+transitions, and any `events` row tagged with that `task_context_id`,
+oldest-first.
+
+## 2026-10-07 — task-context staleness nudge, generalizing the goals pattern
+
+`task_context_manage`'s `action='update'` had been wired to forward only
+`objective`/`capability`/`domain`/`status` to `PATCH /task-contexts/:id`,
+even though that route (and the `facts`/`assumptions`/`unknowns`/
+`next_action` columns behind it) had supported the rest since the
+TaskContext-steps work above - Amy could never actually use them. Once
+wired, a task can carry genuinely current state, which made a task-side
+counterpart to the goals stale-nudge worth building: new `getStaleTasks`/
+`POST /tasks/nudge-check`, identical shape to `getStaleGoals`/`POST
+/goals/nudge-check` (same `scanner`-free staleness check - just `updated_at`
+age against `taskStaleDays`, new `TASK_STALE_DAYS` env var, default 7) but
+over `task_contexts` instead of `goals`, and treating both `active` and
+`waiting_for_user` as "open" (matching `status=open`'s existing virtual
+filter). The check-in message includes the task's own recorded
+`next_action` when Amy has actually set one ("Next step was: ...") rather
+than a generic "still working on it?" - the whole point of wiring the
+fields through in the first place.
+
+## 2026-09-24 — `POST /goals` fires a fire-and-forget episode into `graphiti-service`
+
+Phase 3 of the infrastructure rebuild (the decision/project/growth ledger
+— see [`docs/knowledge-engine.md`](knowledge-engine.md)'s entity/episode
+entries and [`docs/unified-architecture-gap-analysis.md`](unified-architecture-gap-analysis.md)):
+a real new goal is exactly the kind of meaningful moment that ledger
+exists for. After the HTTP response for `POST /goals` already went out,
+a fire-and-forget `POST {graphitiServiceUrl}/episodes` (new config
+`graphitiServiceUrl`/`GRAPHITI_SERVICE_URL`, default
+`http://graphiti-service:3012`) writes a short natural-language episode
+("The user set a new goal: ..."). Own `.catch()`, same as the existing
+research-queue auto-seed call right above it in the code - a slow or
+unreachable `graphiti-service` must never delay or break goal creation
+itself. This is the only episode write this service makes; see
+`docs/knowledge-engine.md` for the other two (project approval, project
+consolidation/entity creation).

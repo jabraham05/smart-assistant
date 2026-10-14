@@ -320,18 +320,23 @@ Both trigger paths from the original plan are built. **Explicit/manual**
 <task...> [--ref=<branch>] [--test-command="..."]`, mirroring
 `scripts/chat.mjs`'s role as a reference client — POSTs directly to the
 webhook, needs `N8N_CODING_TASK_WEBHOOK_URL` (host-reachable form, kept
-separate from `skills-mcp`'s internal `CODING_TASK_WEBHOOK_URL`, same
-split as `N8N_CHAT_WEBHOOK_URL` vs. `chat-ui`'s internal
-`N8N_WEBHOOK_URL`). **Reactive**: `code_task`, `skills-mcp`'s 5th tool
-(`skills-mcp/src/tools/code-task.ts` + `lib/coding-workflow.ts`, mirroring
-`skill-propose.ts`/`skills-workflow.ts` exactly) — fire-and-forget POST to
-the same webhook, immediate reply once it's confirmed sent. Both verified
-directly: called `code_task` over the raw MCP protocol and via the script,
-confirmed a real `coding_proposals` row landed each time with the right
-task/repo/ref.
+separate from `skills-mcp`'s internal `CODING_TASK_WEBHOOK_URL` as
+originally built, same split as `N8N_CHAT_WEBHOOK_URL` vs. `chat-ui`'s
+internal `N8N_WEBHOOK_URL`). **Reactive**: `code_task`, `skills-mcp`'s 5th
+tool (`skills-mcp/src/tools/code-task.ts` + `lib/coding-workflow.ts`,
+mirroring `skill-propose.ts`/`skills-workflow.ts` exactly) — fire-and-forget
+POST to the same webhook, immediate reply once it's confirmed sent. Both
+verified directly: called `code_task` over the raw MCP protocol and via the
+script, confirmed a real `coding_proposals` row landed each time with the
+right task/repo/ref.
 
-Optional like the calendar tools — omitting `CODING_TASK_WEBHOOK_URL`
-returns a clear "not configured" error rather than crashing the server.
+Optional like the calendar tools, as originally built — omitting
+`CODING_TASK_WEBHOOK_URL` returned a clear "not configured" error rather
+than crashing the server. **Superseded 2026-09-26**: `code_task`'s own path
+no longer goes through this webhook at all — see the dated entry below,
+"retiring the last n8n hop." `scripts/start-coding-task.mjs`'s
+`N8N_CODING_TASK_WEBHOOK_URL` path is unaffected (still the n8n-webhook
+entry point for that one script) and still optional the same way.
 
 **2026-07-27 — real chat-triggered run surfaced a genuine `code_task`
 gap.** Asked Amy directly to fix something in this repo's own
@@ -489,3 +494,57 @@ New `db.listTasks(config, status?, limit?)` + `GET /tasks?status=&limit=`
 Coding Tasks card on `/amy` and by knowledge-engine's coding-activity
 project logic (below). `code_task`'s existing submission path (through the
 old n8n webhook shim) is untouched.
+
+### 2026-09-26 - retiring the last n8n hop: `code_task`/`code_task_status` now call `coding-orchestrator` directly
+
+Real, live-verified finding: the old `coding_task_pipeline` n8n webhook
+(`CODING_TASK_WEBHOOK_URL`) was never actually retired even after
+`coding-orchestrator` became the real pipeline owner months ago (see the
+2026-07-30 rethink above) - `code_task`/`code_task_status` were still
+POSTing through it as a pure pass-through shim. When n8n's own database
+had a transient readiness issue, every `code_task` call failed outright
+with no `coding_tasks` row ever created and no reply reaching the user at
+all - the tool-call exception crashed the whole agent turn before any
+response was generated (reported live via Discord: "it never told me it
+started or anything"). `coding-orchestrator`'s own `POST /task`/
+`GET /task/status` have existed and worked reliably all along, so
+`skills-mcp/src/lib/coding-workflow.ts`'s `submitCodingTask`/
+`getCodingTaskStatus` now call `coding-orchestrator` directly - same
+"retire the n8n hop, don't add a second one onto it" direction
+`coding-orchestrator-client.ts`'s read-only caller (used by the `/tasks`
+list above) already established. `CODING_TASK_WEBHOOK_URL` is no longer
+read anywhere in `skills-mcp`; `code_task`'s zod schema keeps the
+now-unused `contextCommand` parameter for backward compatibility with
+whatever a model might still send, silently ignored. `n8n/workflows/
+codingtaskpipe1x.json` and `codingorch0001.json` (the thin proxy that
+replaced it) are both now fully dead code paths, kept only as historical/
+rollback reference per this project's usual convention - neither is
+called by anything live anymore.
+
+### 2026-09-02 — starter templates for from-scratch tasks, and a coding-skills lessons-learned table
+
+Two pieces that had been undocumented here until now, predating the entries below. **Starter templates**: `coding-orchestrator/src/templates.ts` defines `TEMPLATE_NAMES` (`node-jest`, `python-pytest`, `nextjs-app`, `express-api`) - real, pre-built scaffolds living under `_templates/<name>/` in the `coding_tasks` landing repo. For a from-scratch task (no `target_repo_url`), the Planner now also picks which template (or `none`) fits the task, and `sandbox-runner`'s `createTaskContainer` copies it into the fresh project folder before the Coder ever starts - so it never has to invent test-runner config or module-syntax conventions from zero. An existing-repo task always forces `template: 'none'`; the existing project's own conventions are never overridden. **Coding skills**: a new `coding_skills` table (`role`: `coder`/`tester`/`both`, optional `template` scoping) replaces what used to be hand-written clauses inline in `CODER_SYSTEM_PROMPT`/`TESTER_SYSTEM_PROMPT` (CommonJS vs. ESM, config-file syntax, respecting an existing scaffold) - `db.getActiveCodingSkills` fetches once per task (not per attempt) and `formatSkills` appends them as a "Lessons learned from past tasks" block, so a new lesson is addable without a redeploy.
+
+### 2026-09-24 — Phase 2: `openhands-runner`, an alternate execution engine for the Coder/Tester round
+
+New service, `openhands-runner/` (FastAPI + the real OpenHands SDK, `src/task_runner.py`): wraps `openhands.sdk`'s `Agent`/`Conversation` against a `DockerWorkspace` (joined to `sandbox-net`, never `assistant-net`, same isolation posture as `sandbox-runner`'s own spawned containers) as a second, swappable way to run the actual Coder+Tester+test-loop work a coding task needs - `coding-orchestrator` keeps owning task/session tracking, Postgres, and notifications either way. Exposes `POST /run-task` (clone, run the OpenHands agent loop against the project's test command up to its own internal `max_attempts`, return the diff + test result) and `POST /propose-pr` (re-applies the already-approved diff in a fresh workspace and pushes, mirroring `sandbox-runner`'s own token-isolation guarantees).
+
+Picked over the hand-rolled `agent-loop.ts` path for one concrete, live-verified reason: `qwen2.5-coder:7b` (the original Coder model) either rejects the SDK's default `reasoning_effort` outright or narrates tool calls as prose instead of making a real structured call, while `qwen3:8b` via Ollama's `ollama_chat` provider makes genuine, ground-truth-verified tool calls. Three real bugs found and fixed while building this, all specific to `ghcr.io/openhands/agent-server`'s own container image, not OpenHands/Ollama in general: (1) the workspace is never actually empty (`bash_events`/`conversations`/a baked-in `project` scaffold already exist at container start), so a plain `git clone <url> .` always fails - fixed with `git init` + `git fetch` + `git checkout` instead; (2) the agent-server persists every executed command's full text (including a token-embedded clone/push URL) to `workspace/bash_events/*.json`, bypassing the SDK's own env-redaction - fixed by deleting those internal directories (`_scrub_internal_state`) before the agent's own conversation ever starts, and again between the token-bearing `git remote set-url` and `git add -A` on the push path, not just excluding them from the diff's pathspec (defense-in-depth, not the primary guarantee); (3) `BaseWorkspace.git_diff()` is per-file, not repo-wide despite the name - fixed by shelling out for a real `git add -A -N && git diff`, the same command `sandbox-runner`'s own `diffTaskContainer` already uses.
+
+Wired into `coding-orchestrator/src/pipeline.ts` behind `USE_OPENHANDS_RUNNER` (`config.ts`, off by default - a rollout flag, not a hard cutover, same shape Phase 1's `agent-service` rollout used): `runAttemptViaOpenHands` replaces `runCoderRound`/`runTesterRound`/the manual `getDiff`/`runTests` calls with one call to `openhands-runner`, only for existing-repo tasks (a from-scratch task has no `repoUrl` for it to clone, and `openhands-runner` doesn't implement `sandbox-runner`'s template-seeding). Everything downstream - the Reviewer call, `finalizeTask`'s approve/retry/give-up policy, PR-opening - is unchanged and engine-agnostic; `openhands.proposePr`/`sandbox.proposePr` are just alternate transports for the same "approved diff → pushed branch → PR" step. One accepted, documented limitation: unlike the `sandbox-runner` path (one container persists across every attempt within a task), `openhands-runner` clones fresh on every call, so a Reviewer `retry` verdict restarts from a clean checkout on this path - a rarer case than the common "tests failed" retry, which OpenHands's own internal attempt loop already handles without losing state.
+
+### 2026-09-28/29 — Reviewer hardening: the plan, a mock-language backstop, orphaned-test detection, and `approve_partial`
+
+Real, evidenced gap (task #53, a fake Malayalam-English translation app): the Coder's diff literally contained simulated-recording comments and hardcoded fake subtitle strings standing in for the entire feature, and the Reviewer approved it anyway, judging only "clean, well-commented, tests pass" against an unrelated placeholder unit test the Tester had written against the starter scaffold's own untouched example file. Same lesson `chat-orchestrator`'s/`agent-service`'s safety nets already learned: prose instructions alone aren't a reliable judge of genuine completion. Fixed with three things, all in `pipeline.ts`:
+
+- `callReviewer` now also receives the Planner's plan (previously only the diff and test result), explicitly asked to cross-check the diff against it.
+- `findMockLanguageMarkers` - a deterministic regex scan (`simulate`, "would be replaced with actual/real", "in a real app/implementation", `placeholder`, `dummy`/`fake data`, `not (yet) implemented`, `TODO: implement`, "for demo purposes") over added (`+`) diff lines, excluding test files - overrides an LLM `approve`/`approve_partial` verdict back to `retry` with specific feedback, regardless of what the Reviewer itself concluded.
+- `findOrphanedTestFiles` - maps a test file to the implementation file its name conventionally covers (`foo.test.js` ↔ `foo.js`, `test_foo.py`/`foo_test.py` ↔ `foo.py`; deliberately conservative - a name that doesn't match a convention, or matches a known broad-test basename like `index`/`app`/`integration`/`e2e`, is skipped rather than guessed at) and overrides `approve`/`approve_partial` to `retry` when a test file covers something the Coder's own diff never touched - the exact "tests genuinely pass" false signal task #53 exploited. Checked against the Coder-only diff (captured right after the Coder's round, before the Tester runs), not the full post-Tester diff, since a from-scratch task's full diff includes the entire template scaffold as "added."
+
+Also added **`approve_partial`** - a third Reviewer verdict, for a diff that delivers something real and working but at reduced scope, with the gap honestly disclosed (a README limitations section, explicit comments) rather than silently glossed over; `isApproved()` treats it the same as `approve` for opening a PR, and `finalizeTask` records a distinct `latest_status` ("Done (partial - see reviewer notes)") so the reduced scope stays visible wherever a task's status is shown. Both approval flavors go through the same mock-language/orphaned-test backstops - "partial" is about honestly disclosed scope, never a license to skip either check. The Tester's own system prompt was separately strengthened the same week to require a real integration test (not just a unit test) for anything that actually runs continuously (a server/API/app), since the Reviewer only ever sees the project's real test command's exit code, not the Tester's own exploratory shell commands.
+
+### 2026-10-07 — infra-class failures no longer burn a real attempt
+
+Tracing task #53 in full (the same task the Reviewer-hardening work above was investigating) surfaced a second, separate gap: 2 of its 3 total attempts were pure infrastructure failures (the Coder exhausted its iteration cap with no output; the Tester produced no output at all) that still consumed a real attempt slot identically to a genuine Reviewer rejection - leaving only one attempt that ever did real work. Fixed two ways: `runTesterRound` now gets the same one-shot inline retry `runCoderRound` already had (an immediate retry with a "you made no real changes" nudge before an empty-output call counts as a real failure), and the outer attempt loop is now driven by `advanceAttemptLoop` - a pure, unit-tested function (`pipeline.test.ts`) that retries the *same* attempt number on an infra-class failure up to a bounded `maxInfraRetries` (default 2) before falling back to charging a real attempt, the same "can't loop forever" spirit as the `CommandLimitExceededError` hard-stop elsewhere in this file. A matching `has_status_narration_mismatch` safety-net check and memory cleanup landed the same session on the `agent-service` side (a separate, already-documented system) after the same investigation traced a real status-reporting fabrication; out of scope for this doc beyond noting the two fixes shared one root investigation.
+
+Separately, `GET /tasks?status=&limit=` / `GET /tasks/:id` (2026-09-23, `coding-orchestrator/src/index.ts` + `db.listTasks`/`db.getTask`) gave the pipeline its first list capability - before this there was only "create one" and "check one task's status by session." `GET /tasks/:id/log` followed shortly after, reading back `coding_task_log` (written by `db.logPhase` since day one, never read until now) for Amy Lab's Coding Projects tab phase/attempt breakdown. Both are plain reads, no new state; used by `chat-ui`'s `/amy` dashboard and `knowledge-engine`'s coding-activity project-completion check.
