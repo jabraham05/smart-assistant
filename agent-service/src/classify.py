@@ -136,12 +136,9 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "category also matches; the two aren't mutually exclusive, same as 'research' alongside 'goals'.), "
     "'dashboard' (moving, "
     "resizing, showing, or hiding widgets on the smart-mirror "
-    "dashboard), 'web' (requesting an immediate factual lookup; both the 'web' and 'knowledge' "
-    "categories expose the combined knowledge_lookup tool, which checks saved knowledge and the "
-    "live web in parallel. Include this for current information, news, facts, products, links, or "
-    "recommendations - Amy should cite whichever returned source supports the answer. 'web' also "
-    "means searching the live web for information, news, or facts that could "
-    "have changed since training, OR looking something up online in general such as finding "
+    "dashboard), 'web' (requesting an immediate factual lookup - searching the live web for current "
+    "information, news, or facts that could have changed since training, explaining what something "
+    "is or what it does, OR looking something up online in general such as finding "
     "products, links, or recommendations - e.g. 'find me a good pair of headphones', 'give me some "
     "links for X'), 'knowledge' (looking up or searching within a specific document/manual/guide Amy "
     "has stored, or anything else already saved in Amy's knowledge base/past research - e.g. 'do you "
@@ -295,8 +292,26 @@ def expand_groups_to_tools(relevant_groups: list[str]) -> list[str]:
     too, same reasoning as memory_recall being force-added for relevant/
     required memoryPolicy below - it's a drill-in for whichever skill ends
     up actually bound this turn (Skills v2, see skills_discovery.py), not
-    tied to any one classifier group."""
-    tools: set[str] = {"calculate", "task_context_manage", "skill_examples"}
+    tied to any one classifier group.
+
+    'knowledge_lookup' joined this list for the identical reason calculate
+    did: a classifier miss can't be allowed to silently drop it. Live-
+    verified twice in one session: "What is the Hermes agent harness
+    framework? Tell me its capabilities." and "Is Zanthorax a real
+    programming framework?" both classified as groups=['info'] only (a
+    category explicitly scoped to facts ABOUT THE USER, not general lookups)
+    - with no lookup tool bound at all, the second one answered anyway,
+    confidently inventing that "Zanthorax" is a Voltron character. No prompt
+    wording fix generalizes across phrasings reliably enough to risk that
+    failure mode - tightening one phrasing pattern (the Hermes one) did
+    nothing for the very next one tried (the Zanthorax one). Unlike the
+    other always-bound tools, this one used to be classification-gated on
+    purpose, back when a lookup meant an unbounded, uncapped tool result -
+    now that knowledge_lookup's own per-item content is capped and grounding
+    has a deterministic backstop (has_ungrounded_specifics), over-binding it
+    on a turn that didn't need it costs little, while under-binding it on a
+    turn that did costs a confidently wrong answer with nothing to catch it."""
+    tools: set[str] = {"calculate", "task_context_manage", "skill_examples", "knowledge_lookup"}
     for group in relevant_groups:
         for member in GROUPS.get(group, []):
             tools.add(member)

@@ -4,6 +4,22 @@ import type { Config } from "../config.js";
 import { knowledgeSearch } from "../lib/knowledge-engine-client.js";
 import { errorResult, textResult } from "../types.js";
 
+// Real, live-verified incident: combining topK=3 saved-knowledge chunks with
+// maxWebSources=3 (up to 5 passages) and returning each one's full,
+// untruncated content produced a 34KB tool result in one real test, which
+// then blew the model's own output token budget before any response was
+// generated at all (pydantic_ai.exceptions.UnexpectedModelBehavior) - and a
+// retry that piled on a second raw ~41KB web_search result on top of that
+// produced a bizarre, off-topic "Search Refinement Plan" reply instead of an
+// answer. Capping each item's content here, not raising maxWebSources/topK's
+// own caps - those already bound how many results come back; this bounds
+// how much raw text each one is allowed to carry into the model's context.
+const _MAX_CONTENT_CHARS = 600;
+
+function truncate(text: string): string {
+  return text.length > _MAX_CONTENT_CHARS ? `${text.slice(0, _MAX_CONTENT_CHARS)}…` : text;
+}
+
 interface WebPassage {
   text: string;
   url: string;
@@ -51,12 +67,16 @@ export function registerKnowledgeLookup(server: McpServer, config: Config): void
       ]);
 
       const results: Record<string, unknown> = { query };
-      if (knowledge.status === "fulfilled") results.savedKnowledge = knowledge.value;
-      else results.savedKnowledgeError = knowledge.reason instanceof Error ? knowledge.reason.message : String(knowledge.reason);
+      if (knowledge.status === "fulfilled") {
+        results.savedKnowledge = knowledge.value.map((k) => ({ ...k, content: truncate(k.content) }));
+      } else results.savedKnowledgeError = knowledge.reason instanceof Error ? knowledge.reason.message : String(knowledge.reason);
       if (web.status === "fulfilled") {
         results.web = web.value.noMatch
           ? { noMatch: true, results: [] }
-          : { noMatch: false, results: web.value.passages.map((p) => ({ title: p.title, url: p.url, content: p.text })) };
+          : {
+              noMatch: false,
+              results: web.value.passages.map((p) => ({ title: p.title, url: p.url, content: truncate(p.text) })),
+            };
       } else results.webError = web.reason instanceof Error ? web.reason.message : String(web.reason);
 
       if (knowledge.status === "rejected" && web.status === "rejected") {
