@@ -87,16 +87,20 @@ since neither client changed for this migration.
 
 ## Config (`config.py`)
 
-Deliberately mirrors `chat-orchestrator/src/config.ts`'s defaults (same
-Ollama host, same `chat_model`/`qwen3:8b`, same Postgres/Redis/internal
-service URLs) — the two services are meant to be interchangeable except
-for which port each listens on (`3010` here vs. chat-orchestrator's
-`3006`/test's `3009`). Reads the same `n8n` database (personas/skills,
-`CHAT_DB_SCHEMA`-selectable between `public` and `chat_test`) and has its
-own `growth` database (`GROWTH_DB_NAME`, see `docs/growth-engine.md`).
-`GROWTH_JUDGE_MODEL` defaults to the larger `qwen3:14b` — an 8b judge is a
-documented reliability risk for reflective-reasoning tasks in this
-project.
+Reads the same `n8n` database (personas/skills, `CHAT_DB_SCHEMA`-selectable
+between `public` and `chat_test`) and has its own `growth` database
+(`GROWTH_DB_NAME`, see `docs/growth-engine.md`). `CHAT_MODEL`/
+`CHAT_CLASSIFIER_MODEL`/`GROWTH_JUDGE_MODEL` all default to `qwen3.5:9b` —
+consolidated onto one model everywhere, 2026-10, after live benchmarking
+(`scripts/benchmark-results/`, including a real execution-verified
+agentic coding task) showed it matching or beating the bigger `qwen3:14b`
+previously used for the Growth judge specifically (an 8b-class model was
+a documented reliability risk for its reflective-reasoning task; `qwen3.5:9b`
+is a newer generation and didn't show that risk on the equivalent test).
+Sharing one model everywhere also eliminates the real VRAM-swap cost
+between differently-sized models that didn't both fit in 12GB at once -
+see `growth_judge.py`'s `_unload_model`, now a no-op when
+`growth_judge_model` equals `chat_model`.
 
 ## Bugs found standing this up (real, live-found — not caught by any test)
 

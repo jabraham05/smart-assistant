@@ -57,11 +57,14 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         # confirmed live, this session, to fail structurally with OpenHands -
         # it describes tool calls as prose instead of invoking them
         # (rejecting reasoning_effort entirely, and even with reasoning
-        # disabled, never emits a real structured call). qwen3:8b - this
-        # project's own already-established reliable tool-calling model -
-        # confirmed live, this session, to make real, correctly-executed
-        # tool calls end-to-end in this exact environment.
-        coder_model=env.get("CODER_MODEL") or "qwen3:8b",
+        # disabled, never emits a real structured call). qwen3:8b was this
+        # project's established reliable tool-calling model, confirmed live
+        # to make real, correctly-executed tool calls end-to-end in this
+        # exact environment; retired and replaced with qwen3.5:9b (live
+        # benchmarking showed identical 100% tool-calling reliability on
+        # the same run_command/write_file schema, with meaningfully better
+        # general reasoning accuracy - see scripts/benchmark-results/).
+        coder_model=env.get("CODER_MODEL") or "qwen3.5:9b",
         max_attempts=_int_env("MAX_ATTEMPTS", 3),
         sandbox_network=env.get("SANDBOX_NETWORK") or "sandbox-net",
         github_token=env.get("GITHUB_TOKEN") or None,

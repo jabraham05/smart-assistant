@@ -124,7 +124,7 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["ollama", "run", "${OLLAMA_WARMUP_MODEL:-llama3.2:3b}", "hi"]
+    entrypoint: ["ollama", "run", "${OLLAMA_WARMUP_MODEL:-qwen3.5:9b}", "hi"]
     networks: [assistant-net]
 
   n8n:
@@ -325,11 +325,14 @@ services:
     environment:
       PORT: "3011"
       OLLAMA_HOST: http://ollama:11434
-      # qwen3:8b, not coding-orchestrator's qwen2.5-coder:7b - confirmed
-      # live this session: qwen2.5-coder fails structurally with OpenHands
-      # (narrates tool calls as prose instead of invoking them), qwen3:8b
-      # makes real, correctly-executed tool calls end-to-end.
-      CODER_MODEL: qwen3:8b
+      # qwen2.5-coder fails structurally with OpenHands (narrates tool
+      # calls as prose instead of invoking them). qwen3:8b was this
+      # project's established reliable tool-calling model here; retired
+      # and replaced with qwen3.5:9b - live benchmarking showed identical
+      # 100% tool-calling reliability on the same tool schema, with
+      # meaningfully better general reasoning accuracy (see
+      # scripts/benchmark-results/).
+      CODER_MODEL: qwen3.5:9b
       SANDBOX_NETWORK: sandbox-net
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       # Same defaults coding-orchestrator's own config.ts already uses -
@@ -382,7 +385,7 @@ services:
       # skipped (not an error) if TAVILY_API_KEY is unset.
       OVERNIGHT_DIGEST_MIN_HOURS: ${OVERNIGHT_DIGEST_MIN_HOURS:-20}
       OLLAMA_HOST: http://ollama:11434
-      DIGEST_MODEL: ${DIGEST_MODEL:-qwen3:8b}
+      DIGEST_MODEL: ${DIGEST_MODEL:-qwen3.5:9b}
       TAVILY_API_KEY: ${TAVILY_API_KEY}
     depends_on: [postgres]
     networks: [assistant-net]

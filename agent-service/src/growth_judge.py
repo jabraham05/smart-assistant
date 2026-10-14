@@ -7,10 +7,18 @@ callers."
 
 Structured output via PydanticAI's Agent(output_type=NativeOutput(...)),
 same pattern classify.py already uses and already proved reliable against
-this stack's Ollama - not a raw hand-parsed JSON call. Runs on the bigger
-qwen3:14b model (config.growth_judge_model), not the 8b model the live
-chat/classifier turns use: an 8b judge is a documented reliability risk for
-reflective-reasoning tasks in this project.
+this stack's Ollama - not a raw hand-parsed JSON call.
+
+Runs on config.growth_judge_model, deliberately kept as its own separate
+config knob even though it currently defaults to the same model as chat/
+classifier (qwen3.5:9b, consolidated from a prior qwen3:8b chat / qwen3:14b
+judge split - an 8b judge was a documented reliability risk for
+reflective-reasoning tasks in this project; live benchmarking since
+(scripts/benchmark-results/) showed qwen3.5:9b not carrying that same risk
+on the coding-equivalent task, and sharing one model everywhere eliminates
+real VRAM-swap cost - see _unload_model below). If evidence ever shows this
+judge needs more reasoning depth than chat does, GROWTH_JUDGE_MODEL can be
+pointed at a bigger model again independently, without touching chat_model.
 """
 
 from __future__ import annotations
@@ -102,12 +110,18 @@ async def _unload_model(config: Config, model: str) -> None:
     PydanticAI's OllamaModel has no model_settings field for keep_alive (grepped
     the installed package, no hit) - unlike `thinking`, it was never special-
     cased for pass-through. The server-wide OLLAMA_KEEP_ALIVE=-1 in
-    docker-compose.yml means this bigger qwen3:14b judge model, once loaded,
-    would otherwise pin itself in VRAM forever, evicting the live chat model
-    with nothing to ever give that VRAM back (the same ratchet documented on
-    coding-orchestrator's ollama.ts keepAlive option). Best-effort: a failure
-    here just means the model stays resident a bit longer, not a real error.
+    docker-compose.yml means a judge model bigger than the live chat model
+    (historically qwen3:14b vs qwen3:8b) would otherwise pin itself in VRAM
+    forever once loaded, evicting the live chat model with nothing to ever
+    give that VRAM back (the same ratchet documented on coding-orchestrator's
+    ollama.ts keepAlive option). No-op when the judge model is the live chat
+    model itself (now the default: both qwen3.5:9b) - unloading it here would
+    evict the one shared model every chat turn depends on, for nothing.
+    Best-effort otherwise: a failure here just means the model stays resident
+    a bit longer, not a real error.
     """
+    if model == config.chat_model:
+        return
     try:
         async with httpx.AsyncClient() as client:
             await client.post(

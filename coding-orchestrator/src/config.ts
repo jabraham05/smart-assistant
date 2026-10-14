@@ -62,13 +62,22 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     sandboxRunnerUrl: env.SANDBOX_RUNNER_URL || "http://sandbox-runner:3002",
     useOpenHandsRunner: env.USE_OPENHANDS_RUNNER === "true",
     openhandsRunnerUrl: env.OPENHANDS_RUNNER_URL || "http://openhands-runner:3011",
-    // Same models already used by the coding_task_pipeline n8n workflow -
-    // qwen3:14b for the deep-thinking Planner/Reviewer calls, qwen3:8b for
-    // the tool-calling Coder/Tester agent loops.
-    plannerModel: env.CODING_PLANNER_MODEL || "qwen3:14b",
-    coderModel: env.CODING_CODER_MODEL || "qwen3:8b",
-    testerModel: env.CODING_TESTER_MODEL || "qwen3:8b",
-    reviewerModel: env.CODING_REVIEWER_MODEL || "qwen3:8b",
+    // All four roles consolidated onto qwen3.5:9b - Planner/Reviewer used
+    // to run the bigger qwen3:14b (inherited from the old
+    // coding_task_pipeline n8n workflow's split), Coder/Tester qwen3:8b.
+    // Live benchmarking (scripts/benchmark-results/, including a real
+    // execution-verified agentic task, not just regex-graded one-liners)
+    // showed qwen3.5:9b matching or beating qwen3:14b's output quality
+    // while being meaningfully faster. Consolidating to one model everywhere
+    // also eliminates the VRAM-swap cost between two differently-sized
+    // models that don't both fit in 12GB at once - see ollama.ts's keepAlive
+    // comment and the Planner/Reviewer call sites in pipeline.ts, which
+    // only apply the short self-evict keepAlive when a role's configured
+    // model actually differs from coderModel.
+    plannerModel: env.CODING_PLANNER_MODEL || "qwen3.5:9b",
+    coderModel: env.CODING_CODER_MODEL || "qwen3.5:9b",
+    testerModel: env.CODING_TESTER_MODEL || "qwen3.5:9b",
+    reviewerModel: env.CODING_REVIEWER_MODEL || "qwen3.5:9b",
     coderMaxIterations: env.CODING_CODER_MAX_ITERATIONS ? Number(env.CODING_CODER_MAX_ITERATIONS) : 25,
     testerMaxIterations: env.CODING_TESTER_MAX_ITERATIONS ? Number(env.CODING_TESTER_MAX_ITERATIONS) : 15,
     maxAttempts: env.CODING_MAX_ATTEMPTS ? Number(env.CODING_MAX_ATTEMPTS) : 3,

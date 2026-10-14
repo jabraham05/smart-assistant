@@ -30,13 +30,15 @@ export interface OllamaChatOptions {
   numCtx?: number;
   // Ollama native-API field, distinct from the server-wide OLLAMA_KEEP_ALIVE
   // default (docker-compose.yml's "-1", i.e. never expire). That default
-  // means every model that ever loads - including the much bigger
-  // qwen3:14b planner/reviewer - pins itself in VRAM forever once used,
-  // evicting whatever else was resident (the resident chat model, most
-  // disruptively) with nothing to ever give that VRAM back. Pass a short
-  // value here specifically for the planner/reviewer call sites so qwen3:14b
-  // self-evicts shortly after a coding task's planning/review step finishes,
-  // instead of permanently ratcheting VRAM away from live chat.
+  // means every model that ever loads pins itself in VRAM forever once
+  // used, evicting whatever else was resident with nothing to ever give
+  // that VRAM back - a real problem when Planner/Reviewer ran a bigger
+  // model (historically qwen3:14b) than Coder/Tester (qwen3:8b), since the
+  // two didn't both fit in 12GB at once. pipeline.ts's Planner/Reviewer
+  // call sites pass a short value here only when their configured model
+  // actually differs from coderModel, so this is a no-op now that every
+  // role defaults to the same qwen3.5:9b - kept for whenever roles are
+  // next configured to diverge again, not dead code.
   keepAlive?: string;
 }
 
