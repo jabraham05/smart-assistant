@@ -63,6 +63,23 @@ GROUPS: dict[str, list[str]] = {
     "goals": ["goal_manage", "project_propose", "status_overview", "project_complete"],
 }
 
+# web_search/knowledge_search/research_task were renamed to knowledge_lookup/
+# growth_research_request, but the model keeps calling the old names out of
+# habit - agent.py's per-turn MCP filter tolerates this (binds the retired
+# name too, whenever its current replacement is relevant). Lives here, not
+# in agent.py, specifically so safety_net.py's has_unsatisfied_required_tool
+# can also see it: a real, live-verified regression otherwise - that check
+# hardcoded "was knowledge_lookup literally called", so a turn that called
+# web_search (satisfied via this exact alias) and got a real, correctly
+# grounded answer still got flagged as the required tool never being
+# called, discarding the real answer and replacing it with the generic
+# REQUIRED_TOOL_FAILURE_MESSAGE.
+LEGACY_TOOL_ALIASES: dict[str, str] = {
+    "web_search": "knowledge_lookup",
+    "knowledge_search": "knowledge_lookup",
+    "research_task": "growth_research_request",
+}
+
 # Real gap found via live testing (2026-10-11): the prompt's own "include
 # self-growth EVEN IF another category also matches" reminder (added for
 # 'goals') turned out unreliable depending on which OTHER category

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 
-from .classify import STANDING_INSTRUCTION_INTENT
+from .classify import LEGACY_TOOL_ALIASES, STANDING_INSTRUCTION_INTENT
 
 # Same tool list as the old "confabulated action" backstop - tools whose
 # whole point is performing a real side effect, where a claim of success
@@ -69,7 +69,12 @@ _UNFULFILLED_SEARCH_INTENT = re.compile(
     re.IGNORECASE,
 )
 
-SEARCH_TOOLS = ["knowledge_lookup"]
+# Includes knowledge_lookup's retired aliases (web_search, knowledge_search)
+# too, not just its current name - real, live-verified regression otherwise:
+# a turn that called web_search (knowledge_lookup's alias, still tolerated
+# by agent.py's filter) read as "no search tool called" to every check below
+# that tests membership in this list, even though a real search happened.
+SEARCH_TOOLS = ["knowledge_lookup"] + [k for k, v in LEGACY_TOOL_ALIASES.items() if v == "knowledge_lookup"]
 
 _URL_IN_REPLY = re.compile(r"https?://[^\s<>\]\[(){}]+", re.IGNORECASE)
 
@@ -209,12 +214,20 @@ def has_unsatisfied_required_tool(
     relevant_groups = relevant_groups or []
     if tool_policy != "required":
         return False
-    if required_tools and any(tool in bound_tools and tool not in called_tools for tool in required_tools):
+    # A called tool counts toward satisfying a requirement under its current
+    # name OR a retired alias of it (agent.py's per-turn filter binds both -
+    # see LEGACY_TOOL_ALIASES) - real, live-verified regression otherwise: a
+    # turn that called web_search (knowledge_lookup's retired alias), got a
+    # real result, and produced a correctly grounded reply still got flagged
+    # here as the required tool never being called, discarding that real
+    # answer and replacing it with REQUIRED_TOOL_FAILURE_MESSAGE.
+    effectively_called = {LEGACY_TOOL_ALIASES.get(t, t) for t in called_tools} | set(called_tools)
+    if required_tools and any(tool in bound_tools and tool not in effectively_called for tool in required_tools):
         return True
     # A second required capability can also be bound (for example calendar
     # lookup plus a web lookup). Calling that other tool must not satisfy an
     # explicit factual-search request.
-    if "web" in relevant_groups and "knowledge_lookup" in bound_tools and "knowledge_lookup" not in called_tools:
+    if "web" in relevant_groups and "knowledge_lookup" in bound_tools and "knowledge_lookup" not in effectively_called:
         return True
     # Real bug found via live testing: task_context_manage genuinely overlaps
     # with the 'goals' group ("things to do") - a correct task_context_manage
@@ -224,12 +237,12 @@ def has_unsatisfied_required_tool(
         return False
     bound_capability_tools = [t for t in bound_tools if t not in _ALWAYS_BOUND_TOOLS]
     if bound_capability_tools:
-        return not any(t in called_tools for t in bound_capability_tools)
+        return not any(t in effectively_called for t in bound_capability_tools)
     # Real gap found via live testing: "create a task to do X" has no
     # classifier category of its own (task_context_manage is always bound,
     # not tied to a group), so bound_capability_tools was always empty for
     # these turns and this check short-circuited to false unconditionally.
-    return "task_context_manage" in bound_tools and "task_context_manage" not in called_tools
+    return "task_context_manage" in bound_tools and "task_context_manage" not in effectively_called
 
 
 REQUIRED_TOOL_RETRY_NUDGE = (
