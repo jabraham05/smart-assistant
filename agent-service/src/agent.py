@@ -20,7 +20,7 @@ from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
 
-from .classify import LEGACY_TOOL_ALIASES
+from .respond import LEGACY_TOOL_ALIASES
 from .config import Config
 
 

@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import random
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -49,6 +48,7 @@ from . import (
 from .agent import AgentDeps, build_agent
 from .detached_stream import detach
 from .config import Config, load_config
+from .respond import expand_groups_to_tools
 from .safety_net import (
     FABRICATED_ID_NUDGE,
     REQUIRED_TOOL_FAILURE_MESSAGE,
@@ -120,21 +120,6 @@ _MAX_TOOL_ERROR_RETRIES = 3
 # dead-end narration a third time.
 _MAX_SEARCH_INTENT_RETRIES = 2
 _MAX_UNGROUNDED_SPECIFICS_RETRIES = 2
-
-# Real, live-verified finding: asking the model to narrate before a slow
-# tool-heavy turn (system_prompt.py's narrate_line) does not work - tracing
-# a real web-search turn showed the stream going straight from the classify
-# trace to a tool_call event with zero preceding text, despite the prompt
-# nudge. A deterministic, server-emitted acknowledgment (this pool) is used
-# instead of relying on the model to comply - see should_acknowledge below.
-_ACK_PHRASES = [
-    "Let me look into that.",
-    "One sec, I'll check on that.",
-    "Give me a moment to dig into this.",
-    "I'll get started on that now.",
-    "Let me pull that together for you.",
-    "Working on it — one moment.",
-]
 
 
 @dataclass
@@ -349,7 +334,7 @@ async def webhook(request: Request):
             # behavior change. See that module's docstring for why side
             # effects below stay here instead of moving with it.
             ctx = await context_builder.build_context(config, session_id, chat_input, recent_context)
-            classification = ctx.classification
+            turn_output = ctx.turn_output
             persona_prompt = ctx.persona_prompt
             open_tasks = ctx.open_tasks
             relevant_goals = ctx.relevant_goals
@@ -358,11 +343,16 @@ async def webhook(request: Request):
             user_card = ctx.user_card
             user_card_for_amy = ctx.user_card_for_amy
             system_prompt = ctx.system_prompt
-            should_acknowledge = ctx.should_acknowledge
+            # Computed unconditionally (not just when multi_turn) so every
+            # later retry in this turn - even one triggered off the fast,
+            # no-tool path - gets the real, correctly-scoped tool set rather
+            # than turn_output.relevant_tools, which is forced to [] exactly
+            # when multi_turn is false (see respond.py's _normalize_output).
+            bound_tools = expand_groups_to_tools(turn_output.relevant_groups)
 
             logger.info(
-                "context built session=%s history=%d tools=%s groups=%s memories=%s knowledge=%s tasks=%s goals=%s projects=%d system_chars=%d",
-                session_id, len(message_history), classification.relevant_tools, classification.relevant_groups,
+                "context built session=%s history=%d multiTurn=%s tools=%s groups=%s memories=%s knowledge=%s tasks=%s goals=%s projects=%d system_chars=%d",
+                session_id, len(message_history), turn_output.multi_turn, bound_tools, turn_output.relevant_groups,
                 [_preview(f"{m.domain or 'general'}: {m.content}", 140) for m in relevant_memory_results[:5]],
                 [_preview(f"{k.document_title or k.source_title or k.domain}: {k.content}", 140)
                  for k in relevant_knowledge_results[:5]],
@@ -371,7 +361,7 @@ async def webhook(request: Request):
                 len(ctx.open_projects), len(system_prompt),
             )
 
-            if classification.knowledge_gap_topic and not classification.explicit_research_request:
+            if turn_output.knowledge_gap_topic and not turn_output.explicit_research_request:
                 # A conversational gap is evidence for Growth, not by itself
                 # authorization for ambient research. Growth decides after
                 # recurrence/value scoring, then Planner scopes any task.
@@ -379,7 +369,7 @@ async def webhook(request: Request):
                     growth_db.record_observation(
                         config,
                         "knowledge_gap",
-                        classification.knowledge_gap_topic,
+                        turn_output.knowledge_gap_topic,
                         {
                             "chatInput": chat_input,
                             "injectedKnowledge": [k.content[:500] for k in relevant_knowledge_results],
@@ -388,13 +378,34 @@ async def webhook(request: Request):
                     )
                 )
 
-            if classification.behavior_feedback:
+            if turn_output.defer_to_growth:
+                # Direct call into Growth's own acceptance path, not a
+                # model-driven tool call - growth_research_request (the MCP
+                # tool/endpoint) still exists for other callers, but the
+                # chat turn no longer needs the model to correctly invoke a
+                # tool to get this far: the payload is built server-side
+                # from chat_input, so the user's original question can't be
+                # dropped by a mis-phrased tool-call argument. Independent
+                # of multi_turn - answering now and separately enqueuing
+                # research aren't mutually exclusive.
+                async def _defer_to_growth() -> None:
+                    opportunity_id = await growth_db.record_observation(
+                        config, "explicit_research_request", chat_input[:200],
+                        {"chatInput": chat_input, "injectedKnowledge": [k.content[:500] for k in relevant_knowledge_results]},
+                        session_id=session_id, category="knowledge", auto_promote=False,
+                    )
+                    if opportunity_id is not None:
+                        asyncio.create_task(growth_db.promote_observation_opportunity(config, opportunity_id))
+
+                asyncio.create_task(_defer_to_growth())
+
+            if turn_output.behavior_feedback:
                 asyncio.create_task(
                     event_bus_client.publish_behavior_feedback(
                         config,
                         session_id,
-                        classification.behavior_feedback.category,
-                        classification.behavior_feedback.note,
+                        turn_output.behavior_feedback.category,
+                        turn_output.behavior_feedback.note,
                     )
                 )
                 # Promotes the already-captured signal into a visible,
@@ -404,7 +415,7 @@ async def webhook(request: Request):
                     knowledge_client.create_entity_from_chat(
                         config,
                         "learning",
-                        f"{classification.behavior_feedback.category}: {classification.behavior_feedback.note}",
+                        f"{turn_output.behavior_feedback.category}: {turn_output.behavior_feedback.note}",
                         session_id=session_id,
                     )
                 )
@@ -417,23 +428,23 @@ async def webhook(request: Request):
                     growth_db.record_observation(
                         config,
                         "behavior_feedback",
-                        classification.behavior_feedback.note,
-                        {"category": classification.behavior_feedback.category, "chatInput": chat_input},
+                        turn_output.behavior_feedback.note,
+                        {"category": turn_output.behavior_feedback.category, "chatInput": chat_input},
                         session_id=session_id,
                         category=growth_db.classify_category(
-                            "behavior_feedback", classification.behavior_feedback.category
+                            "behavior_feedback", turn_output.behavior_feedback.category
                         ),
                     )
                 )
 
-            for item in classification.memorable_items:
+            for item in turn_output.memorable_items:
                 asyncio.create_task(
                     knowledge_client.create_entity_from_chat(config, item.type, item.content, session_id=session_id)
                 )
 
-            if classification.is_correction:
+            if turn_output.is_correction:
                 # Growth engine: the "user corrections" signal the roadmap
-                # named but was never actually captured - classify.py
+                # named but was never actually captured - respond.py
                 # deliberately excludes a single-turn correction from
                 # behaviorFeedback (that's for a repeated pattern), so this
                 # is the first time it becomes a real Growth observation.
@@ -447,22 +458,21 @@ async def webhook(request: Request):
                 "trace",
                 trace={
                     "kind": "classify",
-                    "boundTools": classification.relevant_tools,
-                    "relevantGroups": classification.relevant_groups,
-                    "toolPolicy": classification.tool_policy,
-                    "memoryPolicy": classification.memory_policy,
-                    "needsPlanning": classification.needs_planning,
-                    "background": classification.background,
-                    # Real, live-verified finding: chat-ui's ChatTraceEvent type
-                    # (and TurnDebugPanel's ClassifyRow, which unconditionally
-                    # calls .length on all three) declares these as REQUIRED
-                    # fields, matching chat-orchestrator's original emission -
-                    # this Python port dropped them, so every classify trace
-                    # from agent-service was missing them entirely. TypeScript's
-                    # type only checks at compile time; at runtime this crashed
-                    # the whole debug panel with "Cannot read properties of
-                    # undefined (reading 'length')" the instant a user clicked
-                    # any message to see turn detail.
+                    "boundTools": bound_tools,
+                    "relevantGroups": turn_output.relevant_groups,
+                    "multiTurn": turn_output.multi_turn,
+                    "planningNeeded": turn_output.planning_needed,
+                    "deferToGrowth": turn_output.defer_to_growth,
+                    # Best-effort derived values, kept during rollout only -
+                    # chat-ui's ChatTraceEvent type (and TurnDebugPanel's
+                    # ClassifyRow, which unconditionally calls .length on all
+                    # three) declares these as REQUIRED fields from the old
+                    # classifier contract. Drop once chat-ui renders the new
+                    # keys natively instead.
+                    "toolPolicy": "required" if turn_output.relevant_groups else "optional",
+                    "memoryPolicy": "optional",
+                    "needsPlanning": turn_output.planning_needed,
+                    "background": False,
                     "openTasks": [{"id": t.id, "objective": t.objective, "status": t.status} for t in open_tasks],
                     "relevantGoals": [{"id": g.id, "title": g.title, "status": g.status} for g in relevant_goals],
                     "memories": [
@@ -482,41 +492,40 @@ async def webhook(request: Request):
             )
             yield emit("begin")
 
-            # Real, live-verified finding: the prompt-level narrate nudge
-            # above doesn't get followed - qwen3:8b jumps straight to a tool
-            # call with zero preceding text, even when asked to narrate
-            # first. This is a deterministic, server-emitted acknowledgment
-            # instead, gated on the exact same should_acknowledge signal so
-            # a fast/simple turn ("what's 2+2") never gets one - only turns
-            # that actually need planning, background work, research, web
-            # search, or a coding task do. Emitted as its own "ack" event
-            # type (not "item") so discord-bot can send it as an immediate,
-            # separate message instead of folding it into the final one
-            # (discord-bot buffers the whole stream into a single message
-            # otherwise - an ack folded into "item" content would provide
-            # zero perceived-latency benefit there). The trailing blank line
-            # matters for chat-ui, which concatenates every item/ack chunk
-            # into one paragraph - without it the ack would run straight
-            # into the model's first sentence with no break.
-            if should_acknowledge:
-                yield emit("ack", random.choice(_ACK_PHRASES) + "\n\n")
-
             state = _TurnState()
-            _attempt = _Attempt()
-            async for c in _run_turn(
-                config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit,
-                message_history,
-                _attempt,
-            ):
-                yield c
-            final_text = _attempt.text
+            if turn_output.multi_turn:
+                # response is the natural, context-specific opener respond.py
+                # already drafted - same "ack" wire event type chat-ui/
+                # discord-bot already render as an immediate, separate
+                # message (discord-bot buffers the rest of the stream into
+                # one message otherwise). The trailing blank line keeps it
+                # from running straight into the next sentence with no break.
+                yield emit("ack", turn_output.response + "\n\n")
+                _attempt = _Attempt()
+                async for c in _run_turn(
+                    config, session_id, system_prompt, chat_input, bound_tools, state, emit,
+                    message_history,
+                    _attempt,
+                ):
+                    yield c
+                final_text = _attempt.text
+            else:
+                # multiTurn=false: response IS the final answer - no second
+                # model call at all. state stays at its default (no tools
+                # called, attempt=0), which is exactly what every safety-net
+                # check below expects for a turn that genuinely used none.
+                final_text = turn_output.response
 
             # One-shot empty-output retry - same shape as chat-orchestrator's.
+            # Also the fallback path if the fast, no-tool response somehow
+            # came back empty: retrying via the tool-capable agent (with the
+            # real bound_tools, not the fast path's forced-empty list) is
+            # the only way left to actually produce text at that point.
             if not final_text.strip():
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "empty_output"})
                 _attempt = _Attempt()
                 async for c in _run_turn(
-                    config, session_id, system_prompt, chat_input, classification.relevant_tools, state, emit,
+                    config, session_id, system_prompt, chat_input, bound_tools, state, emit,
                     message_history,
                     _attempt,
                 ):
@@ -539,7 +548,7 @@ async def webhook(request: Request):
                 )
                 _attempt = _Attempt()
                 async for c in _run_turn(
-                    config, session_id, system_prompt, retry_prompt, classification.relevant_tools, state, emit,
+                    config, session_id, system_prompt, retry_prompt, bound_tools, state, emit,
                     message_history,
                     _attempt,
                 ):
@@ -548,12 +557,8 @@ async def webhook(request: Request):
                 if retry_text.strip():
                     final_text = retry_text
 
-            bound_tools = classification.relevant_tools
-            required_tools = []
-            if classification.tool_policy == "required" and "web" in classification.relevant_groups:
-                required_tools.append("knowledge_lookup")
-            if classification.explicit_research_request:
-                required_tools.append("growth_research_request")
+            tool_required = bool(turn_output.relevant_groups)
+            required_tools = ["knowledge_lookup"] if "web" in turn_output.relevant_groups else []
 
             # Capped loop, not one-shot (same shape as the tool-error retry
             # above) - real, observed gap: a single retry gives the model
@@ -766,13 +771,13 @@ async def webhook(request: Request):
                     final_text = retry_text
 
             if has_unsatisfied_required_tool(
-                classification.tool_policy, bound_tools, state.called_tools, classification.relevant_groups,
+                tool_required, bound_tools, state.called_tools, turn_output.relevant_groups,
                 required_tools,
             ):
                 asyncio.create_task(
                     growth_db.record_observation(
                         config, "safety_net_failure", "A required tool for this message's category was never called",
-                        {"reason": "required_tool", "chatInput": chat_input, "relevantGroups": classification.relevant_groups},
+                        {"reason": "required_tool", "chatInput": chat_input, "relevantGroups": turn_output.relevant_groups},
                         session_id=session_id,
                     )
                 )
@@ -794,12 +799,12 @@ async def webhook(request: Request):
                 if retry_text.strip():
                     final_text = retry_text
                 if has_unsatisfied_required_tool(
-                    classification.tool_policy, bound_tools, state.called_tools, classification.relevant_groups,
+                    tool_required, bound_tools, state.called_tools, turn_output.relevant_groups,
                     required_tools,
                 ):
                     final_text = REQUIRED_TOOL_FAILURE_MESSAGE
 
-            if has_unaddressed_teaching_intent(chat_input, classification.relevant_groups, state.called_tools):
+            if has_unaddressed_teaching_intent(chat_input, turn_output.relevant_groups, state.called_tools):
                 asyncio.create_task(
                     growth_db.record_observation(
                         config, "safety_net_failure",
@@ -821,7 +826,7 @@ async def webhook(request: Request):
                 if retry_text.strip():
                     final_text = retry_text
 
-            if has_trailing_confirmation_question(final_text, classification.tool_policy):
+            if has_trailing_confirmation_question(final_text, tool_required):
                 asyncio.create_task(
                     growth_db.record_observation(
                         config, "safety_net_failure", "Reply tacked on a stock trailing confirmation question",
@@ -869,7 +874,7 @@ async def webhook(request: Request):
                         time.monotonic() - _turn_t0, len(final_text), _preview(final_text))
 
             _t = time.monotonic()
-            memory_domain = ",".join(classification.relevant_groups) or None
+            memory_domain = ",".join(turn_output.relevant_groups) or None
             memory_task_context_id = open_tasks[0].id if open_tasks else None
             await asyncio.gather(
                 honcho_client.store_turn(config, session_id, chat_input, final_text),

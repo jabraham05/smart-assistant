@@ -12,9 +12,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 _PACIFIC = ZoneInfo("America/Los_Angeles")
+
+# None (default) reproduces today's exact unbudgeted output - every section
+# always included, no context_budget trimming applied by the caller. "fast"
+# is for respond.py's own call (no tool loop will run this attempt): skips
+# tool-argument/tool-result-narration guidance, which is meaningless without
+# a tool call, and includes respond_instructions instead. "tool"/"planning"
+# are for the tool-capable agent call once multiTurn is true.
+PromptBudget = Literal["fast", "tool", "planning"]
 
 
 @dataclass(frozen=True)
@@ -103,6 +112,12 @@ class SystemPromptInput:
     open_teaching_session: OpenTeachingSession | None = None
     needs_planning_nudge: bool = False
     narrate_before_slow_answer: bool = False
+    # None = today's exact unbudgeted behavior (see PromptBudget above).
+    budget: PromptBudget | None = None
+    # respond.py's RESPOND_INSTRUCTIONS text - only rendered when
+    # budget=="fast". Passed in rather than imported, so system_prompt.py
+    # doesn't need to depend on respond.py.
+    respond_instructions: str = ""
 
 
 def _format_pacific(now: datetime) -> str:
@@ -150,6 +165,10 @@ def build_system_prompt(input: SystemPromptInput) -> str:
     # after a tool call, not what gets written INTO a tool's own
     # arguments) - this has to be prompted against before the call, there
     # is no result yet to check it against.
+    # Meaningless at budget=="fast": that attempt never calls a tool at all
+    # (multiTurn is decided by this same call, not before it), so guidance
+    # about what to write INTO a tool call's arguments has nothing to apply
+    # to - skip it there rather than spend prompt budget on dead guidance.
     action_clarify_line = (
         "When calling code_task, skill_propose, or project_propose, describe the task in your own "
         "words with real, concrete planning detail - don't just restate the user's wording verbatim. "
@@ -159,6 +178,8 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         "before calling the tool - don't guess a plausible-sounding name and write it in as if it were "
         "settled. If a similar task already has real, relevant work in the target repo, say so and "
         "ask whether to build on it before describing a conflicting fresh approach."
+        if input.budget != "fast"
+        else ""
     )
 
     # Real, evidenced gap found later, same recurring fabrication as
@@ -182,6 +203,8 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         "or the user's own words. If the tool's result doesn't mention a specific technology, describe "
         "it generically (\"the translation service\", not a guessed product name) rather than filling "
         "the gap with something that merely sounds plausible."
+        if input.budget != "fast"
+        else ""
     )
 
     search_result_fidelity_line = (
@@ -288,6 +311,14 @@ def build_system_prompt(input: SystemPromptInput) -> str:
 
     skills_line = f"Skills you have learned:\n\n{input.skills_catalog_text}" if input.skills_catalog_text else ""
 
+    # Only meaningful for the budget=="fast" call (respond.py) - the output-
+    # schema contract (response/multiTurn/toolsNeeded/...) that call's JSON
+    # schema enforces structurally; this is the semantic instructions for
+    # what each field means. The tool-capable agent call that may follow
+    # (budget=="tool"/"planning") is a normal free-text+tool-calls turn and
+    # has no use for it.
+    respond_instructions_line = input.respond_instructions if input.budget == "fast" and input.respond_instructions else ""
+
     # Placed last, right before the user's actual message - real, live-verified
     # finding: qwen3:8b still produced stock-offer closers and emoji ("No
     # pressure to plan now! 🚗✨", "let me know if there's anything specific
@@ -336,6 +367,7 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         needs_planning_line,
         narrate_line,
         skills_line,
+        respond_instructions_line,
         tone_line,
     ]
     return "\n\n".join(s for s in sections if s)

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 
-from .classify import LEGACY_TOOL_ALIASES, STANDING_INSTRUCTION_INTENT
+from .respond import LEGACY_TOOL_ALIASES, STANDING_INSTRUCTION_INTENT
 
 # Same tool list as the old "confabulated action" backstop - tools whose
 # whole point is performing a real side effect, where a claim of success
@@ -202,17 +202,18 @@ _ALWAYS_BOUND_TOOLS = ["calculate", "task_context_manage"]
 
 
 def has_unsatisfied_required_tool(
-    tool_policy: str,
+    tool_required: bool,
     bound_tools: list[str],
     called_tools: list[str],
     relevant_groups: list[str] | None = None,
     required_tools: list[str] | None = None,
 ) -> bool:
-    """True when the classifier decided this message needed live/authoritative
-    data or a real action (toolPolicy=required), a capability-specific tool
-    was actually bound this turn, and none of them were called."""
+    """True when this message genuinely needed a capability-specific tool
+    (tool_required - true whenever any category was classified as relevant
+    this turn), that tool was actually bound this turn, and none of them
+    were called."""
     relevant_groups = relevant_groups or []
-    if tool_policy != "required":
+    if not tool_required:
         return False
     # A called tool counts toward satisfying a requirement under its current
     # name OR a retired alias of it (agent.py's per-turn filter binds both -
@@ -395,12 +396,12 @@ _TRAILING_CONFIRMATION_QUESTION = re.compile(
 _MIN_SUBSTANTIVE_REPLY_LENGTH = 40
 
 
-def has_trailing_confirmation_question(reply_text: str, tool_policy: str) -> bool:
+def has_trailing_confirmation_question(reply_text: str, tool_required: bool) -> bool:
     """True when the reply tacks a low-value confirmation/offer question onto
-    an otherwise-complete answer. Skipped when tool_policy == "required" -
-    a turn that genuinely depended on live data/an action is more likely to
+    an otherwise-complete answer. Skipped when tool_required is true - a
+    turn that genuinely depended on live data/an action is more likely to
     have a real open ambiguity worth confirming, not a stock tic."""
-    if tool_policy == "required":
+    if tool_required:
         return False
     match = _TRAILING_CONFIRMATION_QUESTION.search(reply_text)
     if not match:

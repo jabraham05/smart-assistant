@@ -1,9 +1,26 @@
-"""Classify a user turn into the capabilities and policies Amy should use.
+"""Amy's first-pass turn output - not a separate routing/classification step.
 
-This is a hot-path routing call, so it uses Ollama's native `/api/chat`
-endpoint directly. Native `think: false` and a bounded JSON-schema response
-avoid the OpenAI-compatible endpoint's unreliable thinking-mode handling and
-unbounded reasoning output.
+This call *is* Amy's actual response attempt, given the same curated context
+she needs to just answer: it drafts `response` directly, and alongside it
+emits a small set of structured fields describing whether it needs to keep
+going (more tools, more planning, or an async Growth handoff) rather than a
+narrow category label a later, differently-framed call has to interpret.
+
+Matches how small-model agent harnesses are actually built in practice:
+start from a single call/loop shape, escalate only when that call's own
+output says it needs to ("SLM-first, escalate on low confidence" - cheap and
+local by default, not a dispatcher pre-selecting between hand-built modes).
+There is still a real, separate reason to scope which tools are even visible
+per turn - this project's own measured tool-count reliability cliff for
+qwen3.5:9b (3/3 success at 1 bound tool, 0/3 at 6) - but that's a field on
+this same call's output (`toolsNeeded`), not a justification for a second,
+differently-framed call.
+
+Uses Ollama's native `/api/chat` endpoint directly, same as the routing-only
+call this replaces: native `think: false` and a bounded JSON-schema response
+avoid the OpenAI-compatible endpoint's unreliable thinking-mode handling, and
+thinking tokens inside what's meant to be the fast path would defeat the
+point of having one.
 """
 
 from __future__ import annotations
@@ -16,11 +33,13 @@ import httpx
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-# This is a latency-sensitive routing call made on every message. Use Ollama's
-# native API so `think: false` is honored, and cap output so a routing decision
-# cannot turn into a long reasoning/completion task.
-_CLASSIFIER_TIMEOUT_SECONDS = 12.0
-_CLASSIFIER_MAX_OUTPUT_TOKENS = 256
+
+# Unlike a pure routing call, this call's own output can BE the final answer,
+# so both the output budget and the timeout need real headroom - not yet
+# live-benchmarked, see the plan's rollout step on tuning these against
+# actual qwen3.5:9b latency/quality under load.
+_RESPOND_TIMEOUT_SECONDS = 45.0
+_RESPOND_MAX_OUTPUT_TOKENS = 2048
 
 TOOL_GROUPS = [
     "media",
@@ -42,6 +61,13 @@ ToolGroup = Literal[
 # maintenance-cost tradeoff the original TS Code node had: lives separately
 # from skills-mcp's own tool registration, so a newly added tool is silently
 # never exposed to chat unless it's also added here.
+#
+# 'research' no longer includes growth_research_request - an explicit
+# research ask is now handled by deferToGrowth calling straight into
+# growth_db.record_observation server-side (main.py), not by the model
+# calling an MCP tool. research_task_status/status_overview/project_complete
+# stay here since checking on already-running research is still a normal
+# tool-assisted turn.
 GROUPS: dict[str, list[str]] = {
     "media": ["spotify_control"],
     "scheduling": ["calendar_event"],
@@ -59,7 +85,7 @@ GROUPS: dict[str, list[str]] = {
     "dashboard": ["dashboard_control"],
     "web": ["knowledge_lookup"],
     "knowledge": ["knowledge_lookup", "knowledge_ingest", "drive_search"],
-    "research": ["growth_research_request", "research_task_status", "status_overview", "project_complete"],
+    "research": ["research_task_status", "status_overview", "project_complete"],
     "goals": ["goal_manage", "project_propose", "status_overview", "project_complete"],
 }
 
@@ -107,6 +133,12 @@ EXPLICIT_LOOKUP_INTENT = re.compile(
 LIKELY_FACTUAL_QUESTION = re.compile(r"^\s*(what|who|when|where|which|how)\b", re.IGNORECASE)
 NON_LOOKUP_QUESTION = re.compile(r"\b(calendar|schedule|weather|spotify|music|myself|about me|told you|remember me)\b", re.IGNORECASE)
 
+# Forces deferToGrowth regardless of what the model set - same "don't trust
+# the model to be disciplined when a deterministic constraint can enforce
+# it instead" pattern as every other guard in this file. This used to also
+# force 'research' into relevant_groups and tool_policy="required" (the old
+# model-calls-a-tool path); it no longer needs to, since deferToGrowth now
+# calls straight into growth_db.record_observation server-side.
 EXPLICIT_RESEARCH_REQUEST = re.compile(
     r"\b(research|investigate|look\s+into)\b.{0,80}\b(in\s+depth|deeply|thoroughly|save|remember|"
     r"write\s+(a\s+)?(document|doc|report)|create\s+(a\s+)?(document|doc|report))\b|"
@@ -125,11 +157,14 @@ BEHAVIOR_FEEDBACK_CATEGORIES = [
 
 MEMORABLE_ITEM_TYPES = ["fact", "preference", "decision", "learning"]
 
-_CLASSIFIER_SYSTEM_PROMPT = (
-    "Classify which capability categories (zero, one, or a few) might be needed to respond to the "
-    "user's message. Categories: 'media' (music/Spotify playback control), 'scheduling' (calendar "
-    "events), 'info' (weather, or RECALLING facts/preferences ABOUT THE USER THEMSELVES that Amy "
-    "should already know or look up - their traits, likes, past statements, e.g. 'what do you know "
+# This text becomes one section of the fully-assembled, per-tier-budgeted
+# system prompt built by system_prompt.py (persona + budgeted context +
+# this) - it is NOT sent standalone. Describes the output contract only.
+RESPOND_INSTRUCTIONS = (
+    "Along with your reply, classify which capability categories (zero, one, or a few) you will need "
+    "to use to finish answering. Categories: 'media' (music/Spotify playback control), 'scheduling' "
+    "(calendar events), 'info' (weather, or RECALLING facts/preferences ABOUT THE USER THEMSELVES that "
+    "Amy should already know or look up - their traits, likes, past statements, e.g. 'what do you know "
     "about my preferences', 'what did I tell you about X' - never a document, manual, or reference "
     "material, and NOT the user currently stating a new lasting preference or standing instruction "
     "for how Amy should behave going forward - that's 'self-growth' below, even though it's also "
@@ -163,37 +198,39 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "'what have you already learned about X' where X is a topic and not the user themselves - or "
     "saving a specific web page for later recall - ALSO include 'knowledge' for finding or reading "
     "something from the user's own Google Drive, e.g. 'find my resume in Drive', 'what's in that "
-    "Google Doc about X', 'look up Y in my Drive'), 'research' (starting in-depth background research "
-    "on a topic not already known, that should be saved for later - submit through "
-    "growth_research_request so Growth owns the decision and Planner scopes the work - OR checking on/asking about "
-    "findings from research that may have already happened - 'what have you found out about X', 'any "
+    "Google Doc about X', 'look up Y in my Drive'), 'research' (checking on/asking about findings "
+    "from research that may already be running - 'what have you found out about X', 'any "
     "updates on the research', 'how's that going' - include 'research' for these EVEN IF X also "
-    "matches an existing goal or project; the two aren't mutually exclusive, and research about a "
-    "goal's topic is common), 'goals' (creating, listing, updating, or checking progress on the "
+    "matches an existing goal or project), 'goals' (creating, listing, updating, or checking progress on the "
     "user's persistent personal objectives - life goals like job search/fitness/savings, but just as "
     "much a new hobby/technical/creative project the user mentions wanting to start or work on, e.g. "
     "'I have a new project idea, I want to build a robotics arm', 'I'm going to learn guitar' - these "
     "classify 'goals' too, not just the traditional life-objective examples). A question about a "
     "specific named document, manual, or guide is always 'knowledge', never 'info' - 'info' is only "
     "for facts about the user as a person, not things Amy has stored. Most messages need none at all "
-    "- only include a category if it's genuinely likely needed.\n\n"
-    "Also classify four independent policy fields:\n"
-    "- toolPolicy: 'required' if answering correctly depends on live/authoritative data or performing "
-    "a real action (e.g. anything calendar, weather, goals, Spotify, dashboard, research, or "
-    "coding-task related) - the assistant must not guess or answer from memory here. 'optional' for "
-    "general conversation, opinions, or facts that don't depend on the user's actual live state.\n"
-    "- memoryPolicy: 'none' for a message with no personal relevance at all (a trivia question, small "
-    "talk with no follow-up value). 'required' when the user explicitly asks about their own past "
-    "statements, preferences, or history ('what did I tell you about X', 'what do you remember about "
-    "me'). 'relevant' when personal context would materially improve the answer even though it wasn't "
-    "explicitly asked for. 'optional' otherwise (the default for most ordinary conversation).\n"
-    "- needsPlanning: true only for a genuinely multi-step request that should be broken into tracked "
-    "steps rather than answered in one shot (e.g. 'plan my trip', 'help me reorganize my week around "
-    "my calendar'). False for anything answerable or doable in this one turn.\n"
-    "- background: true only when the user explicitly wants something done later/in the background "
-    "without waiting for it now (e.g. 'look into X overnight and let me know', 'do some deep research "
-    "on this and get back to me'). False otherwise, including for normal 'research' requests where the "
-    "user is waiting on the reply.\n"
+    "- only include a category if you will genuinely use it.\n\n"
+    "- response: your actual reply to the user, in Amy's voice. If multiTurn is false, this is the "
+    "COMPLETE, FINAL answer - it must only state facts that actually appear in the context given to "
+    "you below (persona notes, stored memories, stored knowledge); never add a specific detail from "
+    "general knowledge just because it sounds plausible. If multiTurn is true, this is a short, "
+    "natural, SPECIFIC opener describing what you're about to do - not a generic 'let me check on "
+    "that', say what, e.g. 'Let me check the current release for you' or 'I'll trace the tool-call "
+    "path and reproduce the failure first.' For a quick lookup, keep the opener short; it's fine to "
+    "lean on verifying the result rather than narrating the plan.\n"
+    "- multiTurn: true only if you need to actually use a tool from one of the categories above, or "
+    "need multi-step work, to give a correct, complete answer - false if you already have everything "
+    "you need right now (from the context given to you, or general knowledge/conversation that needs "
+    "no verification) to answer completely in this one response.\n"
+    "- toolsNeeded: every category above you will actually use this turn. Must be empty whenever "
+    "multiTurn is false - naming a category you won't act on is as wrong as missing one you will.\n"
+    "- planningNeeded: true only for a genuinely multi-step request that should be broken into tracked "
+    "steps rather than handled in one pass (e.g. 'plan my trip', 'help me reorganize my week around "
+    "my calendar'). Can only be true when multiTurn is also true.\n"
+    "- deferToGrowth: true only when the user wants deep, saved-for-later research/investigation that "
+    "does not need to be done right now to answer them (e.g. 'research X in depth and write it up', "
+    "'look into this thoroughly and save what you find'). This hands the topic to Amy's background "
+    "Growth system rather than looking it up live - you can still set response/multiTurn normally to "
+    "answer the user's immediate message; deferToGrowth is independent of whether you also answer now.\n"
     "- knowledgeGapTopic: a short topic string (a few words) ONLY when the user expresses genuine "
     "ongoing interest in a specific topic/project they want to learn about or work on - something Amy "
     "likely knows little about and Growth should evaluate for possible research, not something to "
@@ -230,10 +267,8 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "way. content is a short, self-contained sentence - don't assume prior context.\n\n"
     "You may also be given the single most recent exchange as brief prior context, labeled 'Prior "
     "exchange (for reference only)'. Use it ONLY to resolve what a vague follow-up refers to (\"fix "
-    "that\", \"change it to 11am today\", \"actually make it Tuesday\", \"delete it\") - classify based "
-    "on what the user is actually asking for once resolved, not the prior exchange's own content. A "
-    "correction to something just scheduled is still 'scheduling'; a correction to a task just "
-    "created is still whatever category the task itself was.\n\n"
+    "that\", \"change it to 11am today\", \"actually make it Tuesday\", \"delete it\") - respond based "
+    "on what the user is actually asking for once resolved, not the prior exchange's own content.\n\n"
     "- isCorrection: true ONLY when the current message is the user correcting a specific mistake "
     "Amy's own prior reply just made (wrong detail, wrong action, misunderstood request) - e.g. 'no, "
     "I meant tomorrow', 'that's not what I asked for', 'you got that wrong'. This is the single-turn "
@@ -250,23 +285,23 @@ class MemorableItemOutput(BaseModel):
     content: str
 
 
-class ClassifierOutput(BaseModel):
-    """Mirrors classify-tools.ts's CLASSIFIER_FORMAT JSON schema exactly -
-    deliberately NO field defaults. Real, live-verified finding: if every
-    field has a Python-side default, Pydantic's auto-generated JSON schema
-    omits the `required` array entirely, and Ollama's grammar-constrained
-    decoder then lets the model take the always-valid empty-default shortcut
-    for relevantGroups instead of being forced to actually classify - a
-    silent, always-empty-classification failure with no error anywhere.
-    The original TS CLASSIFIER_FORMAT explicitly lists all 8 fields in
-    `required`; this must match, or NativeOutput mode silently degrades to
-    always-optional/never-classified regardless of the actual message."""
+class AmyResponseOutput(BaseModel):
+    """The LLM-facing schema - deliberately NO field defaults. Real,
+    live-verified finding (carried over from this file's previous
+    classifier-only shape): if every field has a Python-side default,
+    Pydantic's auto-generated JSON schema omits the `required` array
+    entirely, and Ollama's grammar-constrained decoder then lets the model
+    take the always-valid empty-default shortcut instead of actually
+    producing every field - a silent, always-empty-output failure with no
+    error anywhere. Every field here must stay in Ollama's generated
+    `required` array, or NativeOutput mode silently degrades regardless of
+    the actual message."""
 
-    relevant_groups: list[str] = Field(alias="relevantGroups")
-    tool_policy: Literal["required", "optional"] = Field(alias="toolPolicy")
-    memory_policy: Literal["none", "optional", "relevant", "required"] = Field(alias="memoryPolicy")
-    needs_planning: bool = Field(alias="needsPlanning")
-    background: bool
+    response: str
+    multi_turn: bool = Field(alias="multiTurn")
+    tools_needed: list[str] = Field(alias="toolsNeeded")
+    planning_needed: bool = Field(alias="planningNeeded")
+    defer_to_growth: bool = Field(alias="deferToGrowth")
     knowledge_gap_topic: str | None = Field(alias="knowledgeGapTopic")
     behavior_feedback_category: str | None = Field(alias="behaviorFeedbackCategory")
     behavior_feedback_note: str | None = Field(alias="behaviorFeedbackNote")
@@ -286,13 +321,19 @@ class MemorableItem(BaseModel):
     content: str
 
 
-class ClassificationResult(BaseModel):
+class TurnOutput(BaseModel):
+    """Post-processed, invariant-enforced result - what the rest of the
+    service actually consumes. `relevant_groups`/`relevant_tools` keep these
+    exact names (not `tools_needed`) so the many existing
+    `classification.relevant_groups`/`.relevant_tools` references across
+    context_builder.py/main.py/safety_net.py don't need to change."""
+
+    response: str
+    multi_turn: bool
     relevant_groups: list[str]
     relevant_tools: list[str]
-    tool_policy: Literal["required", "optional"]
-    memory_policy: Literal["none", "optional", "relevant", "required"]
-    needs_planning: bool
-    background: bool
+    planning_needed: bool
+    defer_to_growth: bool
     knowledge_gap_topic: str | None
     behavior_feedback: BehaviorFeedback | None
     memorable_items: list[MemorableItem]
@@ -306,10 +347,9 @@ def expand_groups_to_tools(relevant_groups: list[str]) -> list[str]:
     silently drop arithmetic/date-resolution, and task_context_manage because
     an open cross-session task can be resumed by a message that doesn't
     obviously name any capability at all. 'skill_examples' is always exposed
-    too, same reasoning as memory_recall being force-added for relevant/
-    required memoryPolicy below - it's a drill-in for whichever skill ends
-    up actually bound this turn (Skills v2, see skills_discovery.py), not
-    tied to any one classifier group.
+    too, same reasoning as memory_recall being force-added below - it's a
+    drill-in for whichever skill ends up actually bound this turn (Skills v2,
+    see skills_discovery.py), not tied to any one category.
 
     'knowledge_lookup' joined this list for the identical reason calculate
     did: a classifier miss can't be allowed to silently drop it. Live-
@@ -320,14 +360,16 @@ def expand_groups_to_tools(relevant_groups: list[str]) -> list[str]:
     - with no lookup tool bound at all, the second one answered anyway,
     confidently inventing that "Zanthorax" is a Voltron character. No prompt
     wording fix generalizes across phrasings reliably enough to risk that
-    failure mode - tightening one phrasing pattern (the Hermes one) did
-    nothing for the very next one tried (the Zanthorax one). Unlike the
-    other always-bound tools, this one used to be classification-gated on
-    purpose, back when a lookup meant an unbounded, uncapped tool result -
-    now that knowledge_lookup's own per-item content is capped and grounding
-    has a deterministic backstop (has_ungrounded_specifics), over-binding it
-    on a turn that didn't need it costs little, while under-binding it on a
-    turn that did costs a confidently wrong answer with nothing to catch it."""
+    failure mode. Over-binding this on a turn that didn't need it costs
+    little now that knowledge_lookup's own per-item content is capped and
+    grounding has a deterministic backstop (has_ungrounded_specifics);
+    under-binding it on a turn that did need it costs a confidently wrong
+    answer with nothing to catch it.
+
+    Only called when multiTurn is true - see _normalize_output, which forces
+    relevant_tools to [] on the fast path, which is what lets every
+    downstream safety-net check in main.py degrade correctly with zero
+    special-casing."""
     tools: set[str] = {"calculate", "task_context_manage", "skill_examples", "knowledge_lookup"}
     for group in relevant_groups:
         for member in GROUPS.get(group, []):
@@ -335,65 +377,49 @@ def expand_groups_to_tools(relevant_groups: list[str]) -> list[str]:
     return list(tools)
 
 
-def apply_background_override(
-    background: bool, relevant_groups: list[str], relevant_tools: list[str]
-) -> tuple[bool, list[str]]:
-    """Force-expose Growth research request/status for a background
-    request even if 'research' wasn't classified. A background request about
-    something else entirely (Spotify, the calendar) has no generic
-    background-any-tool executor, so it silently falls back to the normal
-    synchronous path rather than claiming a background mode that can't do
-    anything differently."""
-    if not background:
-        return False, relevant_tools
-    has_backgroundable_work = "research" in relevant_groups or "web" in relevant_groups
-    if not has_backgroundable_work:
-        return False, relevant_tools
-    return True, list(dict.fromkeys([*relevant_tools, "growth_research_request", "research_task_status"]))
-
-
-async def _classify_with_ollama(
-    ollama_host: str, model: str, prompt: str
-) -> ClassifierOutput:
-    """Classify through Ollama's native API with thinking disabled and JSON constrained."""
-    schema = ClassifierOutput.model_json_schema(by_alias=True)
+async def _call_ollama(ollama_host: str, model: str, system_prompt: str, prompt: str) -> AmyResponseOutput:
+    """Single native-API call with thinking disabled and JSON constrained -
+    see module docstring for why this stays off the OpenAI-compatible
+    endpoint and off thinking mode."""
+    schema = AmyResponseOutput.model_json_schema(by_alias=True)
     payload = {
         "model": model,
         "stream": False,
         "think": False,
         "format": schema,
-        "options": {"num_predict": _CLASSIFIER_MAX_OUTPUT_TOKENS},
+        "options": {"num_predict": _RESPOND_MAX_OUTPUT_TOKENS},
         "messages": [
-            {"role": "system", "content": _CLASSIFIER_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
     }
-    async with httpx.AsyncClient(timeout=_CLASSIFIER_TIMEOUT_SECONDS) as client:
+    async with httpx.AsyncClient(timeout=_RESPOND_TIMEOUT_SECONDS) as client:
         response = await client.post(f"{ollama_host}/api/chat", json=payload)
         response.raise_for_status()
     content = response.json().get("message", {}).get("content", "")
     if not content:
-        raise ValueError("Ollama classifier response had no message content")
-    return ClassifierOutput.model_validate_json(content)
+        raise ValueError("Ollama response had no message content")
+    return AmyResponseOutput.model_validate_json(content)
 
 
-def _fallback_result(chat_input: str) -> ClassificationResult:
-    # Classifier failure degrades to "only calculate/task_context_manage"
-    # rather than "all tools" - a classifier hiccup can't reintroduce the
-    # exact large-tool-set failure mode this step exists to avoid.
+def _fallback_result(chat_input: str) -> TurnOutput:
+    # Failure degrades to "only calculate/task_context_manage, answer
+    # nothing" rather than "all tools, invent an answer" - a hiccup here
+    # can't reintroduce the exact large-tool-set failure mode this step
+    # exists to avoid, and can't silently fabricate a fast-path answer
+    # either, so multi_turn is forced true to let the tool-capable agent
+    # call actually produce the reply instead of trusting an empty one.
     explicit_lookup = bool(EXPLICIT_LOOKUP_INTENT.search(chat_input))
     likely_lookup = bool(LIKELY_FACTUAL_QUESTION.search(chat_input)) and not NON_LOOKUP_QUESTION.search(chat_input)
     groups = ["web"] if explicit_lookup or likely_lookup else []
     explicit_research = bool(EXPLICIT_RESEARCH_REQUEST.search(chat_input))
-    if explicit_research:
-        groups.append("research")
-    return ClassificationResult(
+    return TurnOutput(
+        response="",
+        multi_turn=True,
         relevant_groups=groups,
         relevant_tools=expand_groups_to_tools(groups),
-        tool_policy="required" if groups else "optional",
-        memory_policy="optional",
-        needs_planning=False,
-        background=False,
+        planning_needed=False,
+        defer_to_growth=explicit_research,
         knowledge_gap_topic=None,
         behavior_feedback=None,
         memorable_items=[],
@@ -402,101 +428,131 @@ def _fallback_result(chat_input: str) -> ClassificationResult:
     )
 
 
-async def classify_relevant_tools(
+def _normalize_output(
+    parsed: AmyResponseOutput,
+    chat_input: str,
+    recent_context: str | None,
+    open_teaching_session: bool = False,
+) -> TurnOutput:
+    """Pure, deterministic post-processing - every invariant the schema
+    promises is enforced here, not just hoped for from the prompt. No
+    network, fully unit-testable."""
+    relevant_groups = [g for g in parsed.tools_needed if g in TOOL_GROUPS]
+    multi_turn = parsed.multi_turn
+
+    # Deterministic guards below force a group into relevant_groups AND
+    # force multi_turn true together, always as a pair - forcing the group
+    # alone would be inert: relevant_tools is forced to [] whenever
+    # multi_turn is false (below), so a forced group the model itself didn't
+    # also flag as needing more work would silently do nothing. Under the
+    # old architecture (every turn always ran the tool-capable call
+    # regardless of classification) this pairing wasn't needed; it is now.
+
+    # A standing-instruction/teaching cue always gets self-growth,
+    # regardless of what other category the model also matched - see
+    # STANDING_INSTRUCTION_INTENT's comment above for why this can't just
+    # be a prompt reminder.
+    if "self-growth" not in relevant_groups and STANDING_INSTRUCTION_INTENT.search(chat_input):
+        relevant_groups.append("self-growth")
+        multi_turn = True
+
+    # An already-open teaching session (growth_db.get_open_teaching_session)
+    # force-binds self-growth the same way - moved here from
+    # context_builder.py so the one normalization function owns every
+    # deterministic group override, not two.
+    if open_teaching_session and "self-growth" not in relevant_groups:
+        relevant_groups.append("self-growth")
+        multi_turn = True
+
+    explicit_lookup = bool(EXPLICIT_LOOKUP_INTENT.search(chat_input))
+    if explicit_lookup and "web" not in relevant_groups:
+        relevant_groups.append("web")
+        multi_turn = True
+
+    explicit_research = bool(EXPLICIT_RESEARCH_REQUEST.search(chat_input))
+    # Forces defer_to_growth regardless of the model's own output - same
+    # "don't trust the model to be disciplined" pattern as every guard
+    # above. Deliberately NOT paired with multi_turn: deferToGrowth calls
+    # straight into growth_db.record_observation server-side (see main.py),
+    # independent of whatever this turn's own response/multiTurn is -
+    # answering now and separately enqueuing research aren't exclusive.
+    defer_to_growth = parsed.defer_to_growth or explicit_research
+
+    # multiTurn=false collapses the whole tool-capable second call away -
+    # forcing relevant_tools to [] here (rather than trusting the model to
+    # also leave toolsNeeded empty) is what makes every downstream
+    # safety-net check in main.py degrade correctly with zero special-
+    # casing: has_unfulfilled_search_intent/has_unsatisfied_required_tool
+    # naturally return False against an empty bound-tools list,
+    # has_unaddressed_teaching_intent can't fire since relevant_groups can
+    # only contain self-growth when multi_turn forces it true anyway, and
+    # the confabulation/fabricated-id/citation checks still apply exactly
+    # as intended since they check the reply against actually-empty
+    # called_tools/tool_results.
+    relevant_tools = expand_groups_to_tools(relevant_groups) if multi_turn else []
+
+    # Both invariants enforced by coercion, not reject-and-fallback -
+    # rejecting the whole call over one bad field wastes the entire
+    # response the model already produced.
+    planning_needed = bool(parsed.planning_needed and multi_turn and not defer_to_growth)
+
+    # Same "don't trust the model to be disciplined" lesson as above: a
+    # correction is inherently about the immediately preceding turn, so
+    # it's impossible without one.
+    is_correction = bool(parsed.is_correction and recent_context)
+
+    knowledge_gap_topic = (
+        parsed.knowledge_gap_topic.strip()
+        if parsed.knowledge_gap_topic and parsed.knowledge_gap_topic.strip()
+        else None
+    )
+
+    behavior_feedback = (
+        BehaviorFeedback(category=parsed.behavior_feedback_category, note=parsed.behavior_feedback_note.strip())
+        if parsed.behavior_feedback_category in BEHAVIOR_FEEDBACK_CATEGORIES
+        and parsed.behavior_feedback_note
+        and parsed.behavior_feedback_note.strip()
+        else None
+    )
+
+    memorable_items = [
+        MemorableItem(type=item.type, content=item.content.strip())
+        for item in parsed.memorable_items
+        if item.type in MEMORABLE_ITEM_TYPES and item.content and item.content.strip()
+    ]
+
+    return TurnOutput(
+        response=parsed.response,
+        multi_turn=multi_turn,
+        relevant_groups=relevant_groups,
+        relevant_tools=relevant_tools,
+        planning_needed=planning_needed,
+        defer_to_growth=defer_to_growth,
+        knowledge_gap_topic=knowledge_gap_topic,
+        behavior_feedback=behavior_feedback,
+        memorable_items=memorable_items,
+        is_correction=is_correction,
+        explicit_research_request=explicit_research,
+    )
+
+
+async def generate_response(
     ollama_host: str,
     model: str,
     chat_input: str,
+    system_prompt: str,
     # Last exchange only, not full history - just enough to resolve an
     # anaphoric follow-up ("fix that", "delete it"), kept short since this
     # call runs on every message.
     recent_context: str | None = None,
-) -> ClassificationResult:
+    open_teaching_session: bool = False,
+) -> TurnOutput:
     try:
         prompt = chat_input
         if recent_context:
             prompt = f"Prior exchange (for reference only):\n{recent_context}\n\n{chat_input}"
-        parsed = await _classify_with_ollama(ollama_host, model, prompt)
-
-        relevant_groups = [g for g in parsed.relevant_groups if g in TOOL_GROUPS]
-
-        # Deterministic guard: a standing-instruction/teaching cue always
-        # gets self-growth (so teaching_session_manage is bound),
-        # regardless of what other category the model also matched - see
-        # STANDING_INSTRUCTION_INTENT's comment above for why this can't
-        # just be a prompt reminder.
-        if "self-growth" not in relevant_groups and STANDING_INSTRUCTION_INTENT.search(chat_input):
-            relevant_groups.append("self-growth")
-
-        # The legacy categories remain useful classification labels, but
-        # both map to the same combined saved-knowledge + web lookup tool.
-        explicit_lookup = bool(EXPLICIT_LOOKUP_INTENT.search(chat_input))
-        if explicit_lookup and "web" not in relevant_groups:
-            relevant_groups.append("web")
-        explicit_research = bool(EXPLICIT_RESEARCH_REQUEST.search(chat_input))
-        if explicit_research and "research" not in relevant_groups:
-            relevant_groups.append("research")
-
-        background, tools_after_background = apply_background_override(
-            parsed.background, relevant_groups, expand_groups_to_tools(relevant_groups)
-        )
-        # Force-expose memory_recall for relevant/required memoryPolicy even
-        # if 'info' wasn't classified.
-        relevant_tools = (
-            list(dict.fromkeys([*tools_after_background, "memory_recall"]))
-            if parsed.memory_policy in ("relevant", "required")
-            else tools_after_background
-        )
-
-        # Deterministic guard, not just trusting the model: a correction is
-        # inherently about the immediately preceding turn, so it's
-        # impossible without one - same "don't trust the model to be
-        # disciplined when a deterministic constraint can enforce it
-        # instead" lesson as calculate.ts/safety-net.ts's tool-policy
-        # enforcement.
-        is_correction = bool(parsed.is_correction and recent_context)
-
-        # Force-expose memory_forget whenever the message itself is a
-        # correction - the exact moment it's needed, left to chance
-        # otherwise: 'info' would need to be classified AND the model
-        # would need to separately decide to call this one specific tool.
-        # Same "don't trust the model to remember on its own" lesson as
-        # memory_recall above.
-        if is_correction:
-            relevant_tools = list(dict.fromkeys([*relevant_tools, "memory_forget"]))
-
-        knowledge_gap_topic = (
-            parsed.knowledge_gap_topic.strip()
-            if parsed.knowledge_gap_topic and parsed.knowledge_gap_topic.strip()
-            else None
-        )
-
-        behavior_feedback = (
-            BehaviorFeedback(category=parsed.behavior_feedback_category, note=parsed.behavior_feedback_note.strip())
-            if parsed.behavior_feedback_category in BEHAVIOR_FEEDBACK_CATEGORIES
-            and parsed.behavior_feedback_note
-            and parsed.behavior_feedback_note.strip()
-            else None
-        )
-
-        memorable_items = [
-            MemorableItem(type=item.type, content=item.content.strip())
-            for item in parsed.memorable_items
-            if item.type in MEMORABLE_ITEM_TYPES and item.content and item.content.strip()
-        ]
-
-        return ClassificationResult(
-            relevant_groups=relevant_groups,
-            relevant_tools=relevant_tools,
-            tool_policy="required" if explicit_lookup or explicit_research else parsed.tool_policy,
-            memory_policy=parsed.memory_policy,
-            needs_planning=parsed.needs_planning,
-            background=background,
-            knowledge_gap_topic=knowledge_gap_topic,
-            behavior_feedback=behavior_feedback,
-            memorable_items=memorable_items,
-            is_correction=is_correction,
-            explicit_research_request=explicit_research,
-        )
+        parsed = await _call_ollama(ollama_host, model, system_prompt, prompt)
+        return _normalize_output(parsed, chat_input, recent_context, open_teaching_session)
     except Exception:
-        logger.exception("classify_relevant_tools failed, falling back to calculate-only")
+        logger.exception("generate_response failed, falling back to calculate-only, multi_turn=True")
         return _fallback_result(chat_input)
