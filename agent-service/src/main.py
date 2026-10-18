@@ -574,6 +574,16 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+                else:
+                    # Same bug class fixed above, one level deeper: this
+                    # retry's own trace event already reset the client's
+                    # displayed content (chat-ui's reducer does this on
+                    # every kind="retry" event), but this attempt produced
+                    # no new text, so final_text reverts to whatever it
+                    # was before the retry - which was never re-sent. Must
+                    # re-emit it explicitly or the client is left with
+                    # nothing for the rest of the turn.
+                    yield emit("item", final_text)
 
             tool_required = bool(turn_output.relevant_groups)
             required_tools = ["knowledge_lookup"] if "web" in turn_output.relevant_groups else []
@@ -612,6 +622,16 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+                else:
+                    # Same bug class fixed above, one level deeper: this
+                    # retry's own trace event already reset the client's
+                    # displayed content (chat-ui's reducer does this on
+                    # every kind="retry" event), but this attempt produced
+                    # no new text, so final_text reverts to whatever it
+                    # was before the retry - which was never re-sent. Must
+                    # re-emit it explicitly or the client is left with
+                    # nothing for the rest of the turn.
+                    yield emit("item", final_text)
 
             if has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools):
                 # Same bug class as the fast-path fix above: this overrides
@@ -716,6 +736,16 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+                else:
+                    # Same bug class fixed above, one level deeper: this
+                    # retry's own trace event already reset the client's
+                    # displayed content (chat-ui's reducer does this on
+                    # every kind="retry" event), but this attempt produced
+                    # no new text, so final_text reverts to whatever it
+                    # was before the retry - which was never re-sent. Must
+                    # re-emit it explicitly or the client is left with
+                    # nothing for the rest of the turn.
+                    yield emit("item", final_text)
 
             if has_fabricated_id_reference(final_text, state.called_tools, state.tool_results):
                 asyncio.create_task(
@@ -737,6 +767,16 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+                else:
+                    # Same bug class fixed above, one level deeper: this
+                    # retry's own trace event already reset the client's
+                    # displayed content (chat-ui's reducer does this on
+                    # every kind="retry" event), but this attempt produced
+                    # no new text, so final_text reverts to whatever it
+                    # was before the retry - which was never re-sent. Must
+                    # re-emit it explicitly or the client is left with
+                    # nothing for the rest of the turn.
+                    yield emit("item", final_text)
 
             if has_status_narration_mismatch(final_text, state.called_tools, state.tool_results):
                 asyncio.create_task(
@@ -758,6 +798,16 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+                else:
+                    # Same bug class fixed above, one level deeper: this
+                    # retry's own trace event already reset the client's
+                    # displayed content (chat-ui's reducer does this on
+                    # every kind="retry" event), but this attempt produced
+                    # no new text, so final_text reverts to whatever it
+                    # was before the retry - which was never re-sent. Must
+                    # re-emit it explicitly or the client is left with
+                    # nothing for the rest of the turn.
+                    yield emit("item", final_text)
 
             if has_unwarranted_checking_opener(final_text, state.called_tools):
                 asyncio.create_task(
@@ -779,6 +829,16 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+                else:
+                    # Same bug class fixed above, one level deeper: this
+                    # retry's own trace event already reset the client's
+                    # displayed content (chat-ui's reducer does this on
+                    # every kind="retry" event), but this attempt produced
+                    # no new text, so final_text reverts to whatever it
+                    # was before the retry - which was never re-sent. Must
+                    # re-emit it explicitly or the client is left with
+                    # nothing for the rest of the turn.
+                    yield emit("item", final_text)
 
             if has_tool_failure_narration(final_text, state.called_tools):
                 asyncio.create_task(
@@ -800,6 +860,16 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+                else:
+                    # Same bug class fixed above, one level deeper: this
+                    # retry's own trace event already reset the client's
+                    # displayed content (chat-ui's reducer does this on
+                    # every kind="retry" event), but this attempt produced
+                    # no new text, so final_text reverts to whatever it
+                    # was before the retry - which was never re-sent. Must
+                    # re-emit it explicitly or the client is left with
+                    # nothing for the rest of the turn.
+                    yield emit("item", final_text)
 
             if has_unsatisfied_required_tool(
                 tool_required, bound_tools, state.called_tools, turn_output.relevant_groups,
@@ -829,6 +899,16 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+                else:
+                    # Same bug class fixed above, one level deeper: this
+                    # retry's own trace event already reset the client's
+                    # displayed content (chat-ui's reducer does this on
+                    # every kind="retry" event), but this attempt produced
+                    # no new text, so final_text reverts to whatever it
+                    # was before the retry - which was never re-sent. Must
+                    # re-emit it explicitly or the client is left with
+                    # nothing for the rest of the turn.
+                    yield emit("item", final_text)
                 if has_unsatisfied_required_tool(
                     tool_required, bound_tools, state.called_tools, turn_output.relevant_groups,
                     required_tools,
@@ -858,6 +938,16 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+                else:
+                    # Same bug class fixed above, one level deeper: this
+                    # retry's own trace event already reset the client's
+                    # displayed content (chat-ui's reducer does this on
+                    # every kind="retry" event), but this attempt produced
+                    # no new text, so final_text reverts to whatever it
+                    # was before the retry - which was never re-sent. Must
+                    # re-emit it explicitly or the client is left with
+                    # nothing for the rest of the turn.
+                    yield emit("item", final_text)
 
             if has_trailing_confirmation_question(final_text, tool_required):
                 asyncio.create_task(
@@ -885,6 +975,16 @@ async def webhook(request: Request):
                 retry_text = _attempt.text
                 if retry_text.strip():
                     final_text = retry_text
+                else:
+                    # Same bug class fixed above, one level deeper: this
+                    # retry's own trace event already reset the client's
+                    # displayed content (chat-ui's reducer does this on
+                    # every kind="retry" event), but this attempt produced
+                    # no new text, so final_text reverts to whatever it
+                    # was before the retry - which was never re-sent. Must
+                    # re-emit it explicitly or the client is left with
+                    # nothing for the rest of the turn.
+                    yield emit("item", final_text)
 
             # Deterministic tone backstop - runs after every retry above
             # (including the trailing-confirmation one) has settled, since
