@@ -309,7 +309,23 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         else ""
     )
 
-    skills_line = f"Skills you have learned:\n\n{input.skills_catalog_text}" if input.skills_catalog_text else ""
+    # Meaningless at budget=="fast" for the same reason action_clarify_line
+    # is: that attempt never calls a tool/skill at all, so a catalog of
+    # how to use them has nothing to apply to this call specifically -
+    # real, measured finding: combined with RESPOND_INSTRUCTIONS (a new
+    # ~10K-char addition), the fast tier's assembled prompt hit 41,798
+    # chars on a live turn - bigger than the 35,348-char prompt that
+    # caused the original context-dilution fabrication bug, because the
+    # "always billed" sections grew without anything shrinking to match.
+    # In the old two-call architecture, the classifier's own prompt and
+    # the full agent prompt were never combined into one call; skipping
+    # skills here is the first and largest lever to keep the merged fast
+    # call from costing more than either call used to alone.
+    skills_line = (
+        f"Skills you have learned:\n\n{input.skills_catalog_text}"
+        if input.skills_catalog_text and input.budget != "fast"
+        else ""
+    )
 
     # Only meaningful for the budget=="fast" call (respond.py) - the output-
     # schema contract (response/multiTurn/toolsNeeded/...) that call's JSON
