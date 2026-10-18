@@ -166,6 +166,41 @@ def test_normalize_output_memorable_items_filters_unknown_types():
     assert result.memorable_items[0].type == "fact"
 
 
+def test_normalize_output_calculation_intent_forces_multi_turn():
+    result = _normalize_output(
+        _output(multiTurn=False, toolsNeeded=[], response="That would be about $11."),
+        "What's a 18% tip on a $64.30 bill?",
+        None,
+    )
+    assert result.multi_turn is True
+    assert "calculate" in result.relevant_tools
+
+
+def test_normalize_output_calculation_intent_ignores_unrelated_numbers():
+    result = _normalize_output(
+        _output(multiTurn=False, toolsNeeded=[]), "My car is a 2019 Subaru Outback.", None
+    )
+    assert result.multi_turn is False
+
+
+def test_normalize_output_current_info_intent_forces_web_and_multi_turn():
+    result = _normalize_output(
+        _output(multiTurn=False, toolsNeeded=[], response="It's v20."),
+        "What is the latest stable version of Node.js?",
+        None,
+    )
+    assert result.multi_turn is True
+    assert "web" in result.relevant_groups
+    assert "knowledge_lookup" in result.relevant_tools
+
+
+def test_normalize_output_current_info_intent_ignores_unrelated_questions():
+    result = _normalize_output(
+        _output(multiTurn=False, toolsNeeded=[]), "What's the capital of France?", None
+    )
+    assert result.multi_turn is False
+
+
 def test_normalize_output_behavior_feedback_requires_known_category_and_nonempty_note():
     result = _normalize_output(
         _output(behaviorFeedbackCategory="not-a-real-category", behaviorFeedbackNote="some note"),

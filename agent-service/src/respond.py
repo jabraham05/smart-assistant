@@ -133,6 +133,29 @@ EXPLICIT_LOOKUP_INTENT = re.compile(
 LIKELY_FACTUAL_QUESTION = re.compile(r"^\s*(what|who|when|where|which|how)\b", re.IGNORECASE)
 NON_LOOKUP_QUESTION = re.compile(r"\b(calendar|schedule|weather|spotify|music|myself|about me|told you|remember me)\b", re.IGNORECASE)
 
+# Real gap found via live testing (2026-10-18): "What's a 18% tip on a
+# $64.30 bill?" and "What is the latest stable version of Node.js?" both
+# got multiTurn=false from the model's own judgment, leaving the fast,
+# no-tool-call path to guess a dollar figure and a version number from
+# training knowledge instead of actually computing/checking either -
+# exactly the class of thing the fast path has zero backstop for, since it
+# has no tool access at all. Same "don't trust the model to be disciplined
+# when a deterministic constraint can enforce it instead" pattern as every
+# other guard in this file - force multiTurn true for these two narrow,
+# cheap-to-verify cases rather than trusting the model's own multiTurn
+# self-report. Forcing this doesn't need to add a whole new tool to the
+# bound set either - calculate/knowledge_lookup are already in
+# expand_groups_to_tools's unconditional baseline, so simply letting the
+# tool-capable second call happen at all is enough.
+NEEDS_CALCULATION_INTENT = re.compile(
+    r"\d+\s*%|\$\s*\d|\btip\b|\bpercent(age)?\b|\bdiscount\b|\d+\s*[-+*/]\s*\d+",
+    re.IGNORECASE,
+)
+NEEDS_CURRENT_INFO_INTENT = re.compile(
+    r"\b(latest|newest|most\s+recent|current)\s+(\w+\s+)?(version|release|price|update|model|edition)\b",
+    re.IGNORECASE,
+)
+
 # Forces deferToGrowth regardless of what the model set - same "don't trust
 # the model to be disciplined when a deterministic constraint can enforce
 # it instead" pattern as every other guard in this file. This used to also
@@ -467,6 +490,21 @@ def _normalize_output(
     explicit_lookup = bool(EXPLICIT_LOOKUP_INTENT.search(chat_input))
     if explicit_lookup and "web" not in relevant_groups:
         relevant_groups.append("web")
+        multi_turn = True
+
+    # Narrower than explicit_lookup above - catches a question that reads
+    # as needing a live/current check without saying so explicitly (e.g.
+    # "what is the latest stable version of X"), which the model's own
+    # multiTurn judgment missed live (see NEEDS_CURRENT_INFO_INTENT's
+    # comment).
+    if NEEDS_CURRENT_INFO_INTENT.search(chat_input) and "web" not in relevant_groups:
+        relevant_groups.append("web")
+        multi_turn = True
+
+    # No group needed here - calculate is already in
+    # expand_groups_to_tools's unconditional baseline, so forcing
+    # multi_turn alone is enough to make it reachable.
+    if NEEDS_CALCULATION_INTENT.search(chat_input):
         multi_turn = True
 
     explicit_research = bool(EXPLICIT_RESEARCH_REQUEST.search(chat_input))
