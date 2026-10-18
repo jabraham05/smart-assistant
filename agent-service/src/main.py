@@ -514,7 +514,18 @@ async def webhook(request: Request):
                 # model call at all. state stays at its default (no tools
                 # called, attempt=0), which is exactly what every safety-net
                 # check below expects for a turn that genuinely used none.
+                # Real, live-verified bug fixed here: unlike the multiTurn
+                # branch (whose "ack" carries text to the client, and whose
+                # _run_turn streams "item" events live) and unlike every
+                # retry path below (which also streams live via _run_turn),
+                # nothing on this branch ever put turn_output.response on
+                # the wire - the client saw "begin" then "end" with zero
+                # content in between, every time tone_backstop's cleanup
+                # happened to find nothing to strip (the common case). Must
+                # emit it explicitly, the same "item" event type a normal
+                # streamed reply uses.
                 final_text = turn_output.response
+                yield emit("item", final_text)
 
             # One-shot empty-output retry - same shape as chat-orchestrator's.
             # Also the fallback path if the fast, no-tool response somehow
@@ -533,7 +544,14 @@ async def webhook(request: Request):
                 final_text = _attempt.text
 
             if not final_text.strip():
+                # Pre-existing gap, not new to this change: if tone_backstop
+                # below finds nothing to strip from this literal string (the
+                # common case - it has no emoji/stock-closers), it never
+                # gets put on the wire either, same root cause as the fix
+                # above. Rare in practice (needs two consecutive empty
+                # model outputs), but cheap to fix while already here.
                 final_text = "No response was generated for that message — try asking again."
+                yield emit("item", final_text)
 
             # Deterministic tool-error retry, up to a small cap.
             retries = 0
@@ -596,10 +614,19 @@ async def webhook(request: Request):
                     final_text = retry_text
 
             if has_unfulfilled_search_intent(final_text, bound_tools, state.called_tools):
+                # Same bug class as the fast-path fix above: this overrides
+                # final_text with an honest fallback AFTER the last retry
+                # already streamed its own (still-failing) text live to the
+                # client - without re-emitting, the user keeps seeing that
+                # stale streamed text forever, never this message. The
+                # retry trace resets chat-ui's displayed content exactly
+                # like a real retry does.
                 final_text = (
                     "I wasn't able to actually complete a search for that just now, sir - rather than guess, "
                     "ask me again and I'll try again."
                 )
+                yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "search_intent_fallback"})
+                yield emit("item", final_text)
 
             injected_evidence = [
                 *(m.content for m in relevant_memory_results),
@@ -632,6 +659,8 @@ async def webhook(request: Request):
                     final_text = _attempt.text
                 if has_ungrounded_citation(final_text, state.called_tools, state.tool_results, citation_evidence):
                     final_text = UNGROUNDED_CITATION_FAILURE_MESSAGE
+                    yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "ungrounded_citation_fallback"})
+                    yield emit("item", final_text)
 
             ungrounded_retries = 0
             while (
@@ -662,6 +691,8 @@ async def webhook(request: Request):
 
             if has_ungrounded_specifics(final_text, state.called_tools, state.tool_results, injected_evidence):
                 final_text = UNGROUNDED_SPECIFICS_FAILURE_MESSAGE
+                yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "ungrounded_specifics_fallback"})
+                yield emit("item", final_text)
 
             if is_confabulated_action(final_text, bound_tools, state.called_tools):
                 asyncio.create_task(
@@ -803,6 +834,8 @@ async def webhook(request: Request):
                     required_tools,
                 ):
                     final_text = REQUIRED_TOOL_FAILURE_MESSAGE
+                    yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "required_tool_fallback"})
+                    yield emit("item", final_text)
 
             if has_unaddressed_teaching_intent(chat_input, turn_output.relevant_groups, state.called_tools):
                 asyncio.create_task(
