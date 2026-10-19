@@ -1101,7 +1101,10 @@ async def webhook(request: Request):
             memory_domain = ",".join(turn_output.relevant_groups) or None
             memory_task_context_id = open_tasks[0].id if open_tasks else None
             await asyncio.gather(
-                honcho_client.store_turn(config, session_id, chat_input, final_text),
+                honcho_client.store_turn(
+                    config, session_id, chat_input, final_text,
+                    response_blocks.history_metadata(turn_output.relevant_groups, final_text, beats_enabled),
+                ),
                 session_memory.append_turn(config, session_id, chat_input, final_text),
                 memory_client.ingest_memory(
                     config,

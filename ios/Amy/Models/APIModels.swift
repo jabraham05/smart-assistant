@@ -39,12 +39,23 @@ struct HistoryMessage: Decodable, Sendable {
     let content: String
     let peerId: String
     let createdAt: String
+    /// How the reply was laid out live, stored with it by agent-service
+    /// (response_blocks.history_metadata) so a reload looks the same.
+    /// Absent for user messages, plain replies, and anything stored
+    /// before this existed.
+    var metadata: HistoryMetadata?
 
     enum CodingKeys: String, CodingKey {
-        case id, content
+        case id, content, metadata
         case peerId = "peer_id"
         case createdAt = "created_at"
     }
+}
+
+struct HistoryMetadata: Decodable, Sendable {
+    /// "report" or "beats"; anything else renders as a plain bubble.
+    var replyLayout: String?
+    var reportTitle: String?
 }
 
 /// N8nStreamEvent - one NDJSON line of POST /api/chat. Decoding is

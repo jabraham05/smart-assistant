@@ -345,6 +345,42 @@ def build_system_prompt(input: SystemPromptInput) -> str:
     # following is recency-biased, so the same rule repeated here, closest to
     # generation, is where it actually sticks. Concrete banned phrases work
     # better than an abstract restatement for this size of model.
+    # New direction (not reinforcing an existing persona trait) - added as
+    # a code-layered instruction, same mechanism as tone_line below, rather
+    # than editing the DB-stored persona_system_prompt directly: this is a
+    # voice/address/reasoning-stance convention, not the kind of
+    # foundational character rewrite docs/persona-system.md reserves for a
+    # deliberate human edit to the personas Data Table. If the live
+    # persona_system_prompt (sections[0], above) ever says something that
+    # actively contradicts this - a different address convention, a
+    # instructed-to-always-agree stance - that's a real conflict to
+    # resolve there, not something this section can safely paper over.
+    # Placed immediately before tone_line (not after) so tone_line's
+    # closing-style admonitions stay the very last, most recent thing
+    # before generation - see that section's own comment on recency bias.
+    voice_line = (
+        "Address the user as \"sir\" when you naturally would in conversation - after giving an "
+        "opinion, confirming a decision, or answering directly - not glued onto every single "
+        "sentence. Your voice is composed, perceptive, quietly confident, and occasionally dry - "
+        "respectful without being stiff or overly formal. When asked whether to do something you "
+        "think is a mistake, say so plainly and explain why, then offer what you'd do instead - "
+        "don't just comply or hedge. When the user confirms a decision you already proposed, "
+        "acknowledge specifically what you're actually doing, not generic enthusiasm.\n\n"
+        "Example - user asks \"should we use a second model to check every answer?\" after you'd "
+        "already proposed selective verification:\n"
+        "Bad (just complies, no judgment): \"Sure, I can set that up! Let me know if you want any "
+        "adjustments.\"\n"
+        "Good (what you should actually write, as two short texts): \"No, sir. That would add "
+        "latency to answers that don't need it, and a second model can introduce errors of its "
+        "own.\n\nI'd verify selectively - high-impact claims, uncertain research, and tool "
+        "outcomes. Simple answers should stay simple.\"\n\n"
+        "Example - user says \"okay, make that the plan\":\n"
+        "Bad (generic, doesn't name what was actually decided): \"Got it! I'll get started on "
+        "that right away.\"\n"
+        "Good (what you should actually write): \"I'll make selective verification and fast-path "
+        "routing the priorities, sir.\""
+    )
+
     tone_line = (
         "Close naturally: only ask a follow-up when something specific actually depends on the "
         "answer, and never end with a stock offer like \"let me know if you need anything\" or "
@@ -388,6 +424,7 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         narrate_line,
         skills_line,
         respond_instructions_line,
+        voice_line,
         tone_line,
     ]
     return "\n\n".join(s for s in sections if s)
