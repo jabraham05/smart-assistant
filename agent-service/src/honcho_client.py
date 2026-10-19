@@ -12,7 +12,7 @@ import logging
 
 import httpx
 
-from .config import Config
+from .config import Config, is_test_session
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,8 @@ def _workspace_url(config: Config, path: str) -> str:
 
 
 async def ensure_session_exists(config: Config, session_id: str) -> None:
+    if is_test_session(session_id):
+        return
     try:
         async with httpx.AsyncClient() as client:
             await client.post(
@@ -38,6 +40,8 @@ async def ensure_session_exists(config: Config, session_id: str) -> None:
 
 
 async def set_user_observe_config(config: Config, session_id: str) -> None:
+    if is_test_session(session_id):
+        return
     try:
         async with httpx.AsyncClient() as client:
             await client.put(
@@ -72,6 +76,8 @@ async def get_user_card_for_amy(config: Config) -> list[str]:
 async def store_turn(
     config: Config, session_id: str, user_message: str, amy_message: str, amy_metadata: dict | None = None
 ) -> None:
+    if is_test_session(session_id):
+        return
     amy_entry: dict = {"content": amy_message, "peer_id": "amy"}
     if amy_metadata:
         amy_entry["metadata"] = amy_metadata

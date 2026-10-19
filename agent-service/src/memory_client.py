@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from .config import Config
+from .config import Config, is_test_session
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,8 @@ async def ingest_memory(
     task_context_id: int | None = None,
     grounding: str = "ungrounded",
 ) -> None:
+    if is_test_session(session_id):
+        return
     try:
         async with httpx.AsyncClient() as client:
             await client.post(

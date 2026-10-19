@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from .config import Config
+from .config import Config, is_test_session
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,8 @@ async def create_entity_from_chat(
     validation all happen inside knowledge-engine's own POST /entities; this
     is a thin, fail-silent client.
     """
+    if is_test_session(session_id):
+        return
     try:
         async with httpx.AsyncClient() as client:
             await client.post(

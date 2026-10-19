@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from .config import Config
+from .config import Config, is_test_session
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,8 @@ async def publish_behavior_feedback(config: Config, session_id: str, category: s
     Fire-and-forget, same swallow-and-log pattern as match_task_contexts/
     match_goals above - a slow/unreachable event-bus must never affect the
     actual chat turn."""
+    if is_test_session(session_id):
+        return
     try:
         async with httpx.AsyncClient() as client:
             await client.post(
