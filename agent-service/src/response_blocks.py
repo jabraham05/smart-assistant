@@ -18,11 +18,17 @@ safety_net.py:
   instead of one. Decided live, beat by beat, as text arrives - not a
   post-hoc split of the finished reply.
 
-Report-eligibility and beat-flushing are mutually exclusive per turn (see
-main.py's `is_report_eligible` gate, computed once from `relevant_groups`
-before generation starts): a report-eligible turn never beat-flushes (it
-stays a single growing bubble until the end, then maybe becomes a report
-card); every other turn is always beat-flush-eligible instead.
+Beats flush live on every turn now, including knowledge/web/research/
+self-growth ones - a prior version gated beats off for those categories
+to avoid ever needing to collapse live bubbles into a report card, but
+that made every reply in those categories (a common case, especially
+anything "consolidating information" for the user) render as one dense
+paragraph with no separate texts at all, which was worse. The rare case
+where a beat-split reply still ends up classified `"report"` once
+`final_text` is fully known is handled client-side instead - iOS's
+ChatViewModel collapses this turn's beat bubbles back to one, the same
+mechanism it already uses for a mid-turn retry, the moment the `report`
+block arrives.
 """
 
 from __future__ import annotations

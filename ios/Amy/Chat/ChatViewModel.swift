@@ -112,6 +112,23 @@ final class ChatViewModel {
                     reducer.beginNewMessage(id: turnMessageId)
                 }
 
+                // Feature A: beats now flush live on every turn, including
+                // knowledge/web/research/self-growth ones - so a reply
+                // that already split into several bubbles can still turn
+                // out long/structured enough to become a report once
+                // `final_text` is fully known. Collapse back to one
+                // bubble first, exactly like the mid-turn retry case
+                // above, so the report card replaces a single message
+                // rather than leaving several already-shown bubbles
+                // sitting above it. (Tool-call step chips from earlier
+                // beats are lost here, same as on a retry collapse - an
+                // accepted trade-off, not an oversight.)
+                if event.type == .block, let block = event.block, case .report = block, index > turnStartIndex {
+                    messages.removeSubrange((turnStartIndex + 1)...index)
+                    index = turnStartIndex
+                    reducer.beginNewMessage(id: turnMessageId)
+                }
+
                 // Feature B: this beat is done - commit it as-is, then
                 // start a new, tightly-grouped bubble for whatever comes
                 // next. Carries no content of its own (the beat's text
