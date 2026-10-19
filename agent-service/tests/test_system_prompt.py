@@ -49,6 +49,38 @@ def test_includes_tone_line_always():
     assert prompt.rstrip().endswith("the bad ones'.")
 
 
+def test_tone_line_teaches_the_multi_text_beat_convention():
+    # Feature B (conversational multi-text): the blank-line convention
+    # BeatEmitter listens for (response_blocks.py) has to actually be
+    # taught here, folded into the existing tone_line rather than a new
+    # section - see that module's docstring and this file's size-sanity
+    # test below for why.
+    prompt = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
+    assert "more than one distinct beat" in prompt
+    assert "separated by a blank line" in prompt
+    assert "don't force this onto a simple one-thought reply" in prompt
+
+
+def test_fast_budget_prompt_stays_near_its_prior_documented_size():
+    # Real, documented history (system_prompt.py's own comment on the
+    # skills_line omission): the fast-budget prompt previously hit 41,798
+    # chars and that growth is what caused a real context-dilution
+    # fabrication bug. The multi-text tone addition must be folded tightly
+    # into the existing tone_line, not appended as a new section - assert
+    # the growth from that one edit stays small (a few hundred chars, not
+    # thousands), so a future edit accidentally ballooning this doesn't
+    # silently slide back toward that failure mode.
+    prompt = build_system_prompt(
+        SystemPromptInput(
+            persona_system_prompt="You are Amy.",
+            now=NOW,
+            budget="fast",
+            respond_instructions="x" * 10_000,
+        )
+    )
+    assert len(prompt) < 42_500
+
+
 def test_includes_every_section_when_populated():
     prompt = build_system_prompt(
         SystemPromptInput(

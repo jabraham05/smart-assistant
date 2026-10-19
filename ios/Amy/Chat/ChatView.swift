@@ -28,6 +28,13 @@ struct ChatView: View {
                         MessageBubble(message: message,
                                       isStreaming: viewModel.isSending && message.id == viewModel.messages.last?.id)
                             .id(message.id)
+                            // Feature B: a beat tightly grouped with the
+                            // previous bubble (same reply, separate texts)
+                            // shrinks the VStack's uniform 12pt gap down to
+                            // ~4pt instead - a negative top-padding
+                            // adjustment is a smaller, safer diff than
+                            // restructuring the VStack's spacing model.
+                            .padding(.top, message.groupedWithPrevious ? -8 : 0)
                     }
                     if let errorText = viewModel.errorText {
                         Text(errorText)
@@ -224,6 +231,7 @@ private struct DaySeparator: View {
 private struct MessageBubble: View {
     let message: ChatMessage
     let isStreaming: Bool
+    @State private var isShowingReport = false
 
     var body: some View {
         HStack {
@@ -232,14 +240,8 @@ private struct MessageBubble: View {
                 ForEach(message.steps) { step in
                     StepChip(step: step)
                 }
-                if message.content.isEmpty && isStreaming {
-                    TypingIndicator()
-                } else if !message.content.isEmpty {
-                    Text(Self.render(message.content))
-                        .textSelection(.enabled)
-                        .foregroundStyle(message.isEmpty || message.isRevising ? .secondary : .primary)
-                        .italic(message.isEmpty)
-                        .animation(.easeInOut(duration: 0.2), value: message.isRevising)
+                ForEach(Array(message.blocks.enumerated()), id: \.offset) { _, block in
+                    blockView(block)
                 }
                 if message.isRevising {
                     HStack(spacing: 6) {
@@ -264,6 +266,44 @@ private struct MessageBubble: View {
                         in: RoundedRectangle(cornerRadius: 18))
             if message.role == .assistant { Spacer(minLength: 48) }
         }
+        // A sheet, not a NavigationLink push - a report reads as its own
+        // document, not another screen in the chat nav stack. Large
+        // detent + a plain grabber handle, no "Done" button - swipe down
+        // to dismiss.
+        .sheet(isPresented: $isShowingReport) {
+            if let report = reportContent {
+                ReportReaderView(title: report.title, bodyText: report.body, createdAt: message.createdAt)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
+        }
+    }
+
+    private var reportContent: (title: String, body: String)? {
+        for block in message.blocks {
+            if case let .report(title, body) = block { return (title, body) }
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private func blockView(_ block: ContentBlock) -> some View {
+        switch block {
+        case let .text(text):
+            if text.isEmpty && isStreaming {
+                TypingIndicator()
+            } else if !text.isEmpty {
+                Text(Self.render(text))
+                    .textSelection(.enabled)
+                    .foregroundStyle(message.isEmpty || message.isRevising ? .secondary : .primary)
+                    .italic(message.isEmpty)
+                    .animation(.easeInOut(duration: 0.2), value: message.isRevising)
+            }
+        case let .report(title, body):
+            ReportCardView(title: title, bodyText: body) {
+                isShowingReport = true
+            }
+        }
     }
 
     /// Inline markdown (bold, italics, links, code) with line breaks kept.
@@ -274,6 +314,52 @@ private struct MessageBubble: View {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    }
+}
+
+/// Feature A's chat-side card - a richer bubble, not a breakout element
+/// (same bubble-width/48pt-spacer rule as every other assistant message),
+/// with a thin teal border + soft shadow so it visually pops out of the
+/// normal text-bubble flow. Tapping it opens ReportReaderView as a sheet.
+private struct ReportCardView: View {
+    let title: String
+    let bodyText: String
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.text")
+                    Text("Report")
+                        .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.teal)
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(bodyText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                HStack(spacing: 4) {
+                    Spacer()
+                    Text("Read")
+                        .font(.caption.weight(.medium))
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                }
+                .foregroundStyle(.teal)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14).strokeBorder(Color.teal.opacity(0.3), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
+        }
+        .buttonStyle(.plain)
     }
 }
 

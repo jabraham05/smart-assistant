@@ -57,7 +57,7 @@ async def test_text_reaches_the_client_before_the_attempt_finishes(monkeypatch):
     out = main._Attempt()
     emit = main._emit([0])
     turn = main._run_turn(
-        main.config, "s1", "system", "hi", [], main._TurnState(), emit, [], out
+        main.config, "s1", "system", "hi", [], main._TurnState(), emit, [], out, False
     ).__aiter__()
 
     first = await asyncio.wait_for(turn.__anext__(), timeout=1)
@@ -78,7 +78,69 @@ async def test_a_failed_attempt_reports_empty_text(monkeypatch):
     monkeypatch.setattr(main, "build_agent", boom)
     out = main._Attempt(text="stale")
     chunks = [c async for c in main._run_turn(
-        main.config, "s1", "system", "hi", [], main._TurnState(), main._emit([0]), [], out
+        main.config, "s1", "system", "hi", [], main._TurnState(), main._emit([0]), [], out, False
     )]
     assert chunks == []
     assert out.text == ""
+
+
+class _FakeBeatStream:
+    """Yields text containing a mid-reply blank line, in two chunks - a
+    PartStartEvent followed by a PartDeltaEvent, same shape as a real
+    model reply with more than one conversational beat. Unlike _FakeStream
+    above, __aenter__ returns `self` (not a bare async generator) so
+    `stream.usage` (main.py's post-loop logging line) has somewhere to
+    resolve to, same as the real pydantic-ai stream object would provide."""
+
+    usage = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def __aiter__(self):
+        return self._events()
+
+    async def _events(self):
+        yield PartStartEvent(index=0, part=TextPart(content="Let me check.\n"))
+        yield PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="\nIt's 62°F and clear."))
+
+
+class _FakeBeatAgent:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def run_stream_events(self, *args, **kwargs):
+        return _FakeBeatStream()
+
+
+def _event_type(chunk: str) -> str:
+    return json.loads(chunk)["type"]
+
+
+async def test_beats_enabled_flushes_a_beat_end_marker_on_a_blank_line_boundary(monkeypatch):
+    monkeypatch.setattr(main, "build_agent", lambda *a, **k: _FakeBeatAgent())
+
+    out = main._Attempt()
+    chunks = [c async for c in main._run_turn(
+        main.config, "s1", "system", "hi", [], main._TurnState(), main._emit([0]), [], out, True
+    )]
+    assert [_event_type(c) for c in chunks] == ["item", "item", "block"]
+    assert out.text == "Let me check.\n\nIt's 62°F and clear."
+
+
+async def test_beats_disabled_never_emits_a_beat_end_marker_even_with_a_blank_line(monkeypatch):
+    # Report-eligible turns stream as a single growing bubble regardless
+    # of whether the text happens to contain a blank line.
+    monkeypatch.setattr(main, "build_agent", lambda *a, **k: _FakeBeatAgent())
+
+    out = main._Attempt()
+    chunks = [c async for c in main._run_turn(
+        main.config, "s1", "system", "hi", [], main._TurnState(), main._emit([0]), [], out, False
+    )]
+    assert [_event_type(c) for c in chunks] == ["item", "item"]

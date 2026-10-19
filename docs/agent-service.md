@@ -100,6 +100,61 @@ since neither client changed for this migration.
   the repo — runtime-generated artifacts, same treatment as
   `postgres-data`.
 
+## Adaptive responses (`response_blocks.py`) — report cards + conversational multi-text
+
+Two deterministic, server-side decisions layered on top of the plain
+`begin`/`item`/`ack`/`trace`/`end`/`error` wire contract above, both
+feeding a new additive event: `{"type": "block", "content": "<json
+string>", "metadata": {...}}` — the existing contract's `type:"item"` +
+`metadata.nodeName:"AI Agent"` rule for reply text is untouched, so an
+older client simply ignores `block` events it doesn't recognize (`APIModels.
+swift`'s `StreamEvent.Kind` already tolerates unknown types via `.other`).
+
+- **Report cards** — a long, structured answer (one of the `knowledge`/
+  `web`/`research`/`self-growth` classifier categories, past 600 chars)
+  renders as a tappable report card instead of a wall of text.
+  `response_blocks.classify_reply(relevant_groups, final_text)` decides
+  this once `final_text` has settled through every safety-net retry (right
+  before `yield emit("end")`); if it returns `"report"`, one extra
+  `block` event is emitted with `{"blockType": "report", "title", "body"}`
+  (`response_blocks.build_report_block`). Additive, not a replacement —
+  whatever was already streamed as `item` text stays on the wire too; the
+  client decides whether to keep it or swap to the card.
+- **Conversational multi-text** — a reply with more than one natural
+  "beat" (a blank line the model itself writes, taught in
+  `system_prompt.py`'s `tone_line`) flushes a `{"blockType": "beat_end"}`
+  marker (no payload beyond that — the beat's own text already arrived as
+  ordinary `item` deltas before the marker) the moment that blank-line
+  boundary completes in the stream, live, not after the full reply is
+  drafted and split after the fact. `response_blocks.BeatEmitter` owns
+  this: capped at 4 beats, fed from two different sources depending on
+  which path produced the text —
+  - the tool-using agent loop (`_run_turn`'s own `PartStartEvent`/
+    `PartDeltaEvent` handling) already streams real deltas live; they're
+    routed through `BeatEmitter` directly, no artificial delay.
+  - the fast/no-tool path (`respond.py`) gets the complete `response`
+    string from Ollama in one non-streamed shot — nothing to watch live.
+    `main.py` re-chunks that already-complete text itself
+    (`response_blocks.chunk_for_pacing`) and feeds the chunks through the
+    same `BeatEmitter` with a small `asyncio.sleep` between them, purely
+    to simulate the same live-typing feel. A deliberate, bounded exception
+    to not adding server-side delays elsewhere in this file.
+
+Report-eligibility and beat-flushing are mutually exclusive per turn,
+decided upfront from `relevant_groups` **before** generation starts
+(`main.py`'s `beats_enabled = not response_blocks.report_eligible(...)`)
+— a report-eligible turn always streams as a single growing bubble
+(today's behavior, unchanged) and only maybe becomes a report card at the
+very end; every other turn is beat-flush-eligible instead and never
+becomes a report. They can't both be decided at the end: by the time a
+long reply has finished streaming as several already-revealed beat
+bubbles, collapsing them into one report card would be a visible flash.
+
+A fresh `BeatEmitter` is constructed per `_run_turn` attempt (every retry
+gets its own) rather than threaded across retries — a retry already
+resets the client's displayed state via its own `trace{kind:"retry"}`
+event, so there's nothing from a failed attempt worth carrying forward.
+
 ## Config (`config.py`)
 
 Reads the same `n8n` database (personas/skills, `CHAT_DB_SCHEMA`-selectable
