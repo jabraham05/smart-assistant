@@ -140,15 +140,21 @@ swift`'s `StreamEvent.Kind` already tolerates unknown types via `.other`).
     to simulate the same live-typing feel. A deliberate, bounded exception
     to not adding server-side delays elsewhere in this file.
 
-Report-eligibility and beat-flushing are mutually exclusive per turn,
-decided upfront from `relevant_groups` **before** generation starts
-(`main.py`'s `beats_enabled = not response_blocks.report_eligible(...)`)
-— a report-eligible turn always streams as a single growing bubble
-(today's behavior, unchanged) and only maybe becomes a report card at the
-very end; every other turn is beat-flush-eligible instead and never
-becomes a report. They can't both be decided at the end: by the time a
-long reply has finished streaming as several already-revealed beat
-bubbles, collapsing them into one report card would be a visible flash.
+**2026-10-19 update: beats now flush live on every turn, including
+knowledge/web/research/self-growth ones.** The original design gated
+beats off upfront for those categories (`beats_enabled = not response_
+blocks.report_eligible(...)`) specifically to avoid ever needing to
+collapse live beat bubbles into a report card. Real, live-verified gap:
+that made every reply in those categories — a common case, especially
+anything "consolidating information" for the user — render as one dense
+paragraph with no separate texts at all, which was worse than the rare
+collapse it was avoiding. `main.py` now hardcodes `beats_enabled = True`.
+The collapse case is handled client-side instead: the moment a `report`
+block arrives, iOS's `ChatViewModel` collapses this turn's beat bubbles
+back to one (the same mechanism it already uses for a mid-turn retry),
+then the report card replaces that single message. Tool-call step chips
+from earlier beats are lost on that collapse, same trade-off a retry
+collapse already accepted.
 
 A fresh `BeatEmitter` is constructed per `_run_turn` attempt (every retry
 gets its own) rather than threaded across retries — a retry already
@@ -166,6 +172,25 @@ blank-line rule and 4-beat cap) - without it, every history reload
 (app back from the background, pull to refresh) flattened the reply back
 to one plain bubble. Replies stored before this have no metadata and stay
 plain.
+
+### 2026-10-19 — `has_unsatisfied_required_tool`'s retry/fallback disabled, detection kept
+
+Real, live-verified gap: this check fires whenever any classifier
+category was relevant and no bound capability tool was called — which
+also catches perfectly good direct-from-context answers (the model
+correctly answering from an injected memory/knowledge card instead of
+re-calling a lookup tool it didn't need). Live experience: the retry's
+own `trace{kind:"retry"}` event wiped a decent reply off the client, and
+when the retry (often correctly) still didn't call a tool,
+`REQUIRED_TOOL_FAILURE_MESSAGE` ("I can't do that yet, sir — my tools
+came up short here") replaced it, often. User feedback was explicit:
+stop acting on this and see how trusting the model's own first answer
+does for a while. `main.py` still calls `has_unsatisfied_required_tool`
+and logs a `growth_db.record_observation` for it (useful signal either
+way), but no longer retries or overrides `final_text` — see that call
+site's comment for how to re-enable if the opposite failure mode (a
+genuine missing-capability answer shipping unflagged) turns out to be
+the bigger problem instead.
 
 ## Config (`config.py`)
 

@@ -52,8 +52,6 @@ from .config import Config, load_config
 from .respond import expand_groups_to_tools
 from .safety_net import (
     FABRICATED_ID_NUDGE,
-    REQUIRED_TOOL_FAILURE_MESSAGE,
-    REQUIRED_TOOL_RETRY_NUDGE,
     SEARCH_RETRY_NUDGE,
     UNGROUNDED_CITATION_FAILURE_MESSAGE,
     STATUS_NARRATION_MISMATCH_NUDGE,
@@ -197,13 +195,16 @@ async def _run_turn(
     one webhook call - it's what happened BEFORE this turn, so a retry nudge
     on the current turn doesn't change it.
 
-    beats_enabled: whether this turn is eligible for live beat-flushing (see
-    response_blocks.py's module docstring) - false for a report-eligible
-    turn, which always streams as a single growing bubble. A fresh
-    BeatEmitter is constructed per attempt (not threaded in from the
-    caller) because a retry already resets the client's displayed state
-    via its own trace event - there's nothing from a failed attempt worth
-    carrying into the next one."""
+    beats_enabled: whether this turn is eligible for live beat-flushing
+    (see response_blocks.py's module docstring) - always true from
+    main.py's real caller as of 2026-10-19 (a report-eligible turn can
+    still beat-flush live; the client collapses it back to one bubble if
+    `final_text` ends up classified as a report). Kept as a parameter
+    rather than hardcoded here so tests can still exercise the
+    beats_enabled=False path directly. A fresh BeatEmitter is constructed
+    per attempt (not threaded in from the caller) because a retry already
+    resets the client's displayed state via its own trace event - there's
+    nothing from a failed attempt worth carrying into the next one."""
     state.attempt += 1
     text_parts: list[str] = []
     open_tool_calls: dict[str, tuple[str, int]] = {}  # tool_call_id -> (tool_name, iteration)
@@ -390,16 +391,22 @@ async def webhook(request: Request):
             # than turn_output.relevant_tools, which is forced to [] exactly
             # when multi_turn is false (see respond.py's _normalize_output).
             bound_tools = expand_groups_to_tools(turn_output.relevant_groups)
-            # Decided once, upfront, from the same classification output
-            # that decided which tools get bound - before the reply itself
-            # is generated. A report-eligible turn always streams as a
-            # single growing bubble (today's behavior unchanged); every
-            # other turn is eligible for live beat-flushing instead. The
-            # two are mutually exclusive per turn - see response_blocks.py's
-            # module docstring for why they can't both be decided at the
-            # end (report needs the complete final text; beats need to
-            # flush before that's known).
-            beats_enabled = not response_blocks.report_eligible(turn_output.relevant_groups)
+            # Real, live-verified gap (2026-10-19): this used to be
+            # `not response_blocks.report_eligible(turn_output.relevant_groups)`
+            # - gating beats off for every knowledge/web/research/
+            # self-growth turn, to avoid flushing live bubbles that might
+            # then need collapsing into a report card at the end. In
+            # practice that made EVERY reply in those categories - a very
+            # common case, especially anything "consolidating information"
+            # for the user - render as one dense paragraph with no
+            # separate texts at all, which is worse than the rare
+            # momentary collapse this was avoiding. Beats are now enabled
+            # for every turn; the collapse case is handled explicitly
+            # instead (iOS's ChatViewModel collapses this turn's beat
+            # bubbles back to one, the same way it already does for a
+            # mid-turn retry, the moment a `report` block arrives - see
+            # ChatViewModel.swift's `send()`).
+            beats_enabled = True
 
             logger.info(
                 "context built session=%s history=%d multiTurn=%s tools=%s groups=%s memories=%s knowledge=%s tasks=%s goals=%s projects=%d system_chars=%d",
@@ -948,6 +955,24 @@ async def webhook(request: Request):
                     # nothing for the rest of the turn.
                     yield emit("item", final_text)
 
+            # Real, live-verified gap (2026-10-19): this check is broad -
+            # it fires whenever ANY category was classified relevant and
+            # NO bound capability tool was called, which also catches
+            # perfectly good direct-from-context answers (e.g. the model
+            # correctly answering from an injected memory/knowledge card
+            # instead of re-calling a lookup tool it didn't need). Live
+            # experience: a decent answer would get wiped by the retry's
+            # own trace reset, and if the retry (often correctly) still
+            # didn't call a tool, the user saw REQUIRED_TOOL_FAILURE_MESSAGE
+            # ("my tools came up short") replace a fine reply, often. User
+            # feedback was explicit: stop acting on this and see how
+            # trusting the model's own first answer does for a while.
+            # Detection/observation logging stays (useful signal either
+            # way); only the retry + hard-override action is disabled.
+            # Re-enable by restoring the retry/fallback block this
+            # replaced (see git history on this comment) if the opposite
+            # failure mode - a genuine missing-capability answer shipping
+            # unflagged - turns out to be the bigger problem instead.
             if has_unsatisfied_required_tool(
                 tool_required, bound_tools, state.called_tools, turn_output.relevant_groups,
                 required_tools,
@@ -959,41 +984,6 @@ async def webhook(request: Request):
                         session_id=session_id,
                     )
                 )
-                yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "required_tool"})
-                _attempt = _Attempt()
-                async for c in _run_turn(
-                    config,
-                    session_id,
-                    system_prompt,
-                    chat_input + REQUIRED_TOOL_RETRY_NUDGE,
-                    bound_tools,
-                    state,
-                    emit,
-                    message_history,
-                    _attempt,
-                    beats_enabled,
-                ):
-                    yield c
-                retry_text = _attempt.text
-                if retry_text.strip():
-                    final_text = retry_text
-                else:
-                    # Same bug class fixed above, one level deeper: this
-                    # retry's own trace event already reset the client's
-                    # displayed content (chat-ui's reducer does this on
-                    # every kind="retry" event), but this attempt produced
-                    # no new text, so final_text reverts to whatever it
-                    # was before the retry - which was never re-sent. Must
-                    # re-emit it explicitly or the client is left with
-                    # nothing for the rest of the turn.
-                    yield emit("item", final_text)
-                if has_unsatisfied_required_tool(
-                    tool_required, bound_tools, state.called_tools, turn_output.relevant_groups,
-                    required_tools,
-                ):
-                    final_text = REQUIRED_TOOL_FAILURE_MESSAGE
-                    yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "required_tool_fallback"})
-                    yield emit("item", final_text)
 
             if has_unaddressed_teaching_intent(chat_input, turn_output.relevant_groups, state.called_tools):
                 asyncio.create_task(
