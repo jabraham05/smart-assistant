@@ -149,11 +149,15 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         memory_engine_url=env.get("MEMORY_ENGINE_URL") or "http://memory-engine:3007",
         knowledge_engine_url=env.get("KNOWLEDGE_ENGINE_URL") or "http://knowledge-engine:3005",
         graphiti_service_url=env.get("GRAPHITI_SERVICE_URL") or "http://graphiti-service:3012",
-        # Same default value as knowledge-engine's routeToWebThreshold - both
-        # are RRF scores from the identical k=60 formula.
-        memory_min_relevance_score=_float_env(env, "MEMORY_MIN_RELEVANCE_SCORE", 0.012),
+        # Was 0.012 (knowledge-engine's routeToWebThreshold, an RRF k=60
+        # score) until live testing this session found real, clearly
+        # irrelevant chunks (a different vehicle's owner's manual, injected
+        # into a conversation about a completely different car) scoring
+        # 0.015-0.016 - just above that floor. Raised to match the existing
+        # knowledge_strong_relevance_score bar below, closing that gap.
+        memory_min_relevance_score=_float_env(env, "MEMORY_MIN_RELEVANCE_SCORE", 0.02),
         memory_min_keyword_overlap=_int_env(env, "MEMORY_MIN_KEYWORD_OVERLAP", 1),
-        knowledge_min_relevance_score=_float_env(env, "KNOWLEDGE_MIN_RELEVANCE_SCORE", 0.012),
+        knowledge_min_relevance_score=_float_env(env, "KNOWLEDGE_MIN_RELEVANCE_SCORE", 0.02),
         knowledge_min_keyword_overlap=_int_env(env, "KNOWLEDGE_MIN_KEYWORD_OVERLAP", 1),
         knowledge_strong_relevance_score=_float_env(env, "KNOWLEDGE_STRONG_RELEVANCE_SCORE", 0.02),
     )

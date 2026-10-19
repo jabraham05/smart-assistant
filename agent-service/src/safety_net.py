@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 
-from .classify import STANDING_INSTRUCTION_INTENT
+from .respond import LEGACY_TOOL_ALIASES, STANDING_INSTRUCTION_INTENT
 
 # Same tool list as the old "confabulated action" backstop - tools whose
 # whole point is performing a real side effect, where a claim of success
@@ -69,7 +69,12 @@ _UNFULFILLED_SEARCH_INTENT = re.compile(
     re.IGNORECASE,
 )
 
-SEARCH_TOOLS = ["knowledge_lookup"]
+# Includes knowledge_lookup's retired aliases (web_search, knowledge_search)
+# too, not just its current name - real, live-verified regression otherwise:
+# a turn that called web_search (knowledge_lookup's alias, still tolerated
+# by agent.py's filter) read as "no search tool called" to every check below
+# that tests membership in this list, even though a real search happened.
+SEARCH_TOOLS = ["knowledge_lookup"] + [k for k, v in LEGACY_TOOL_ALIASES.items() if v == "knowledge_lookup"]
 
 _URL_IN_REPLY = re.compile(r"https?://[^\s<>\]\[(){}]+", re.IGNORECASE)
 
@@ -197,24 +202,33 @@ _ALWAYS_BOUND_TOOLS = ["calculate", "task_context_manage"]
 
 
 def has_unsatisfied_required_tool(
-    tool_policy: str,
+    tool_required: bool,
     bound_tools: list[str],
     called_tools: list[str],
     relevant_groups: list[str] | None = None,
     required_tools: list[str] | None = None,
 ) -> bool:
-    """True when the classifier decided this message needed live/authoritative
-    data or a real action (toolPolicy=required), a capability-specific tool
-    was actually bound this turn, and none of them were called."""
+    """True when this message genuinely needed a capability-specific tool
+    (tool_required - true whenever any category was classified as relevant
+    this turn), that tool was actually bound this turn, and none of them
+    were called."""
     relevant_groups = relevant_groups or []
-    if tool_policy != "required":
+    if not tool_required:
         return False
-    if required_tools and any(tool in bound_tools and tool not in called_tools for tool in required_tools):
+    # A called tool counts toward satisfying a requirement under its current
+    # name OR a retired alias of it (agent.py's per-turn filter binds both -
+    # see LEGACY_TOOL_ALIASES) - real, live-verified regression otherwise: a
+    # turn that called web_search (knowledge_lookup's retired alias), got a
+    # real result, and produced a correctly grounded reply still got flagged
+    # here as the required tool never being called, discarding that real
+    # answer and replacing it with REQUIRED_TOOL_FAILURE_MESSAGE.
+    effectively_called = {LEGACY_TOOL_ALIASES.get(t, t) for t in called_tools} | set(called_tools)
+    if required_tools and any(tool in bound_tools and tool not in effectively_called for tool in required_tools):
         return True
     # A second required capability can also be bound (for example calendar
     # lookup plus a web lookup). Calling that other tool must not satisfy an
     # explicit factual-search request.
-    if "web" in relevant_groups and "knowledge_lookup" in bound_tools and "knowledge_lookup" not in called_tools:
+    if "web" in relevant_groups and "knowledge_lookup" in bound_tools and "knowledge_lookup" not in effectively_called:
         return True
     # Real bug found via live testing: task_context_manage genuinely overlaps
     # with the 'goals' group ("things to do") - a correct task_context_manage
@@ -224,12 +238,12 @@ def has_unsatisfied_required_tool(
         return False
     bound_capability_tools = [t for t in bound_tools if t not in _ALWAYS_BOUND_TOOLS]
     if bound_capability_tools:
-        return not any(t in called_tools for t in bound_capability_tools)
+        return not any(t in effectively_called for t in bound_capability_tools)
     # Real gap found via live testing: "create a task to do X" has no
     # classifier category of its own (task_context_manage is always bound,
     # not tied to a group), so bound_capability_tools was always empty for
     # these turns and this check short-circuited to false unconditionally.
-    return "task_context_manage" in bound_tools and "task_context_manage" not in called_tools
+    return "task_context_manage" in bound_tools and "task_context_manage" not in effectively_called
 
 
 REQUIRED_TOOL_RETRY_NUDGE = (
@@ -382,12 +396,12 @@ _TRAILING_CONFIRMATION_QUESTION = re.compile(
 _MIN_SUBSTANTIVE_REPLY_LENGTH = 40
 
 
-def has_trailing_confirmation_question(reply_text: str, tool_policy: str) -> bool:
+def has_trailing_confirmation_question(reply_text: str, tool_required: bool) -> bool:
     """True when the reply tacks a low-value confirmation/offer question onto
-    an otherwise-complete answer. Skipped when tool_policy == "required" -
-    a turn that genuinely depended on live data/an action is more likely to
+    an otherwise-complete answer. Skipped when tool_required is true - a
+    turn that genuinely depended on live data/an action is more likely to
     have a real open ambiguity worth confirming, not a stock tic."""
-    if tool_policy == "required":
+    if tool_required:
         return False
     match = _TRAILING_CONFIRMATION_QUESTION.search(reply_text)
     if not match:

@@ -20,6 +20,7 @@ from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
 
+from .respond import LEGACY_TOOL_ALIASES
 from .config import Config
 
 
@@ -33,27 +34,6 @@ class AgentDeps:
     relevant_tools: list[str]
 
 
-# Real, live-verified incident: web_search/knowledge_search/research_task
-# were renamed to knowledge_lookup/growth_research_request (the unified-
-# lookup/Planner work), and classify.py's GROUPS was updated to only ever
-# classify the new names - but skills-mcp still separately registers the
-# old tools too (never retired), and the model kept calling them anyway out
-# of habit. Since the old names were dropped from every GROUPS category,
-# they never made it into relevant_tools, so the filtered toolset genuinely
-# never offered them - the model's call failed with "Unknown tool name",
-# triggering a retry cascade that produced a garbled, multi-paragraph reply.
-# Renaming a tool is a breaking change the model has no way to know about
-# mid-conversation; the fix is the same "don't trust the model to adapt on
-# its own, enforce it deterministically" lesson used everywhere else in
-# this codebase - tolerate the old names at the filter level rather than
-# hoping the model never reaches for them again.
-_LEGACY_TOOL_ALIASES: dict[str, str] = {
-    "web_search": "knowledge_lookup",
-    "knowledge_search": "knowledge_lookup",
-    "research_task": "growth_research_request",
-}
-
-
 def build_skills_mcp_toolset(config: Config, session_id: str) -> MCPToolset:
     """Same endpoint and session-correlation query param skills-mcp already
     expects (server.ts's stateless per-request createServer() reads
@@ -63,7 +43,7 @@ def build_skills_mcp_toolset(config: Config, session_id: str) -> MCPToolset:
     live against the real skills-mcp server (2026-09-24): correctly narrowed
     the full 22-tool catalog down to an exact requested subset. Also binds a
     retired tool name if its current replacement was classified as relevant
-    (see _LEGACY_TOOL_ALIASES) - the old tool's own implementation still
+    (see LEGACY_TOOL_ALIASES) - the old tool's own implementation still
     runs if called, which is fine as a fallback; the point is never hard-
     failing on a name the model still reaches for."""
     url = f"{config.skills_mcp_url}/mcp?chatSessionId={session_id}"
@@ -73,7 +53,7 @@ def build_skills_mcp_toolset(config: Config, session_id: str) -> MCPToolset:
         name = tool_def.name  # type: ignore[attr-defined]
         if name in ctx.deps.relevant_tools:  # type: ignore[attr-defined]
             return True
-        current_name = _LEGACY_TOOL_ALIASES.get(name)
+        current_name = LEGACY_TOOL_ALIASES.get(name)
         return current_name is not None and current_name in ctx.deps.relevant_tools  # type: ignore[attr-defined]
 
     return mcp.filtered(_is_bound)

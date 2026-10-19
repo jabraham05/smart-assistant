@@ -50,42 +50,42 @@ def test_has_unfulfilled_search_intent_does_not_flag_ordinary_text():
 
 
 def test_has_unsatisfied_required_tool_flags_required_with_no_matching_call():
-    assert has_unsatisfied_required_tool("required", ["calculate", "task_context_manage", "weather_get"], []) is True
+    assert has_unsatisfied_required_tool(True, ["calculate", "task_context_manage", "weather_get"], []) is True
 
 
 def test_has_unsatisfied_required_tool_does_not_flag_when_capability_tool_called():
-    assert has_unsatisfied_required_tool("required", ["calculate", "weather_get"], ["weather_get"]) is False
+    assert has_unsatisfied_required_tool(True, ["calculate", "weather_get"], ["weather_get"]) is False
 
 
 def test_has_unsatisfied_required_tool_does_not_flag_optional_policy():
-    assert has_unsatisfied_required_tool("optional", ["weather_get"], []) is False
+    assert has_unsatisfied_required_tool(False, ["weather_get"], []) is False
 
 
 def test_has_unsatisfied_required_tool_does_not_flag_calculate_only():
-    assert has_unsatisfied_required_tool("required", ["calculate"], []) is False
+    assert has_unsatisfied_required_tool(True, ["calculate"], []) is False
 
 
 def test_has_unsatisfied_required_tool_flags_task_context_manage_bound_uncalled():
-    assert has_unsatisfied_required_tool("required", ["calculate", "task_context_manage"], []) is True
+    assert has_unsatisfied_required_tool(True, ["calculate", "task_context_manage"], []) is True
 
 
 def test_has_unsatisfied_required_tool_does_not_flag_when_task_context_manage_called():
     assert (
         has_unsatisfied_required_tool(
-            "required", ["calculate", "task_context_manage"], ["task_context_manage"]
+            True, ["calculate", "task_context_manage"], ["task_context_manage"]
         )
         is False
     )
 
 
 def test_has_unsatisfied_required_tool_satisfied_if_any_bound_capability_tool_called():
-    assert has_unsatisfied_required_tool("required", ["weather_get", "calendar_event"], ["calendar_event"]) is False
+    assert has_unsatisfied_required_tool(True, ["weather_get", "calendar_event"], ["calendar_event"]) is False
 
 
 def test_has_unsatisfied_required_tool_excuses_task_context_manage_when_goals_relevant():
     assert (
         has_unsatisfied_required_tool(
-            "required",
+            True,
             ["calculate", "task_context_manage", "goal_manage", "status_overview"],
             ["task_context_manage"],
             ["goals"],
@@ -97,7 +97,7 @@ def test_has_unsatisfied_required_tool_excuses_task_context_manage_when_goals_re
 def test_has_unsatisfied_required_tool_still_flags_unrelated_group():
     assert (
         has_unsatisfied_required_tool(
-            "required",
+            True,
             ["calculate", "task_context_manage", "weather_get"],
             ["task_context_manage"],
             ["info"],
@@ -232,15 +232,15 @@ def test_has_trailing_confirmation_question_flags_stock_tail_on_substantial_repl
         "The login bug was caused by a stale session token not being refreshed. "
         "I've already patched the token refresh logic. Do you need me to do anything else?"
     )
-    assert has_trailing_confirmation_question(reply, "optional") is True
+    assert has_trailing_confirmation_question(reply, False) is True
 
 
 def test_has_trailing_confirmation_question_does_not_flag_plain_reply():
-    assert has_trailing_confirmation_question("The weather today is sunny and 72 degrees.", "optional") is False
+    assert has_trailing_confirmation_question("The weather today is sunny and 72 degrees.", False) is False
 
 
 def test_has_trailing_confirmation_question_does_not_flag_when_question_is_the_whole_reply():
-    assert has_trailing_confirmation_question("Which city's weather do you want?", "optional") is False
+    assert has_trailing_confirmation_question("Which city's weather do you want?", False) is False
 
 
 def test_has_trailing_confirmation_question_ignores_required_tool_policy():
@@ -248,12 +248,12 @@ def test_has_trailing_confirmation_question_ignores_required_tool_policy():
         "The login bug was caused by a stale session token not being refreshed. "
         "I've already patched the token refresh logic. Do you need me to do anything else?"
     )
-    assert has_trailing_confirmation_question(reply, "required") is False
+    assert has_trailing_confirmation_question(reply, True) is False
 
 
 def test_has_trailing_confirmation_question_does_not_flag_genuine_midtext_question():
     reply = "Do you want the dentist appointment at 2pm or 3pm? Either works with the rest of your day."
-    assert has_trailing_confirmation_question(reply, "optional") is False
+    assert has_trailing_confirmation_question(reply, False) is False
 
 
 def test_strip_emoji_removes_emoji_and_extra_whitespace():
@@ -368,6 +368,7 @@ def test_has_ungrounded_citation_flags_a_url_no_tool_result_contains():
     assert (
         has_ungrounded_citation(
             "Source: https://modkit.gg/warframe/",
+            ["knowledge_lookup"],
             ["Finding: https://warframe.fandom.com/wiki/Modding"],
         )
         is True
@@ -378,6 +379,7 @@ def test_has_ungrounded_citation_does_not_flag_a_url_a_tool_actually_returned():
     assert (
         has_ungrounded_citation(
             "Source: https://warframe.fandom.com/wiki/Modding",
+            ["knowledge_lookup"],
             ["[1] Modding Guide\nhttps://warframe.fandom.com/wiki/Modding\nsome snippet"],
         )
         is False
@@ -385,13 +387,14 @@ def test_has_ungrounded_citation_does_not_flag_a_url_a_tool_actually_returned():
 
 
 def test_has_ungrounded_citation_does_not_flag_plain_text_with_no_url():
-    assert has_ungrounded_citation("Base damage and elemental mods stack differently.", []) is False
+    assert has_ungrounded_citation("Base damage and elemental mods stack differently.", [], []) is False
 
 
 def test_has_ungrounded_citation_ignores_trailing_sentence_punctuation():
     assert (
         has_ungrounded_citation(
             "See https://warframe.fandom.com/wiki/Modding.",
+            ["knowledge_lookup"],
             ["https://warframe.fandom.com/wiki/Modding"],
         )
         is False

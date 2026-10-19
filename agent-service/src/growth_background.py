@@ -9,8 +9,25 @@ wired into main.py would be the only signals Growth ever sees.
 Runs as a background asyncio task inside agent-service (started at
 startup in main.py) rather than a new n8n workflow - same "Growth lives in
 agent-service and the current architecture" choice as the rest of this
-phase. Cadence matches idle_reflection's existing 30-minute interval,
-since this is the same tier of ambient background work.
+phase.
+
+Runs once per night (3am local, not a fixed 30-minute interval anymore) -
+real, live-verified reason for the change: this loop's own Ollama calls
+(judge scoring, and growth_planner's research-brief scoping once that
+shipped) share the single GPU this whole stack runs on with live chat.
+Firing every 30 minutes around the clock meant it could - and did -
+start mid-conversation and compound chat latency under load (confirmed:
+classify and growth_judge both hit real timeouts during a live test
+session, and a turn that tripped several of main.py's sequential
+safety-net retries afterward took minutes instead of seconds). Moving
+this to a single nightly window removes that contention instead of
+trying to out-schedule it, at the cost of Growth's own signals being up
+to a day stale - an acceptable tradeoff since nothing here blocks or
+affects the live chat path directly, only how quickly a recurring issue
+gets surfaced. The run drains everything accumulated since the previous
+night in one pass (not capped to one batch), so a full day's backlog
+still gets processed, just overnight instead of trickling through the
+day competing with real usage.
 
 Tier 1 only (per the autonomy model, docs/unified-architecture-gap-
 analysis.md §8): judging conversations, recording observations, scoring/
@@ -22,11 +39,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from . import growth_db, growth_judge, growth_planner
 from .config import Config
 
 logger = logging.getLogger(__name__)
+
+# Same local-timezone convention system_prompt.py already uses for "today"/
+# "now" framing in the persona prompt - one definition of "local" for this
+# whole project, not a second, possibly-drifting one.
+_LOCAL_TZ = ZoneInfo("America/Los_Angeles")
+_NIGHTLY_RUN_HOUR = 3  # 3am local - well outside any realistic chat session.
+# Safety valve, not an expected ceiling: at 20 turns/pass (run_sweep's own
+# default batch_size), this covers 1000 turns in one night before giving up
+# and waiting for the next one - far beyond any single user's real daily
+# volume. Exists so a bug that keeps manufacturing "unreviewed" work can't
+# turn one nightly run into an unbounded loop that's still going at noon.
+_MAX_SWEEP_PASSES_PER_NIGHT = 50
 
 # Only attribution types Growth can plausibly act on become observations -
 # 'model_capability_limitation' and 'none' aren't addressable by a
@@ -40,7 +71,6 @@ _ACTIONABLE_ATTRIBUTION_CATEGORY = {
 }
 
 _MIN_ATTRIBUTION_CONFIDENCE = 0.5
-_DEFAULT_INTERVAL_SECONDS = 1800  # 30 minutes, same cadence as idle_reflection
 
 
 async def retry_pending_knowledge_research(config: Config, limit: int = 2) -> int:
@@ -146,15 +176,36 @@ async def run_sweep(config: Config, batch_size: int = 20) -> dict:
         return {"sessionsScanned": sessions_scanned, "chunksReviewed": chunks_reviewed, "error": True}
 
 
-async def start_background_loop(config: Config, interval_seconds: int = _DEFAULT_INTERVAL_SECONDS) -> None:
+def _seconds_until_next_run(now_utc: datetime, run_hour: int) -> float:
+    """Next occurrence of run_hour:00 in _LOCAL_TZ, at least 60s out - the
+    60s floor keeps the old startup-grace behavior (don't immediately hit
+    Ollama/Postgres before the rest of the stack is confirmed ready) for
+    the one realistic edge case where a restart happens to land right at
+    the nightly run time itself."""
+    local_now = now_utc.astimezone(_LOCAL_TZ)
+    target = local_now.replace(hour=run_hour, minute=0, second=0, microsecond=0)
+    if target <= local_now:
+        target += timedelta(days=1)
+    return max(60.0, (target - local_now).total_seconds())
+
+
+async def start_background_loop(config: Config, run_hour: int = _NIGHTLY_RUN_HOUR) -> None:
     """Fire-and-forget loop, started once at app startup (main.py). Sleeps
-    first so a container restart doesn't immediately hit every dependency
-    before the rest of the stack (Ollama, Postgres) is confirmed ready."""
-    await asyncio.sleep(60)
+    until the next run_hour:00 _LOCAL_TZ, then drains every pending item
+    (looping run_sweep, not a single batch_size=20 call) before going back
+    to sleep until the following night - see the module docstring for why
+    this moved off a fixed interval."""
     while True:
-        try:
-            result = await run_sweep(config)
-            logger.info("growth_background sweep complete: %s", result)
-        except Exception:
-            logger.exception("growth_background loop iteration failed unexpectedly")
-        await asyncio.sleep(interval_seconds)
+        await asyncio.sleep(_seconds_until_next_run(datetime.now(timezone.utc), run_hour))
+        passes = 0
+        while passes < _MAX_SWEEP_PASSES_PER_NIGHT:
+            passes += 1
+            try:
+                result = await run_sweep(config)
+            except Exception:
+                logger.exception("growth_background loop iteration failed unexpectedly")
+                break
+            logger.info("growth_background sweep complete (pass %d): %s", passes, result)
+            if result.get("error") or not result.get("sessionsScanned"):
+                break
+        logger.info("growth_background nightly run finished after %d pass(es)", passes)
