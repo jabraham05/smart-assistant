@@ -155,6 +155,18 @@ gets its own) rather than threaded across retries — a retry already
 resets the client's displayed state via its own `trace{kind:"retry"}`
 event, so there's nothing from a failed attempt worth carrying forward.
 
+The layout is also stored with the reply in history:
+`response_blocks.history_metadata` goes into the Honcho message's
+`metadata` (`{"replyLayout": "report", "reportTitle"}` or
+`{"replyLayout": "beats"}`; nothing for a plain reply), and chat-ui's
+`/api/sessions/[id]/messages` passes it through untouched. The iOS app
+rebuilds the card or beat bubbles from it on reload
+(`ChatViewModel.messages(from:)`, re-splitting beats on the same
+blank-line rule and 4-beat cap) - without it, every history reload
+(app back from the background, pull to refresh) flattened the reply back
+to one plain bubble. Replies stored before this have no metadata and stay
+plain.
+
 ## Config (`config.py`)
 
 Reads the same `n8n` database (personas/skills, `CHAT_DB_SCHEMA`-selectable

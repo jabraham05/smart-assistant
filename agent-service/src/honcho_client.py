@@ -69,7 +69,12 @@ async def get_user_card_for_amy(config: Config) -> list[str]:
     return await _get_peer_card(config, "/peers/user/card?target=amy")
 
 
-async def store_turn(config: Config, session_id: str, user_message: str, amy_message: str) -> None:
+async def store_turn(
+    config: Config, session_id: str, user_message: str, amy_message: str, amy_metadata: dict | None = None
+) -> None:
+    amy_entry: dict = {"content": amy_message, "peer_id": "amy"}
+    if amy_metadata:
+        amy_entry["metadata"] = amy_metadata
     try:
         async with httpx.AsyncClient() as client:
             await client.post(
@@ -78,7 +83,7 @@ async def store_turn(config: Config, session_id: str, user_message: str, amy_mes
                 json={
                     "messages": [
                         {"content": user_message, "peer_id": "user"},
-                        {"content": amy_message, "peer_id": "amy"},
+                        amy_entry,
                     ]
                 },
             )

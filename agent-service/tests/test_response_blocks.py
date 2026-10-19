@@ -10,6 +10,7 @@ from src.response_blocks import (
     build_report_block,
     chunk_for_pacing,
     classify_reply,
+    history_metadata,
     report_eligible,
 )
 
@@ -172,3 +173,23 @@ def test_beat_emitter_empty_delta_is_a_no_op_beyond_the_item_event():
     emitter = BeatEmitter(emit)
     events = _collect(emitter.feed(""))
     assert events == [{"type": "item", "content": ""}]
+
+
+def test_history_metadata_marks_a_long_eligible_reply_as_a_report():
+    text = "Solar panels\n\n" + "x" * 700
+    assert history_metadata(["research"], text, beats_enabled=False) == {
+        "replyLayout": "report",
+        "reportTitle": "Solar panels",
+    }
+
+
+def test_history_metadata_marks_a_multi_beat_reply():
+    assert history_metadata(["chat"], "Hey!\n\nSure thing.", beats_enabled=True) == {
+        "replyLayout": "beats"
+    }
+
+
+def test_history_metadata_is_none_for_a_single_bubble_reply():
+    assert history_metadata(["chat"], "Just one thought.\n\n", beats_enabled=True) is None
+    # A report-eligible turn never beat-flushed live, so it must not split on reload either.
+    assert history_metadata(["research"], "Short.\n\nAnswer.", beats_enabled=False) is None

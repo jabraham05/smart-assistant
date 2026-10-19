@@ -83,6 +83,22 @@ def build_report_block(text: str) -> dict:
     return {"blockType": "report", "title": title, "body": stripped}
 
 
+def history_metadata(relevant_groups: list[str], text: str, beats_enabled: bool) -> dict | None:
+    """The reply's layout, stored alongside it in chat history (Honcho
+    message metadata) so a client reloading history renders it the same
+    way it rendered live - otherwise a report card or multi-text reply
+    flattens back to one plain bubble the moment the app re-reads history.
+
+    `replyLayout: "beats"` carries no split points: the client re-splits
+    the stored text on the same blank-line rule (and `_MAX_BEATS` cap)
+    BeatEmitter applies live. None for a plain single-bubble reply."""
+    if classify_reply(relevant_groups, text) == "report":
+        return {"replyLayout": "report", "reportTitle": build_report_block(text)["title"]}
+    if beats_enabled and _BLANK_LINE.search(text.strip()):
+        return {"replyLayout": "beats"}
+    return None
+
+
 def chunk_for_pacing(text: str, words_per_chunk: int = _PACING_WORDS_PER_CHUNK) -> list[str]:
     """Splits an already-complete reply into small chunks for simulated
     streaming pacing. Captures each word together with its trailing

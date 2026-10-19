@@ -226,10 +226,44 @@ final class ChatViewModel {
     /// Amy's reply in one batch, so they share a timestamp and sorting by
     /// time put the reply above the message (seen live).
     nonisolated static func chronological(_ page: [HistoryMessage]) -> [ChatMessage] {
-        page.reversed().map {
-            ChatMessage(id: $0.id, role: $0.peerId == "user" ? .user : .assistant,
-                        content: $0.content, createdAt: ISODate.parse($0.createdAt) ?? .distantPast)
+        page.reversed().flatMap(messages(from:))
+    }
+
+    /// One stored message as it looked live: a report card, several
+    /// tightly-grouped beat bubbles, or a plain bubble. Beat bubbles after
+    /// the first get derived ids ("<id>-beat1"...) so they stay stable
+    /// across reloads (loadPage/syncLatest match messages by id).
+    nonisolated static func messages(from stored: HistoryMessage) -> [ChatMessage] {
+        let role: ChatMessage.Role = stored.peerId == "user" ? .user : .assistant
+        let createdAt = ISODate.parse(stored.createdAt) ?? .distantPast
+        guard role == .assistant else {
+            return [ChatMessage(id: stored.id, role: role, content: stored.content, createdAt: createdAt)]
         }
+        switch stored.metadata?.replyLayout {
+        case "report":
+            var message = ChatMessage(id: stored.id, role: role, createdAt: createdAt)
+            let body = stored.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            message.blocks = [.report(title: stored.metadata?.reportTitle ?? "Report", body: body)]
+            return [message]
+        case "beats":
+            return beats(in: stored.content).enumerated().map { i, beat in
+                ChatMessage(id: i == 0 ? stored.id : "\(stored.id)-beat\(i)", role: role, content: beat,
+                            createdAt: createdAt, groupedWithPrevious: i > 0)
+            }
+        default:
+            return [ChatMessage(id: stored.id, role: role, content: stored.content, createdAt: createdAt)]
+        }
+    }
+
+    /// Same split agent-service's BeatEmitter applies live: a blank line
+    /// (spaces/tabs allowed) ends a beat, capped at 4 - past that the rest
+    /// stays in the 4th.
+    nonisolated static func beats(in text: String, max: Int = 4) -> [String] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: /\n[ \t]*\n/, maxSplits: max - 1, omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? [trimmed] : parts
     }
 
     private static func isConnectionCut(_ error: Error) -> Bool {
