@@ -51,9 +51,31 @@ struct HistoryMessage: Decodable, Sendable {
 /// deliberately lenient (optional metadata fields, unknown types/trace kinds
 /// kept as `.other`) so a backend addition degrades to "ignored" rather than
 /// "the whole turn fails to decode."
+/// ReportBlockPayload - the JSON object inside a `type:"block"` event's
+/// `content` string when `blockType == "report"` (agent-service's
+/// response_blocks.build_report_block). `blockType` itself isn't a field
+/// here - BlockPayload below branches on it before decoding the rest.
+struct ReportBlockPayload: Decodable, Sendable, Equatable {
+    let title: String
+    let body: String
+}
+
+/// BlockPayload - the two `type:"block"` shapes agent-service's
+/// response_blocks.py emits (docs/agent-service.md's "Adaptive responses"
+/// section). `.beatEnd` carries no data: the beat's own text already
+/// arrived as ordinary `item` deltas before the marker - it's a pure
+/// "finalize the current bubble, a new one starts now" signal. Any other
+/// blockType degrades to `.other` rather than failing to decode, same
+/// forward-compatibility posture as StreamEvent.Kind's `.other(String)`.
+enum BlockPayload: Sendable, Equatable {
+    case report(ReportBlockPayload)
+    case beatEnd
+    case other(String)
+}
+
 struct StreamEvent: Decodable, Sendable {
     enum Kind: Sendable, Equatable {
-        case begin, item, end, error, trace, ack
+        case begin, item, end, error, trace, ack, block
         case other(String)
     }
 
@@ -63,9 +85,14 @@ struct StreamEvent: Decodable, Sendable {
         let timestamp: Double?
     }
 
+    private struct BlockEnvelope: Decodable {
+        let blockType: String
+    }
+
     let type: Kind
     let content: String?
     let trace: TraceEvent?
+    let block: BlockPayload?
     let metadata: Metadata?
 
     enum CodingKeys: String, CodingKey { case type, content, trace, metadata }
@@ -80,11 +107,26 @@ struct StreamEvent: Decodable, Sendable {
         case "error": type = .error
         case "trace": type = .trace
         case "ack": type = .ack
+        case "block": type = .block
         default: type = .other(raw)
         }
         content = try c.decodeIfPresent(String.self, forKey: .content)
         trace = try? c.decodeIfPresent(TraceEvent.self, forKey: .trace)
         metadata = try? c.decodeIfPresent(Metadata.self, forKey: .metadata)
+
+        if type == .block, let content, let data = content.data(using: .utf8),
+           let envelope = try? JSONDecoder().decode(BlockEnvelope.self, from: data) {
+            switch envelope.blockType {
+            case "report":
+                block = (try? JSONDecoder().decode(ReportBlockPayload.self, from: data)).map(BlockPayload.report)
+            case "beat_end":
+                block = .beatEnd
+            default:
+                block = .other(envelope.blockType)
+            }
+        } else {
+            block = nil
+        }
     }
 }
 

@@ -83,9 +83,11 @@ final class ChatViewModel {
 
         let sentAt = Date()
         messages.append(ChatMessage(id: UUID().uuidString, role: .user, content: trimmed, createdAt: sentAt))
-        var reducer = ChatReducer(messageId: UUID().uuidString)
+        let turnMessageId = UUID().uuidString
+        var reducer = ChatReducer(messageId: turnMessageId)
         messages.append(reducer.message)
-        let index = messages.count - 1
+        let turnStartIndex = messages.count - 1
+        var index = turnStartIndex
 
         // Ask iOS for the usual grace period so switching apps mid-reply
         // doesn't suspend us and cut the stream straight away.
@@ -97,13 +99,48 @@ final class ChatViewModel {
         do {
             for try await event in try await client.chat(message: trimmed, sessionId: sessionId) {
                 streamStarted = true
+
+                // Feature B: a mid-turn safety-net retry after this reply
+                // has already split into several beat bubbles - the whole
+                // attempt is being redone, so collapse back to one bubble
+                // first, same semantics as a plain single-bubble retry
+                // (ChatReducer.apply's own .retry handling, called below,
+                // still sets isRevising/replaceOnNextText on it).
+                if event.type == .trace, case .retry = event.trace, index > turnStartIndex {
+                    messages.removeSubrange((turnStartIndex + 1)...index)
+                    index = turnStartIndex
+                    reducer.beginNewMessage(id: turnMessageId)
+                }
+
+                // Feature B: this beat is done - commit it as-is, then
+                // start a new, tightly-grouped bubble for whatever comes
+                // next. Carries no content of its own (the beat's text
+                // already arrived via ordinary "item" events above).
+                if event.type == .block, event.block == .beatEnd {
+                    messages[index] = reducer.message
+                    reducer.beginNewMessage(id: UUID().uuidString, groupedWithPrevious: true)
+                    messages.append(reducer.message)
+                    index = messages.count - 1
+                    continue
+                }
+
                 reducer.apply(event)
                 messages[index] = reducer.message
-                voice?.replyChanged(reducer.message.content)
+                voice?.replyChanged(reducer.message.spokenSummary)
             }
             reducer.finish()
-            messages[index] = reducer.message
-            voice?.replyChanged(reducer.message.content)
+            if index > turnStartIndex && reducer.message.isEmpty {
+                // A trailing beat_end with nothing after it before the
+                // stream ended - finish()'s "no response" fallback is
+                // right for a turn that produced nothing at all, but wrong
+                // here: earlier beats already carried the real reply, so
+                // drop this dangling empty bubble instead of appending a
+                // confusing fallback message after a perfectly good reply.
+                messages.remove(at: index)
+            } else {
+                messages[index] = reducer.message
+                voice?.replyChanged(reducer.message.spokenSummary)
+            }
             voice?.replyFinished()
         } catch where streamStarted && Self.isConnectionCut(error) {
             // At least one event arrived, so the server has the turn - and

@@ -43,6 +43,7 @@ from . import (
     knowledge_client,
     memory_client,
     profile_routes,
+    response_blocks,
     session_memory,
 )
 from .agent import AgentDeps, build_agent
@@ -121,6 +122,12 @@ _MAX_TOOL_ERROR_RETRIES = 3
 _MAX_SEARCH_INTENT_RETRIES = 2
 _MAX_UNGROUNDED_SPECIFICS_RETRIES = 2
 
+# Pacing delay between re-chunked pieces of the fast/no-tool path's
+# already-complete reply (see response_blocks.chunk_for_pacing) - purely
+# cosmetic, simulating the live-typing feel the tool-using path gets for
+# free from genuine per-token generation latency.
+_FAST_PATH_CHUNK_DELAY_SECONDS = 0.03
+
 
 @dataclass
 class _TurnState:
@@ -173,6 +180,7 @@ async def _run_turn(
     emit,
     message_history: list[ModelMessage],
     out: _Attempt,
+    beats_enabled: bool,
 ) -> AsyncIterator[str]:
     """One attempt at a full agent turn - yields each NDJSON event the
     moment the model produces it, and records the attempt's final text on
@@ -187,12 +195,21 @@ async def _run_turn(
 
     message_history is the same fixed list across every retry attempt within
     one webhook call - it's what happened BEFORE this turn, so a retry nudge
-    on the current turn doesn't change it."""
+    on the current turn doesn't change it.
+
+    beats_enabled: whether this turn is eligible for live beat-flushing (see
+    response_blocks.py's module docstring) - false for a report-eligible
+    turn, which always streams as a single growing bubble. A fresh
+    BeatEmitter is constructed per attempt (not threaded in from the
+    caller) because a retry already resets the client's displayed state
+    via its own trace event - there's nothing from a failed attempt worth
+    carrying into the next one."""
     state.attempt += 1
     text_parts: list[str] = []
     open_tool_calls: dict[str, tuple[str, int]] = {}  # tool_call_id -> (tool_name, iteration)
     iteration = 0
     _turn_started = time.monotonic()
+    beat_emitter = response_blocks.BeatEmitter(emit) if beats_enabled else None
 
     try:
         agent = build_agent(config, session_id, system_prompt)
@@ -212,10 +229,18 @@ async def _run_turn(
                     # back as "ASE1TEST" every time, never once correct).
                     if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart) and event.part.content:
                         text_parts.append(event.part.content)
-                        yield emit("item", event.part.content)
+                        if beat_emitter:
+                            for e in beat_emitter.feed(event.part.content):
+                                yield e
+                        else:
+                            yield emit("item", event.part.content)
                     elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
                         text_parts.append(event.delta.content_delta)
-                        yield emit("item", event.delta.content_delta)
+                        if beat_emitter:
+                            for e in beat_emitter.feed(event.delta.content_delta):
+                                yield e
+                        else:
+                            yield emit("item", event.delta.content_delta)
                     elif isinstance(event, FunctionToolCallEvent):
                         tool_name = event.part.tool_name
                         iteration += 1
@@ -365,6 +390,16 @@ async def webhook(request: Request):
             # than turn_output.relevant_tools, which is forced to [] exactly
             # when multi_turn is false (see respond.py's _normalize_output).
             bound_tools = expand_groups_to_tools(turn_output.relevant_groups)
+            # Decided once, upfront, from the same classification output
+            # that decided which tools get bound - before the reply itself
+            # is generated. A report-eligible turn always streams as a
+            # single growing bubble (today's behavior unchanged); every
+            # other turn is eligible for live beat-flushing instead. The
+            # two are mutually exclusive per turn - see response_blocks.py's
+            # module docstring for why they can't both be decided at the
+            # end (report needs the complete final text; beats need to
+            # flush before that's known).
+            beats_enabled = not response_blocks.report_eligible(turn_output.relevant_groups)
 
             logger.info(
                 "context built session=%s history=%d multiTurn=%s tools=%s groups=%s memories=%s knowledge=%s tasks=%s goals=%s projects=%d system_chars=%d",
@@ -522,6 +557,7 @@ async def webhook(request: Request):
                     config, session_id, system_prompt, chat_input, bound_tools, state, emit,
                     message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 final_text = _attempt.text
@@ -540,8 +576,25 @@ async def webhook(request: Request):
                 # happened to find nothing to strip (the common case). Must
                 # emit it explicitly, the same "item" event type a normal
                 # streamed reply uses.
+                #
+                # This path never has anything live to watch - respond.py's
+                # own Ollama call already returned the complete `response`
+                # string in one non-streamed shot before any of this ran.
+                # relevant_groups is always empty here (respond.py's own
+                # invariant: a category is never set without also forcing
+                # multi_turn=true), so beats_enabled is always true on this
+                # path - re-chunk the already-complete text and feed it
+                # through the same BeatEmitter the live tool-using path
+                # uses, purely to simulate the same live-typing feel.
                 final_text = turn_output.response
-                yield emit("item", final_text)
+                if beats_enabled:
+                    beat_emitter = response_blocks.BeatEmitter(emit)
+                    for chunk in response_blocks.chunk_for_pacing(final_text):
+                        for e in beat_emitter.feed(chunk):
+                            yield e
+                        await asyncio.sleep(_FAST_PATH_CHUNK_DELAY_SECONDS)
+                else:
+                    yield emit("item", final_text)
 
             # One-shot empty-output retry - same shape as chat-orchestrator's.
             # Also the fallback path if the fast, no-tool response somehow
@@ -555,6 +608,7 @@ async def webhook(request: Request):
                     config, session_id, system_prompt, chat_input, bound_tools, state, emit,
                     message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 final_text = _attempt.text
@@ -585,6 +639,7 @@ async def webhook(request: Request):
                     config, session_id, system_prompt, retry_prompt, bound_tools, state, emit,
                     message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 retry_text = _attempt.text
@@ -633,6 +688,7 @@ async def webhook(request: Request):
                     config, session_id, system_prompt, chat_input + SEARCH_RETRY_NUDGE, bound_tools, state, emit,
                     message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 retry_text = _attempt.text
@@ -688,7 +744,7 @@ async def webhook(request: Request):
                 _attempt = _Attempt()
                 async for c in _run_turn(
                     config, session_id, system_prompt, chat_input + UNGROUNDED_CITATION_NUDGE, bound_tools,
-                    state, emit, message_history, _attempt,
+                    state, emit, message_history, _attempt, beats_enabled,
                 ):
                     yield c
                 if _attempt.text.strip():
@@ -719,7 +775,7 @@ async def webhook(request: Request):
                 _attempt = _Attempt()
                 async for c in _run_turn(
                     config, session_id, system_prompt, chat_input + UNGROUNDED_SPECIFICS_NUDGE, bound_tools,
-                    state, emit, message_history, _attempt,
+                    state, emit, message_history, _attempt, beats_enabled,
                 ):
                     yield c
                 if _attempt.text.strip():
@@ -747,6 +803,7 @@ async def webhook(request: Request):
                     config, session_id, system_prompt, chat_input + nudge, bound_tools, state, emit,
                     message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 retry_text = _attempt.text
@@ -778,6 +835,7 @@ async def webhook(request: Request):
                     config, session_id, system_prompt, chat_input + FABRICATED_ID_NUDGE, bound_tools, state, emit,
                     message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 retry_text = _attempt.text
@@ -809,6 +867,7 @@ async def webhook(request: Request):
                     config, session_id, system_prompt, chat_input + STATUS_NARRATION_MISMATCH_NUDGE, bound_tools,
                     state, emit, message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 retry_text = _attempt.text
@@ -840,6 +899,7 @@ async def webhook(request: Request):
                     config, session_id, system_prompt, chat_input + UNWARRANTED_CHECKING_OPENER_NUDGE, bound_tools,
                     state, emit, message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 retry_text = _attempt.text
@@ -871,6 +931,7 @@ async def webhook(request: Request):
                     config, session_id, system_prompt, chat_input + TOOL_FAILURE_NARRATION_NUDGE, bound_tools,
                     state, emit, message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 retry_text = _attempt.text
@@ -910,6 +971,7 @@ async def webhook(request: Request):
                     emit,
                     message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 retry_text = _attempt.text
@@ -949,6 +1011,7 @@ async def webhook(request: Request):
                     config, session_id, system_prompt, chat_input + teaching_intent_retry_nudge(chat_input),
                     bound_tools, state, emit, message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 retry_text = _attempt.text
@@ -986,6 +1049,7 @@ async def webhook(request: Request):
                     emit,
                     message_history,
                     _attempt,
+                    beats_enabled,
                 ):
                     yield c
                 retry_text = _attempt.text
@@ -1017,6 +1081,17 @@ async def webhook(request: Request):
                 yield emit("trace", trace={"kind": "retry", "attempt": state.attempt + 1, "reason": "tone_backstop"})
                 yield emit("item", cleaned_text)
                 final_text = cleaned_text
+
+            # Feature A: a long, structured answer (knowledge/web/research/
+            # self-growth, past response_blocks._REPORT_LENGTH_THRESHOLD)
+            # renders as a tappable report card instead of a wall of text -
+            # decided here, now that final_text has settled through every
+            # retry above. An additional line on top of whatever was
+            # already streamed as "item" events, not a replacement - the
+            # client decides whether to keep the streamed text or swap to
+            # the card once it sees this event.
+            if response_blocks.classify_reply(turn_output.relevant_groups, final_text) == "report":
+                yield emit("block", json.dumps(response_blocks.build_report_block(final_text)))
 
             yield emit("end")
             logger.info("turn reply session=%s duration=%.2fs reply_chars=%d reply=%r", session_id,
