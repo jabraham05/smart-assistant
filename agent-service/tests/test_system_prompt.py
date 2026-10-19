@@ -49,6 +49,25 @@ def test_includes_tone_line_always():
     assert prompt.rstrip().endswith("the bad ones'.")
 
 
+def test_voice_line_teaches_the_sir_address_and_independent_judgment():
+    # New direction, added as a code-layered instruction rather than a
+    # DB-stored persona edit (see system_prompt.py's comment on why) -
+    # the "sir" address, the composed/dry register, and giving real
+    # pushback instead of just complying all have to actually be taught.
+    prompt = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
+    assert 'Address the user as "sir"' in prompt
+    assert "composed, perceptive, quietly confident" in prompt
+    assert "don't just comply or hedge" in prompt
+
+
+def test_voice_line_comes_before_tone_line_which_stays_last():
+    # tone_line's own closing-style admonitions must stay the very last,
+    # most recent thing before generation (recency bias, see its comment)
+    # - voice_line slots in immediately before it, not after.
+    prompt = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
+    assert prompt.index('Address the user as "sir"') < prompt.index("Close naturally")
+
+
 def test_tone_line_teaches_the_multi_text_beat_convention():
     # Feature B (conversational multi-text): the blank-line convention
     # BeatEmitter listens for (response_blocks.py) has to actually be
