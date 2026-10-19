@@ -100,6 +100,22 @@ GROUPS: dict[str, list[str]] = {
 # grounded answer still got flagged as the required tool never being
 # called, discarding the real answer and replacing it with the generic
 # REQUIRED_TOOL_FAILURE_MESSAGE.
+#
+# 2026-10-19: real, live-verified cost of keeping web_search bound as a
+# fallback - the model doesn't just occasionally reach for the old name,
+# it was choosing it over knowledge_lookup often enough to matter
+# (presumably because a user's literal "search the web for X" phrasing
+# matches web_search's name more directly), missing out on
+# knowledge_lookup's saved-knowledge integration and citations every
+# time. web_search also had no cap on its own result size (fixed
+# separately, skills-mcp/src/tools/web-search.ts), so this wasn't just a
+# quality gap - it was routing traffic toward the less-protected tool.
+# Didn't remove the alias binding here (still needed for the
+# has_unsatisfied_required_tool fix above); instead strengthened
+# web_search's own MCP description to explicitly tell the model to
+# prefer knowledge_lookup - same "tool guidance lives in the tool, not a
+# second enforcement layer" convention as every other tool-selection fix
+# in this codebase.
 LEGACY_TOOL_ALIASES: dict[str, str] = {
     "web_search": "knowledge_lookup",
     "knowledge_search": "knowledge_lookup",
