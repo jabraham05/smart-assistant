@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 import asyncpg
 
 from . import growth_graphiti
-from .config import Config
+from .config import Config, is_test_session
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,8 @@ async def log_review_turn(
     Never raises: this is awaited in the same gather as those writes, and a
     failure here must not affect a reply that has already streamed back to
     the user."""
+    if is_test_session(session_id):
+        return
     try:
         pool = await _get_pool(config)
         prompt_hash = await _ensure_persona_snapshot(pool, persona_system_prompt)
@@ -384,6 +386,8 @@ async def record_observation(
     search - deterministic and good enough for now; Phase 6.2 follow-up
     work can swap in similarity matching without changing this function's
     signature. Returns the opportunity id touched, or None on failure."""
+    if is_test_session(session_id):
+        return None
     try:
         pool = await _get_pool(config)
         category = category or classify_category(source)

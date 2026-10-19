@@ -91,6 +91,25 @@ class Config:
     knowledge_strong_relevance_score: float
 
 
+# Real incident this exists to prevent: live-testing this session wrote
+# fictional facts ("user's favorite language is Rust", fake car ownership,
+# fake research requests) into the SAME shared memory/knowledge/growth
+# stores real amy-main traffic uses, because nothing distinguished a test
+# session's session_id from a real one - every persistence call just wrote
+# wherever it was told to. ~900 rows across 8 tables had to be found and
+# purged by hand as a result. Any session_id starting with this prefix is
+# now recognized at the persistence layer itself (growth_db.record_observation/
+# log_review_turn, memory_client.ingest_memory, knowledge_client.create_entity_
+# from_chat, honcho_client.store_turn) and silently no-ops instead of writing -
+# checked there, not at each call site in main.py, so a future call site can't
+# forget to gate it.
+TEST_SESSION_PREFIX = "test-"
+
+
+def is_test_session(session_id: str | None) -> bool:
+    return bool(session_id) and session_id.startswith(TEST_SESSION_PREFIX)
+
+
 def _int_env(env: dict[str, str], name: str, default: int) -> int:
     value = env.get(name)
     return int(value) if value else default
