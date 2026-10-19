@@ -16,12 +16,15 @@ const CODER_SYSTEM_PROMPT =
   "You are the Coder for this task. You have a shell in your own container, with the target " +
   "repository already checked out - use it to look at real files before changing them, make the " +
   "actual code edits (creating, editing, or deleting files as needed), and run the project's test " +
-  "command as you go, one command at a time. When you need to write a whole file's exact content " +
-  "from scratch or replace it entirely, write it directly rather than building it inside a shell " +
-  "command - it's more reliable for content with quotes or special characters. Only make the " +
-  "implementation change described in the task and plan; never add test code yourself, a separate " +
-  "Tester handles that. When you believe the work is genuinely done, end your final reply with a " +
-  "line starting with 'STATUS:' giving a short one-sentence summary of what you just did.";
+  "command as you go, one command at a time. When you're changing part of an existing file, make a " +
+  "targeted replacement of the exact existing text rather than rewriting the whole file - it's " +
+  "faster and less likely to accidentally drop unrelated content. Only write a whole file's content " +
+  "directly when it's new, or when you genuinely mean to replace all of it; that's also the more " +
+  "reliable way to produce content with quotes or special characters rather than building it inside " +
+  "a shell command. Only make the implementation change described in the task and plan; never add " +
+  "test code yourself, a separate Tester handles that. When you believe the work is genuinely done, " +
+  "end your final reply with a line starting with 'STATUS:' giving a short one-sentence summary of " +
+  "what you just did.";
 
 const TESTER_SYSTEM_PROMPT =
   "You are the Tester for this task, separate from the Coder. The Coder has already made its " +
@@ -44,6 +47,10 @@ const TESTER_SYSTEM_PROMPT =
   "code (e.g. testing a scaffold's example function instead of whatever the Coder's diff actually " +
   "changed) is not adequate coverage either - if you find yourself testing code the diff didn't " +
   "touch, go test the real feature instead.\n\n" +
+  "When you're changing part of an existing file (including an existing test file), make a targeted " +
+  "replacement of the exact existing text rather than rewriting the whole file - it's faster and " +
+  "less likely to accidentally drop unrelated content. Only write a whole file's content directly " +
+  "when it's new, or when you genuinely mean to replace all of it.\n\n" +
   "When you believe test coverage is genuinely adequate, end your final reply with a line starting " +
   "with 'STATUS:' giving a short one-sentence summary of what you just did.";
 
@@ -167,6 +174,88 @@ function agentTools(
           `task=${taskId} write_file: ${filename} (${content.length} bytes, starts "${content.slice(0, 60).replace(/\s+/g, " ")}")`,
         );
         return `Wrote ${filename} successfully.`;
+      },
+    },
+    {
+      name: "edit_file",
+      description:
+        "Make a targeted change to an existing file: give the exact text to find (old_string) and " +
+        "what to replace it with (new_string). old_string must match the file's current content " +
+        "exactly (including whitespace) and must be unique in the file unless replace_all is true - " +
+        "include enough surrounding context to make it unique. Use this instead of write_file when " +
+        "you only need to change part of a file.",
+      parameters: {
+        type: "object",
+        properties: {
+          filename: { type: "string" },
+          old_string: { type: "string", description: "Exact existing text to find and replace." },
+          new_string: { type: "string", description: "Text to replace it with." },
+          replace_all: {
+            type: "boolean",
+            description: "Replace every occurrence instead of requiring old_string to be unique. Defaults to false.",
+          },
+        },
+        required: ["filename", "old_string", "new_string"],
+      },
+      execute: async (args) => {
+        const filename = String(args.filename);
+        const oldString = String(args.old_string);
+        const newString = String(args.new_string);
+        const replaceAll = args.replace_all === true;
+
+        if (options.denyConfigWrites && CONFIG_FILE_PATTERN.test(filename)) {
+          console.log(`task=${taskId} edit_file refused (config file, Tester): ${filename}`);
+          return (
+            `Refused: "${filename}" is project config already set up correctly by the starter scaffold ` +
+            `(or by the Coder). You don't need to, and shouldn't, modify it - focus only on test files.`
+          );
+        }
+        if (oldString === "") {
+          return "Error: old_string must not be empty - use write_file to create a new file.";
+        }
+
+        // Reads via the same run_command path above, so the filename has to
+        // be safely single-quoted into the shell command itself (unlike
+        // write_file, which never puts content through a shell at all) -
+        // standard POSIX quoting: close the quote, insert an escaped quote,
+        // reopen it.
+        const escapedPath = `'${filename.replace(/'/g, "'\\''")}'`;
+        const readResult = await sandbox.execInContainer(sandboxRunnerUrl, containerId, {
+          command: `cat -- ${escapedPath}`,
+          workingDir,
+        });
+        if (readResult.exitCode !== 0) {
+          return (
+            `Error: couldn't read "${filename}" (exit ${readResult.exitCode}): ` +
+            `${(readResult.stderr || "file may not exist").trim()}`
+          );
+        }
+
+        const current = readResult.stdout;
+        const occurrences = current.split(oldString).length - 1;
+        if (occurrences === 0) {
+          return `Error: old_string was not found in "${filename}". It must match the file's current content exactly, including whitespace.`;
+        }
+        if (occurrences > 1 && !replaceAll) {
+          return (
+            `Error: old_string appears ${occurrences} times in "${filename}", not 1 - include more ` +
+            `surrounding context to make it unique, or set replace_all: true to replace every occurrence.`
+          );
+        }
+
+        const updated = replaceAll
+          ? current.split(oldString).join(newString)
+          : current.replace(oldString, newString);
+
+        await sandbox.writeFileInContainer(sandboxRunnerUrl, containerId, {
+          filename,
+          content: updated,
+          workingDir,
+        });
+        console.log(
+          `task=${taskId} edit_file: ${filename} (${occurrences} occurrence(s)${replaceAll ? ", replace_all" : ""})`,
+        );
+        return `Replaced ${occurrences} occurrence(s) in ${filename}.`;
       },
     },
   ];
