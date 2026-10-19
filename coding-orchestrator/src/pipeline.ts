@@ -108,6 +108,31 @@ interface TaskContext {
 const CONFIG_FILE_PATTERN =
   /(^|\/)(package(-lock)?\.json|jest\.config\.(js|ts|cjs|mjs|json)|pytest\.ini|babel\.config\.(js|json)|\.babelrc(\.json)?|tsconfig\.json|next\.config\.(js|mjs))$/i;
 
+function escapeShellPath(filename: string): string {
+  return `'${filename.replace(/'/g, "'\\''")}'`;
+}
+
+// Shared by read_file and edit_file below - both need the file's current
+// real content, via the same run_command path (see run_command's own tool
+// for why the filename has to be shell-quoted here, unlike write_file).
+async function readFileRaw(
+  sandboxRunnerUrl: string,
+  containerId: string,
+  workingDir: string,
+  filename: string,
+): Promise<{ content: string } | { error: string }> {
+  const result = await sandbox.execInContainer(sandboxRunnerUrl, containerId, {
+    command: `cat -- ${escapeShellPath(filename)}`,
+    workingDir,
+  });
+  if (result.exitCode !== 0) {
+    return {
+      error: `Error: couldn't read "${filename}" (exit ${result.exitCode}): ${(result.stderr || "file may not exist").trim()}`,
+    };
+  }
+  return { content: result.stdout };
+}
+
 function agentTools(
   sandboxRunnerUrl: string,
   containerId: string,
@@ -177,6 +202,34 @@ function agentTools(
       },
     },
     {
+      name: "read_file",
+      description:
+        "Read an existing file's content with line numbers. Prefer this over a shell command when " +
+        "inspecting a file before changing it - the line numbers make it easier to describe exactly " +
+        "where a change is needed.",
+      parameters: {
+        type: "object",
+        properties: { filename: { type: "string" } },
+        required: ["filename"],
+      },
+      execute: async (args) => {
+        const filename = String(args.filename);
+        const read = await readFileRaw(sandboxRunnerUrl, containerId, workingDir, filename);
+        if ("error" in read) return read.error;
+
+        // Trailing-newline-ends-every-text-file is the common case; dropping
+        // the resulting empty trailing split element keeps line numbers
+        // matching what an editor would show, instead of counting a phantom
+        // extra blank line past the real end of the file.
+        const body = read.content.endsWith("\n") ? read.content.slice(0, -1) : read.content;
+        const numbered = body
+          .split("\n")
+          .map((line, i) => `${String(i + 1).padStart(5)}\t${line}`)
+          .join("\n");
+        return truncateToolResult(numbered);
+      },
+    },
+    {
       name: "edit_file",
       description:
         "Make a targeted change to an existing file: give the exact text to find (old_string) and " +
@@ -214,24 +267,9 @@ function agentTools(
           return "Error: old_string must not be empty - use write_file to create a new file.";
         }
 
-        // Reads via the same run_command path above, so the filename has to
-        // be safely single-quoted into the shell command itself (unlike
-        // write_file, which never puts content through a shell at all) -
-        // standard POSIX quoting: close the quote, insert an escaped quote,
-        // reopen it.
-        const escapedPath = `'${filename.replace(/'/g, "'\\''")}'`;
-        const readResult = await sandbox.execInContainer(sandboxRunnerUrl, containerId, {
-          command: `cat -- ${escapedPath}`,
-          workingDir,
-        });
-        if (readResult.exitCode !== 0) {
-          return (
-            `Error: couldn't read "${filename}" (exit ${readResult.exitCode}): ` +
-            `${(readResult.stderr || "file may not exist").trim()}`
-          );
-        }
-
-        const current = readResult.stdout;
+        const read = await readFileRaw(sandboxRunnerUrl, containerId, workingDir, filename);
+        if ("error" in read) return read.error;
+        const current = read.content;
         const occurrences = current.split(oldString).length - 1;
         if (occurrences === 0) {
           return `Error: old_string was not found in "${filename}". It must match the file's current content exactly, including whitespace.`;
