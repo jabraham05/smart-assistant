@@ -324,8 +324,24 @@ async def webhook(request: Request):
             message_history = session_memory.to_model_messages(full_history)
             recent_context = None
             if full_history:
-                last_two = full_history[-2:]
-                recent_context = "\n".join(f"{m.role}: {m.content}" for m in last_two)
+                # Real, live-verified gap: this used to be the last 2
+                # messages only (fine for the old classifier, which only
+                # ever made a routing decision) - but respond.py's call is
+                # now often the ENTIRE turn (multiTurn=false), and with only
+                # one exchange of lookback it had no way to stay consistent
+                # with anything said a couple of turns earlier in the same
+                # conversation. Real incident: asked "is there time because
+                # I don't have much obligations", then two turns later
+                # asked a follow-up with that exact exchange one message
+                # outside the old 2-message window, Amy inverted her own
+                # just-stated "no major commitments" into "little extra
+                # time available." Widened to the last 10 messages (5
+                # exchanges) - each individually capped so one long reply
+                # (a multi-thousand-char article summary, seen live) can't
+                # balloon this block the same way the context-budget work
+                # elsewhere this session had to guard against.
+                last_messages = full_history[-10:]
+                recent_context = "\n".join(f"{m.role}: {_preview(m.content, 400)}" for m in last_messages)
 
             # Growth engine Phase 8: the parallel gather + Honcho card fetch
             # + skill discovery + system-prompt assembly that used to be

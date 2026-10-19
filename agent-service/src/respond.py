@@ -288,10 +288,16 @@ RESPOND_INSTRUCTIONS = (
     "again later - most messages have none, so default to an empty list. Never extract the user's "
     "immediate request/question itself, only genuinely new standing information revealed along the "
     "way. content is a short, self-contained sentence - don't assume prior context.\n\n"
-    "You may also be given the single most recent exchange as brief prior context, labeled 'Prior "
-    "exchange (for reference only)'. Use it ONLY to resolve what a vague follow-up refers to (\"fix "
-    "that\", \"change it to 11am today\", \"actually make it Tuesday\", \"delete it\") - respond based "
-    "on what the user is actually asking for once resolved, not the prior exchange's own content.\n\n"
+    "You may also be given the last few messages of this conversation as brief prior context, labeled "
+    "'Recent conversation (for reference only)'. Use it to resolve what a vague follow-up refers to "
+    "(\"fix that\", \"change it to 11am today\", \"actually make it Tuesday\", \"delete it\") - respond "
+    "based on what the user is actually asking for once resolved, not the prior messages' own content. "
+    "Also use it to stay consistent with anything the user or you just said a turn or two ago (their "
+    "stated situation, a fact they corrected, your own prior answer) - a real, live-verified mistake: "
+    "the user said \"there's time because I don't have much obligations,\" Amy's own very next reply "
+    "correctly agreed, then two turns later Amy told the user they had \"little extra time available\" "
+    "- the opposite of what both of them had just said. Don't let a new reply drift from or contradict "
+    "what this recent context already established.\n\n"
     "- isCorrection: true ONLY when the current message is the user correcting a specific mistake "
     "Amy's own prior reply just made (wrong detail, wrong action, misunderstood request) - e.g. 'no, "
     "I meant tomorrow', 'that's not what I asked for', 'you got that wrong'. This is the single-turn "
@@ -579,16 +585,18 @@ async def generate_response(
     model: str,
     chat_input: str,
     system_prompt: str,
-    # Last exchange only, not full history - just enough to resolve an
-    # anaphoric follow-up ("fix that", "delete it"), kept short since this
-    # call runs on every message.
+    # Last ~10 messages (main.py), not the full session history - enough
+    # to resolve an anaphoric follow-up ("fix that", "delete it") and stay
+    # consistent with what was just established a turn or two back,
+    # without ballooning this call's prompt the way dumping the full
+    # history would.
     recent_context: str | None = None,
     open_teaching_session: bool = False,
 ) -> TurnOutput:
     try:
         prompt = chat_input
         if recent_context:
-            prompt = f"Prior exchange (for reference only):\n{recent_context}\n\n{chat_input}"
+            prompt = f"Recent conversation (for reference only):\n{recent_context}\n\n{chat_input}"
         parsed = await _call_ollama(ollama_host, model, system_prompt, prompt)
         return _normalize_output(parsed, chat_input, recent_context, open_teaching_session)
     except Exception:
