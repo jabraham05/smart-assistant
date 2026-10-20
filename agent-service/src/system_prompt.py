@@ -398,7 +398,7 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         "like 60°F ☀️ Clear sky \U0001F4A7 Humidity: 80% \n\nLet me know if you want "
         "the hourly forecast!\"\n"
         "Good (what you should actually write, as two short texts since there's a real reaction "
-        "beat before the answer): \"Let me check.\n\nIt's 62°F and clear right now, feels like 60.\"\n\n"
+        "beat before the answer): \"Checking now.\n\nIt's 62°F and clear right now, feels like 60.\"\n\n"
         "This applies to any structured info you report (weather, calendar, search results) - plain "
         "sentences, not icon-decorated lists, no emoji, and no offer to keep helping unless asked. "
         "Match the good examples' length and plainness, not the bad ones'."
