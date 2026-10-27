@@ -2,8 +2,10 @@
 same intent, confirms build_system_prompt behaves identically to the TS
 original (including this session's openProjects addition)."""
 
+import re
 from datetime import datetime, timezone
 
+from src.safety_net import has_unfulfilled_search_intent
 from src.system_prompt import (
     OpenProject,
     OpenTask,
@@ -66,6 +68,29 @@ def test_voice_line_comes_before_tone_line_which_stays_last():
     # - voice_line slots in immediately before it, not after.
     prompt = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
     assert prompt.index('Address the user as "sir"') < prompt.index("Close naturally")
+
+
+def test_tone_line_examples_never_trip_the_search_intent_safety_net():
+    # Real, live-verified regression (2026-10-19, session amy-main): the
+    # weather example originally taught "Let me check." as the reaction
+    # beat before the answer - knowledge_lookup is unconditionally bound
+    # every multi-turn call (respond.py's expand_groups_to_tools baseline),
+    # so has_unfulfilled_search_intent's "let me ... check" regex false-
+    # positived on a correct weather_get-backed answer that never searched
+    # at all, triggering a pointless retry. Fixed by changing the example
+    # text itself, not the safety-net check - this test pulls every quoted
+    # "Good" example out of tone_line and asserts none of them would
+    # themselves trip that check, so a future wording tweak can't
+    # reintroduce the same self-inflicted false positive.
+    prompt = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
+    tone_start = prompt.index("Close naturally")
+    tone_line = prompt[tone_start:]
+    good_examples = re.findall(r'Good \([^)]*\): "([^"]*)"', tone_line)
+    assert len(good_examples) >= 2  # sanity check the extraction itself worked
+    for example in good_examples:
+        assert not has_unfulfilled_search_intent(example, ["knowledge_lookup"], []), (
+            f"tone_line 'Good' example would itself trigger a search-intent retry: {example!r}"
+        )
 
 
 def test_tone_line_teaches_the_multi_text_beat_convention():

@@ -3,6 +3,26 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Config } from "../config.js";
 import { errorResult, textResult } from "../types.js";
 
+// Real, live-verified incident (2026-10-19, session amy-main): this tool had
+// no cap at all - "each passage already fetched in full" per its own
+// description below - and real calls returned 20-35KB tool results, which
+// blew the model's own output token budget before any response was
+// generated (pydantic_ai.exceptions.UnexpectedModelBehavior), then on retry
+// overwrote a separate, perfectly good answer with a short, incomplete
+// opener once a later attempt finally produced *some* text. This is the
+// exact same bug class knowledge-lookup.ts's own _MAX_CONTENT_CHARS/
+// truncate already fixed there (see that file's comment) - web_search just
+// never got the same fix, and the model still reaches for it directly (by
+// its literal name) often enough, despite knowledge_lookup being the
+// intended live tool, that leaving it uncapped matters. Same 600-char cap,
+// kept here rather than factored into a shared helper - low duplication
+// risk for two call sites, not worth the indirection.
+const _MAX_CONTENT_CHARS = 600;
+
+export function truncate(text: string): string {
+  return text.length > _MAX_CONTENT_CHARS ? `${text.slice(0, _MAX_CONTENT_CHARS)}…` : text;
+}
+
 interface RankedPassage {
   text: string;
   url: string;
@@ -14,9 +34,13 @@ export function registerWebSearch(server: McpServer, config: Config): void {
   server.registerTool(
     "web_search",
     {
-      title: "Search the web",
+      title: "Search the web (legacy - prefer knowledge_lookup)",
       description:
-        "Search the live web for a query and return only the passages that actually address it - each " +
+        "Legacy tool, kept only for backward compatibility - use knowledge_lookup instead for this, every " +
+        "time it's available. knowledge_lookup does everything this tool does (a live web search) PLUS " +
+        "your saved knowledge/past research AND proper source citations, in one call. Only reach for this " +
+        "one if knowledge_lookup is genuinely not bound this turn. Search the live web for a query and " +
+        "return only the passages that actually address it - each " +
         "one already fetched in full and ranked against your query, not a raw search-result snippet. Use " +
         "this for anything that needs current, real-world information that could have changed or that you " +
         "don't already know for certain — news and current events, today's headlines, recent releases, " +
@@ -73,7 +97,7 @@ export function registerWebSearch(server: McpServer, config: Config): void {
         }
         return textResult({
           query,
-          results: data.passages.map((p) => ({ title: p.title, url: p.url, content: p.text })),
+          results: data.passages.map((p) => ({ title: p.title, url: p.url, content: truncate(p.text) })),
         });
       } catch (e) {
         return errorResult(`web_search failed: ${e instanceof Error ? e.message : String(e)}`);
