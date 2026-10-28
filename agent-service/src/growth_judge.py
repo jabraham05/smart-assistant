@@ -145,14 +145,61 @@ async def run_judge(config: Config, transcript: str) -> JudgeOutput | None:
         await _unload_model(config, config.growth_judge_model)
 
 
+# 2026-10-27, context-assembly audit: real, confirmed gap - every prompt
+# this module builds (this function, evaluate_skill_plausibility,
+# classify_teaching_content below) used to concatenate full, untruncated
+# text with no cap at all, unlike every other prompt-construction path in
+# this codebase (respond.py caps tool results at 600 chars;
+# context_budget.py pools and caps the live chat prompt). Real measured
+# risk, not hypothetical: one real session (amy-main) already has 114
+# stored review_turns totaling 112,630 chars combined - a lagging review
+# cursor could plausibly feed many of one verbose session's turns into a
+# single judge call with nothing trimmed.
+_MAX_JUDGE_TURN_CHARS = 1500
+_MAX_JUDGE_TRANSCRIPT_CHARS = 8000
+
+
+def _truncate_for_judge(text: str, max_chars: int) -> str:
+    """Head+tail truncation - same shape as coding-orchestrator's
+    agent-loop.ts truncateToolResult: what's being discussed is usually
+    obvious from the start, the actual conclusion/outcome is usually at
+    the end."""
+    if not text or len(text) <= max_chars:
+        return text
+    half = (max_chars - 20) // 2
+    return f"{text[:half]}...[truncated]...{text[-half:]}"
+
+
 def format_transcript(turns: list[dict]) -> str:
     """review_turns rows (user_message/agent_reply pairs, in order) ->
-    plain User:/Amy: text, same shape golden_transcripts already store."""
-    lines = []
-    for t in turns:
-        lines.append(f"User: {t['user_message']}")
-        lines.append(f"Amy: {t['agent_reply']}")
-    return "\n".join(lines)
+    plain User:/Amy: text, same shape golden_transcripts already store.
+
+    Two caps now, same "drop the oldest, keep the most recent" convention
+    agent-loop.ts's trimHistoryToBudget already established for this exact
+    problem class elsewhere in this codebase: each turn's own text is
+    head+tail truncated first, then whole turns are dropped oldest-first
+    (with a one-line marker noting how many) if the assembled transcript
+    would still exceed the overall budget."""
+    truncated_turns = [
+        {
+            "user_message": _truncate_for_judge(t["user_message"], _MAX_JUDGE_TURN_CHARS),
+            "agent_reply": _truncate_for_judge(t["agent_reply"], _MAX_JUDGE_TURN_CHARS),
+        }
+        for t in turns
+    ]
+
+    omitted = 0
+    while truncated_turns:
+        lines = []
+        for t in truncated_turns:
+            lines.append(f"User: {t['user_message']}")
+            lines.append(f"Amy: {t['agent_reply']}")
+        text = "\n".join(lines)
+        if len(text) <= _MAX_JUDGE_TRANSCRIPT_CHARS or len(truncated_turns) == 1:
+            return f"[{omitted} earlier turn(s) omitted to stay within budget]\n{text}" if omitted else text
+        omitted += 1
+        truncated_turns = truncated_turns[1:]
+    return ""
 
 
 async def _ollama_chat(config: Config, model: str, messages: list[dict], timeout: float = 60.0) -> str:
@@ -258,7 +305,10 @@ async def evaluate_skill_plausibility(config: Config, evidence_text: str, draft_
     recorded score, not a rubber stamp."""
     try:
         agent = _build_skill_eval_agent(config)
-        prompt = f"Evidence of the recurring problem:\n{evidence_text}\n\nProposed skill instructions:\n{draft_instructions}"
+        prompt = (
+            f"Evidence of the recurring problem:\n{_truncate_for_judge(evidence_text, _MAX_JUDGE_TRANSCRIPT_CHARS)}"
+            f"\n\nProposed skill instructions:\n{_truncate_for_judge(draft_instructions, _MAX_JUDGE_TRANSCRIPT_CHARS)}"
+        )
         result = await agent.run(prompt)
         return result.output
     except Exception:
@@ -388,7 +438,10 @@ async def classify_teaching_content(config: Config, mode: str, captured_content:
     answer."""
     try:
         agent = _build_teaching_classify_agent(config)
-        prompt = f"Teaching mode: {mode}\n\nCaptured content:\n{captured_content}"
+        prompt = (
+            f"Teaching mode: {mode}\n\nCaptured content:\n"
+            f"{_truncate_for_judge(captured_content, _MAX_JUDGE_TRANSCRIPT_CHARS)}"
+        )
         result = await agent.run(prompt)
         return result.output
     except Exception:
