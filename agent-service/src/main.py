@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -78,7 +79,10 @@ from .safety_net import (
     teaching_intent_retry_nudge,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 # Keep turn-level activity visible without flooding logs with one line per
 # HTTP request and model retry from dependency libraries.
 for _noisy_logger in ("httpx", "httpx2", "openai", "uvicorn.access"):
@@ -418,6 +422,14 @@ async def webhook(request: Request):
                 [_preview(g.title, 100) for g in relevant_goals[:3]],
                 len(ctx.open_projects), len(system_prompt),
             )
+            # Validation infra for the context-assembly fix pass (2026-10):
+            # the line above shows selection metadata, not what was actually
+            # rendered - a retrieval fix can look correct there while the
+            # prompt assembler still emits something stale. Debug-level only
+            # (enable via LOG_LEVEL=DEBUG) so this stays silent in normal
+            # operation; full text, no truncation, specifically so a leak is
+            # visible even when it wouldn't show up in the short previews above.
+            logger.debug("assembled system prompt session=%s:\n%s", session_id, system_prompt)
 
             if turn_output.knowledge_gap_topic and not turn_output.explicit_research_request:
                 # A conversational gap is evidence for Growth, not by itself

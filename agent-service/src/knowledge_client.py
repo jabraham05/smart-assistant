@@ -40,6 +40,36 @@ async def create_entity_from_chat(
         logger.exception("knowledge-engine entity create failed")
 
 
+# Real, live-verified gap (2026-10-27 context-assembly audit): open projects
+# used to be injected into every single turn regardless of topic - confirmed
+# live across a full test battery (projects=4 on every turn, including a
+# plain "hey" and a totally unrelated "what is the fermi paradox"), and is
+# exactly what made Amy randomly reference an unrelated open project during
+# an unconnected conversation. Same deliberate-weak-match philosophy as
+# event-bus's task-context/goal matching (minOverlap=1, see
+# event-bus/src/db.ts's matchOpenTaskContextsToText): plain lowercase word
+# overlap, no stemming, no embeddings - generous enough that an explicit but
+# loosely-worded reference still matches, strict enough that an unrelated
+# turn gets zero projects instead of all of them.
+_OVERLAP_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "that", "this", "from", "into", "about",
+    "your", "you", "are", "was", "were", "has", "have", "had", "not",
+    "what", "when", "where", "how", "why", "can", "will", "would", "could",
+})
+_PROJECT_MATCH_MIN_OVERLAP = 1
+
+
+def _overlap_words(text: str) -> set[str]:
+    return {
+        w for w in "".join(c if c.isalnum() else " " for c in text.lower()).split()
+        if len(w) >= 3 and w not in _OVERLAP_STOPWORDS
+    }
+
+
+def _text_overlap_count(chat_input: str, candidate_text: str) -> int:
+    return len(_overlap_words(chat_input) & _overlap_words(candidate_text))
+
+
 @dataclass(frozen=True)
 class OpenProjectSummary:
     id: int
@@ -122,16 +152,21 @@ async def enqueue_research_brief(config: Config, brief: str, opportunity_id: int
         return False
 
 
-# Caps how many open projects get injected into the system prompt every
-# turn - short, always-on list, not exhaustive.
+# Caps how many relevance-matched projects get injected per turn - a real
+# limit now that matching can return more than a handful, not a vestige of
+# the old always-inject-everything behavior.
 _MAX_OPEN_PROJECTS_IN_PROMPT = 10
 
 
-async def list_open_projects(config: Config) -> list[OpenProjectSummary]:
-    """Powers the always-on 'already proposed or active projects' line in
+async def list_open_projects(config: Config, chat_input: str) -> list[OpenProjectSummary]:
+    """Powers the 'already proposed or active projects' line in
     system_prompt.py - lets the model recognize an already-covered idea
     before ever calling project_propose, rather than relying solely on
-    knowledge-engine's own title-lexeme-overlap dedup check after the fact."""
+    knowledge-engine's own title-lexeme-overlap dedup check after the fact.
+
+    2026-10-27: relevance-filtered against `chat_input`, not unconditional.
+    See `_text_overlap_count` above for why (confirmed-live bug: every
+    project rendered on every turn regardless of topic)."""
     try:
         async with httpx.AsyncClient() as client:
             res = await client.get(f"{config.knowledge_engine_url}/projects", timeout=8)
@@ -139,9 +174,14 @@ async def list_open_projects(config: Config) -> list[OpenProjectSummary]:
                 return []
             projects = res.json().get("projects") or []
             open_projects = [p for p in projects if p.get("status") in ("proposed", "active")]
+            matched = [
+                p for p in open_projects
+                if _text_overlap_count(chat_input, f"{p.get('title', '')} {p.get('description', '')}")
+                >= _PROJECT_MATCH_MIN_OVERLAP
+            ]
             return [
                 OpenProjectSummary(id=p["id"], title=p["title"], status=p["status"])
-                for p in open_projects[:_MAX_OPEN_PROJECTS_IN_PROMPT]
+                for p in matched[:_MAX_OPEN_PROJECTS_IN_PROMPT]
             ]
     except Exception:
         logger.exception("list_open_projects failed")

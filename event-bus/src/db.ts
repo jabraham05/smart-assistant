@@ -321,10 +321,20 @@ export async function findOverlappingOpenTaskContext(
 // the matching signal) - just checked against arbitrary message text
 // instead of a create/dedup candidate, and returning every match above
 // the threshold rather than just the best one.
+// 2026-10-27: default raised 1 -> 2. Real live-verified false positive at
+// minOverlap=1: "what skills do you have?" shared the single lexeme
+// "skill" with an unrelated open task titled "Skill: Task Execution and
+// Verification" and got injected into context for a question that had
+// nothing to do with that task. Same accepted trade-off knowledge-engine's
+// own lexical gate already documents for this exact technique: a
+// genuinely relevant task that happens to share only one lexeme with the
+// current message is now a new false negative - inherent to any
+// deterministic lexical floor, not fixable further without an LLM
+// judgment call at this decision point.
 export async function matchOpenTaskContextsToText(
   config: Config,
   text: string,
-  minOverlap = 1,
+  minOverlap = 2,
 ): Promise<TaskContextRow[]> {
   const result = await getPool(config).query<TaskContextRow>(
     `WITH query_lexemes AS (

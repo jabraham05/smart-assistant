@@ -97,10 +97,17 @@ class SystemPromptInput:
     # the caller, not every open task every turn.
     open_tasks: list[OpenTask] | None = None
     relevant_goals: list[RelevantGoal] | None = None
-    # Unlike open_tasks/relevant_goals, deliberately NOT relevance-filtered -
-    # a short, capped list of every currently proposed/active project, shown
-    # every turn regardless of topic, specifically to catch a re-proposal the
-    # model wouldn't otherwise recognize as a duplicate.
+    # 2026-10-27: now relevance-filtered the same way as open_tasks/
+    # relevant_goals (word-overlap against chat_input, see
+    # knowledge_client._text_overlap_count) - confirmed-live bug, this used
+    # to be unconditional on every turn regardless of topic (projects=4
+    # measured on a plain "hey" and an unrelated "what is the fermi
+    # paradox"), which is what made Amy reference an unrelated open project
+    # mid-conversation. The weaker secondary protection this gave up -
+    # catching a re-proposal with zero textual overlap to an existing
+    # project's title/description - is still covered by knowledge-engine's
+    # own server-side dedup check at actual proposal time
+    # (findOverlappingProject), just not pre-empted in-context anymore.
     open_projects: list[OpenProject] | None = None
     # Real gap found via live testing (2026-10-11): without this, a
     # teaching-session continuation turn with no trigger phrase of its own

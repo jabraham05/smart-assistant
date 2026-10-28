@@ -198,7 +198,7 @@ async def build_context(
         knowledge_client.search_knowledge(config, chat_input),
         event_bus_client.match_task_contexts(config, chat_input),
         event_bus_client.match_goals(config, chat_input),
-        knowledge_client.list_open_projects(config),
+        knowledge_client.list_open_projects(config, chat_input),
         growth_db.get_open_teaching_session(config, session_id),
     )
     logger.debug("TIMING context-gather session=%s took=%.2fs", session_id, time.monotonic() - _t)
