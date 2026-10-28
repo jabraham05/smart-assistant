@@ -134,6 +134,16 @@ _SOURCE_DEFAULTS: dict[str, dict[str, float]] = {
     # shortcut (PROPOSAL_HIGH_CONFIDENCE/_SCORE_THRESHOLD below) exists for.
     "teaching_session": {"usefulness": 4, "confidence": 3, "reuse_potential": 3, "improvement_value": 3, "effort": 2, "interruption_cost": 2},
     "teaching_session_explicit": {"usefulness": 4, "confidence": 5, "reuse_potential": 3, "improvement_value": 4, "effort": 2, "interruption_cost": 1},
+    # Deterministic backstop for memorableItems (respond.py's
+    # STATED_PREFERENCE_INTENT) - a plainly stated personal fact/preference
+    # is directly user-stated, same high-confidence reasoning as
+    # explicit_research_request/teaching_session_explicit above, not
+    # inferred from a pattern that needs repetition to trust. confidence=5
+    # (>= PROPOSAL_HIGH_CONFIDENCE below) with this score (>=
+    # PROPOSAL_HIGH_CONFIDENCE_SCORE_THRESHOLD) clears the high-confidence
+    # shortcut on the first occurrence - one clear statement should become
+    # a durable entity immediately, not need to recur first.
+    "stated_preference": {"usefulness": 4, "confidence": 5, "reuse_potential": 2, "improvement_value": 3, "effort": 1, "interruption_cost": 0},
 }
 _DEFAULT_SCORE_DIMENSIONS = {
     "usefulness": 2, "confidence": 2, "reuse_potential": 2, "improvement_value": 2, "effort": 2, "interruption_cost": 2,
@@ -147,6 +157,7 @@ _DEFAULT_SCORE_DIMENSIONS = {
 _SOURCE_CATEGORY: dict[str, str] = {
     "knowledge_gap": "knowledge",
     "explicit_research_request": "knowledge",
+    "stated_preference": "knowledge",
     "tool_failure": "tool",
     "skill_gap_scan": "skill",
     "idle_reflection": "behavior",

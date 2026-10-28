@@ -514,6 +514,39 @@ async def webhook(request: Request):
                     knowledge_client.create_entity_from_chat(config, item.type, item.content, session_id=session_id)
                 )
 
+            # Deterministic backstop for memorableItems - see respond.py's
+            # STATED_PREFERENCE_INTENT comment for the live-confirmed gap
+            # this closes (a plain stated preference silently produced no
+            # memorableItem at all, on a real retest). Routed through
+            # Growth's existing observation/opportunity/proposal/
+            # consolidation pipeline, same direct-server-side-call pattern
+            # as defer_to_growth above, rather than a second parallel
+            # capture mechanism - category='knowledge' is already Tier 1
+            # (autonomous, auto-promotes/auto-consolidates with no human
+            # gate). The actual structured extraction + entity creation is
+            # deliberately deferred to consolidation time
+            # (growth_consolidate.py's knowledge branch), not done here, so
+            # this adds no LLM call to the live reply path. Skipped when
+            # the model's own memorableItems output this same turn already
+            # plausibly covers the same content (word-overlap check, same
+            # helper/threshold already used for list_open_projects/
+            # list_preference_entities) - additive to that path, not a
+            # guaranteed duplicate of it.
+            if turn_output.stated_preference_detected and not any(
+                knowledge_client._text_overlap_count(chat_input, item.content)
+                >= knowledge_client._PROJECT_MATCH_MIN_OVERLAP
+                for item in turn_output.memorable_items
+            ):
+                async def _record_stated_preference() -> None:
+                    opportunity_id = await growth_db.record_observation(
+                        config, "stated_preference", chat_input[:200], {"chatInput": chat_input},
+                        session_id=session_id, category="knowledge", auto_promote=False,
+                    )
+                    if opportunity_id is not None:
+                        asyncio.create_task(growth_db.promote_observation_opportunity(config, opportunity_id))
+
+                asyncio.create_task(_record_stated_preference())
+
             if turn_output.is_correction:
                 # Growth engine: the "user corrections" signal the roadmap
                 # named but was never actually captured - respond.py

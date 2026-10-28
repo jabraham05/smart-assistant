@@ -318,6 +318,62 @@ async def evaluate_skill_plausibility(config: Config, evidence_text: str, draft_
         await _unload_model(config, config.growth_judge_model)
 
 
+class PreferenceExtractionOutput(BaseModel):
+    # No field defaults - same reasoning as every other judge output model
+    # in this file.
+    preference_type: str = Field(alias="preferenceType")
+    content: str
+
+    model_config = {"populate_by_name": True}
+
+
+_PREFERENCE_EXTRACT_SYSTEM_PROMPT = (
+    "The user's message was already flagged by a deterministic pattern as plainly stating a personal "
+    "preference or fact about themselves (not about Amy's own behavior). Extract a clean, self-contained "
+    "record of it: preferenceType is 'preference' (a stated like/dislike or how they want something done) "
+    "or 'fact' (a concrete, lasting fact about their life/environment/circumstances - allergies, diet, "
+    "location, hardware, etc). content is one short, self-contained sentence stating the preference/fact "
+    "plainly, in the third person, without assuming any prior context (e.g. 'The user takes their coffee "
+    "with oat milk and two sugars.') - not a copy of the user's own wording if it was phrased as a question "
+    "or aside."
+)
+
+
+def _build_preference_extract_agent(config: Config) -> Agent[None, PreferenceExtractionOutput]:
+    return Agent(
+        OllamaModel(
+            model_name=config.growth_judge_model, provider=OllamaProvider(base_url=f"{config.ollama_host}/v1")
+        ),
+        output_type=NativeOutput(PreferenceExtractionOutput),
+        instructions=_PREFERENCE_EXTRACT_SYSTEM_PROMPT,
+        # Live-verified this task: a 60s guess (reasoning: "it's a narrow,
+        # cheap extraction") was wrong - timed out for real under ordinary
+        # GPU/model load, the exact same class of failure
+        # evaluate_skill_plausibility/classify_teaching_content's own
+        # comments already document. 120s matches their established
+        # ceiling rather than re-guessing a smaller number a second time.
+        model_settings={"thinking": False, "timeout": 120},
+    )
+
+
+async def extract_preference(config: Config, raw_message: str) -> PreferenceExtractionOutput | None:
+    """Growth's `knowledge` consolidation branch calls this for a
+    `stated_preference`-sourced opportunity (see growth_consolidate.py) -
+    deliberately deferred to consolidation time rather than done eagerly
+    when the deterministic regex first fires in respond.py/main.py, so
+    detecting a candidate never adds an LLM call to the live chat reply
+    path. Mirrors evaluate_skill_plausibility's shape exactly."""
+    try:
+        agent = _build_preference_extract_agent(config)
+        result = await agent.run(_truncate_for_judge(raw_message, _MAX_JUDGE_TURN_CHARS))
+        return result.output
+    except Exception:
+        logger.exception("growth_judge.extract_preference failed")
+        return None
+    finally:
+        await _unload_model(config, config.growth_judge_model)
+
+
 async def check_golden_regression(config: Config, current_persona: str, candidate_persona: str) -> list[dict]:
     """Phase 6.4: before any 'behavior' proposal gets consolidated into a
     persona edit (Phase 6.5), replay every golden transcript's user turns

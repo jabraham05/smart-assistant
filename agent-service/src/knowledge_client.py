@@ -195,7 +195,19 @@ async def list_open_projects(config: Config, chat_input: str) -> list[OpenProjec
         return []
 
 
-_PREFERENCE_ENTITY_TYPES = ("preference", "user_fact")
+# Real, live-found bug (2026-10-28): two vocabularies for the same concept
+# coexist in this codebase - respond.py's memorableItems/MEMORABLE_ITEM_
+# TYPES uses "fact", while the entities table's originally-reserved type
+# taxonomy used "user_fact". The new deterministic preference-capture
+# judge (growth_judge.extract_preference) was written using the
+# memorableItems vocabulary ("fact") while this function was only querying
+# the entities-table vocabulary ("user_fact") - a real entity ("the user
+# has a severe allergic reaction to pine nuts", type='fact') was created
+# successfully but then never retrieved, confirmed live. Covering both
+# strings here (rather than forcing one piece of code to match the
+# other's naming) is the safe fix - retrieval now works regardless of
+# which existing path wrote the entity.
+_PREFERENCE_ENTITY_TYPES = ("preference", "fact", "user_fact")
 _MAX_PREFERENCE_ENTITIES_IN_PROMPT = 10
 
 

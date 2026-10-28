@@ -200,6 +200,58 @@ async def consolidate_proposal(config: Config, proposal_id: int) -> dict:
             if plan_id:
                 await growth_db.advance_learning_plan_step(config, plan_id, 0, "completed")
             observations = await growth_db.list_observations_for_opportunity(config, opportunity_id)
+
+            # 2026-10-27/28: a stated_preference observation (respond.py's
+            # deterministic STATED_PREFERENCE_INTENT backstop for
+            # memorableItems) means "save this fact," not "research this
+            # topic" - reusing the rest of this branch unmodified for it
+            # would nonsensically enqueue web research on a personal
+            # preference. Deterministic branch on `source` (already
+            # available via list_observations_for_opportunity's own
+            # SELECT *, zero schema change) rather than a new top-level
+            # Growth category - 'knowledge' stays Tier 1/auto-consolidate
+            # exactly as it already is for every other knowledge_gap/
+            # explicit_research_request observation; only this one source
+            # takes a different destination within it.
+            preference_observations = [o for o in observations if o.get("source") == "stated_preference"]
+            if preference_observations:
+                latest = preference_observations[-1]
+                raw_evidence = latest.get("evidence") or {}
+                if isinstance(raw_evidence, str):
+                    try:
+                        raw_evidence = json.loads(raw_evidence)
+                    except (TypeError, ValueError):
+                        raw_evidence = {}
+                raw_message = raw_evidence.get("chatInput") or latest.get("summary") or description
+                # Deliberately deferred to here (consolidation time), not
+                # done eagerly when the regex first fired - so detecting a
+                # candidate never adds an LLM call to the live chat reply
+                # path (see growth_judge.extract_preference's own comment).
+                extracted = await growth_judge.extract_preference(config, raw_message)
+                if extracted is None:
+                    if plan_id:
+                        await growth_db.advance_learning_plan_step(config, plan_id, 1, "failed")
+                        await growth_db.finish_learning_plan(config, plan_id, "abandoned")
+                    await growth_db.insert_growth_history(
+                        config, "preference_extraction_failed", {"opportunityId": opportunity_id},
+                        proposal_id=proposal_id, opportunity_id=opportunity_id,
+                    )
+                    return {"ok": False, "error": "preference extraction failed; Growth will retry"}
+                await knowledge_client.create_entity_from_chat(
+                    config, extracted.preference_type, extracted.content, session_id=latest.get("session_id")
+                )
+                if plan_id:
+                    await growth_db.advance_learning_plan_step(config, plan_id, 1, "completed")
+                    await growth_db.finish_learning_plan(config, plan_id, "complete")
+                await growth_db.insert_growth_history(
+                    config, "preference_consolidated",
+                    {"preferenceType": extracted.preference_type, "content": extracted.content},
+                    proposal_id=proposal_id, opportunity_id=opportunity_id,
+                )
+                result["destination"] = "entities"
+                result["entity"] = {"type": extracted.preference_type, "content": extracted.content}
+                return result
+
             evidence = "\n".join(
                 f"- {o['summary']} (evidence: {str(o.get('evidence') or '')[:600]})"
                 for o in observations[-12:]

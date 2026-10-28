@@ -185,6 +185,30 @@ EXPLICIT_RESEARCH_REQUEST = re.compile(
     re.IGNORECASE,
 )
 
+# Real, confirmed gap (2026-10-27/28 context-assembly audit): memorableItems
+# extraction is pure model judgment with no deterministic backstop - unlike
+# every other signal in this file - and a live test showed it silently
+# missing an unambiguous stated preference ("I take my coffee with oat milk
+# and two sugars") entirely, no entity ever created. Deliberately a
+# different semantic lane from STANDING_INSTRUCTION_INTENT above (which is
+# about how AMY should behave) - this is about plain facts/preferences
+# ABOUT THE USER's own life/tastes. The two can legitimately both match the
+# same message ("I prefer window seats") without conflict - one feeds
+# self-growth/behavior routing, this one feeds durable-fact capture via
+# Growth's own observation pipeline (see main.py's stated_preference_
+# detected handling) as an additive deterministic backstop alongside the
+# model's own memorableItems output, not a replacement for it. Deliberately
+# does NOT match a one-off like "I tried oat milk today" - none of these
+# verbs cover a single past-tense experience, only a stated standing
+# preference/fact.
+STATED_PREFERENCE_INTENT = re.compile(
+    r"\bi(?:'m|’m|\s+am)\s+(allergic\s+to\s+\w+|vegetarian|vegan)\b|"
+    r"\bi\s+(?:take|like|love|prefer|hate|dislike)\s+\w|"
+    r"\bi\s+don'?t\s+like\s+\w|"
+    r"\bmy\s+favorite\s+\w+\s+is\b",
+    re.IGNORECASE,
+)
+
 BEHAVIOR_FEEDBACK_CATEGORIES = [
     "communication",
     "tool_selection",
@@ -388,6 +412,9 @@ class TurnOutput(BaseModel):
     memorable_items: list[MemorableItem]
     is_correction: bool
     explicit_research_request: bool = False
+    # 2026-10-27/28: deterministic backstop for memorableItems, see
+    # STATED_PREFERENCE_INTENT's own comment above for why.
+    stated_preference_detected: bool = False
 
 
 def expand_groups_to_tools(relevant_groups: list[str]) -> list[str]:
@@ -474,6 +501,7 @@ def _fallback_result(chat_input: str) -> TurnOutput:
         memorable_items=[],
         is_correction=False,
         explicit_research_request=explicit_research,
+        stated_preference_detected=bool(STATED_PREFERENCE_INTENT.search(chat_input)),
     )
 
 
@@ -542,6 +570,13 @@ def _normalize_output(
     # answering now and separately enqueuing research aren't exclusive.
     defer_to_growth = parsed.defer_to_growth or explicit_research
 
+    # Deterministic backstop for memorableItems - see STATED_PREFERENCE_
+    # INTENT's own comment for why. Deliberately NOT paired with multi_turn
+    # either, same reasoning as defer_to_growth above: main.py calls
+    # straight into growth_db.record_observation server-side, independent
+    # of whatever this turn's own response/multiTurn is.
+    stated_preference_detected = bool(STATED_PREFERENCE_INTENT.search(chat_input))
+
     # multiTurn=false collapses the whole tool-capable second call away -
     # forcing relevant_tools to [] here (rather than trusting the model to
     # also leave toolsNeeded empty) is what makes every downstream
@@ -597,6 +632,7 @@ def _normalize_output(
         memorable_items=memorable_items,
         is_correction=is_correction,
         explicit_research_request=explicit_research,
+        stated_preference_detected=stated_preference_detected,
     )
 
 
