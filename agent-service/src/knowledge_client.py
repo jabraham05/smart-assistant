@@ -62,6 +62,14 @@ _OVERLAP_STOPWORDS = frozenset({
     "the", "and", "for", "with", "that", "this", "from", "into", "about",
     "your", "you", "are", "was", "were", "has", "have", "had", "not",
     "what", "when", "where", "how", "why", "can", "will", "would", "could",
+    # Live-found gap (2026-10-28, same session as memory_client's
+    # specificity fix): "should" alone matched a completely unrelated
+    # preference entity (a message about a failing test pulled in a
+    # stored preference about session-based context, sharing only
+    # "should") - modal/filler verbs carry no topical content, same
+    # reasoning as the grammatical stopwords above, just a category the
+    # original list missed.
+    "should", "just", "like", "want", "need",
 })
 _PROJECT_MATCH_MIN_OVERLAP = 1
 

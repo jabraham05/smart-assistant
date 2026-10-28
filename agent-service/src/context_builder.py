@@ -222,7 +222,9 @@ async def build_context(
 
     relevant_memory_results = [
         m for m in memory_results
-        if memory_client.is_relevant_memory(m, config.memory_min_relevance_score, config.memory_min_keyword_overlap)
+        if memory_client.is_relevant_memory(
+            m, chat_input, config.memory_min_relevance_score, config.memory_min_keyword_overlap
+        )
     ]
     relevant_knowledge_results = [
         k for k in knowledge_results
