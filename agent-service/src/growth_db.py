@@ -870,6 +870,33 @@ async def consolidate_skill(config: Config, name: str, description: str, instruc
         )
     except Exception:
         logger.exception("growth_db.consolidate_skill failed (name=%s)", name)
+        return
+    await _upsert_default_skill_metadata(config, name)
+
+
+async def _upsert_default_skill_metadata(config: Config, skill_name: str) -> None:
+    """2026-10-27: closes a real, confirmed gap - this half of Phase 7
+    (skills_discovery.py's relevance filter) was never built on the write
+    side, so skill_metadata sat at 0 rows and every skill this function
+    ever created defaulted to always-injected regardless of relevance
+    (skills_discovery._is_relevant's documented no-metadata-row fallback).
+    Deterministic default triggers derived from the skill's own hyphenated
+    name - no LLM call, same reasoning as every other routing decision in
+    this codebase - imperfect but far better than no filtering at all, and
+    hand-correctable later via the same direct-SQL convention
+    docs/persona-system.md already establishes for this table."""
+    try:
+        words = [w for w in skill_name.split("-") if w]
+        triggers = list({*words, skill_name.replace("-", " ")})
+        pool = await _get_pool_for(config, config.postgres.skills_database)
+        await pool.execute(
+            "INSERT INTO skill_metadata (skill_name, triggers) VALUES ($1, $2) "
+            "ON CONFLICT (skill_name) DO UPDATE SET triggers = EXCLUDED.triggers, updated_at = now()",
+            skill_name,
+            triggers,
+        )
+    except Exception:
+        logger.exception("growth_db._upsert_default_skill_metadata failed (name=%s)", skill_name)
 
 
 async def propose_persona_edit(config: Config, name: str, proposed_system_prompt: str, reason: str) -> None:

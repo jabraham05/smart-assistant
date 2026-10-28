@@ -513,6 +513,11 @@ services:
       # question). Same thinking-mode-on-by-default behavior as qwen3:8b,
       # already handled by agent.py's existing model_settings.
       CHAT_MODEL: qwen3.5:9b
+      # Debug-level emits the full assembled system prompt per turn (see
+      # main.py's "assembled system prompt" log line) - off by default
+      # (INFO), set to DEBUG only for an active context-assembly
+      # validation pass, not left on permanently.
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       CHAT_CLASSIFIER_MODEL: qwen3.5:9b
       SKILLS_MCP_URL: http://skills-mcp:3001
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
