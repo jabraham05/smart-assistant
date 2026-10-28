@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -38,6 +39,12 @@ async def create_entity_from_chat(
             )
     except Exception:
         logger.exception("knowledge-engine entity create failed")
+
+
+@dataclass(frozen=True)
+class PreferenceEntity:
+    id: str
+    content: str
 
 
 # Real, live-verified gap (2026-10-27 context-assembly audit): open projects
@@ -185,4 +192,50 @@ async def list_open_projects(config: Config, chat_input: str) -> list[OpenProjec
             ]
     except Exception:
         logger.exception("list_open_projects failed")
+        return []
+
+
+_PREFERENCE_ENTITY_TYPES = ("preference", "user_fact")
+_MAX_PREFERENCE_ENTITIES_IN_PROMPT = 10
+
+
+async def list_preference_entities(config: Config, chat_input: str) -> list[PreferenceEntity]:
+    """Phase 3 of the 2026-10-27 context-assembly fix: durable preferences/
+    facts (`create_entity_from_chat` above, fed by `memorableItems`) were
+    write-only before this - nothing anywhere ever read `entities` back
+    into a later turn's prompt. Confirmed live: raw memory-engine recall
+    was quietly covering for this gap as an unintentional fallback, not a
+    real substitute (it has no concept of "this is a stable, durable fact,
+    don't let it decay/dedup away" the way a dedicated entity does).
+    Additive, not a replacement - memory-engine recall is untouched.
+
+    Same relevance-gate shape as `list_open_projects` above (generous
+    word-overlap, not an exact match) since preference/fact entities are
+    expected to be few, same reasoning as goals/tasks: retrieved only when
+    actually relevant, not dumped in unconditionally."""
+    try:
+        async with httpx.AsyncClient() as client:
+            responses = await asyncio.gather(
+                *[
+                    client.get(f"{config.knowledge_engine_url}/entities", params={"type": t}, timeout=8)
+                    for t in _PREFERENCE_ENTITY_TYPES
+                ],
+                return_exceptions=True,
+            )
+        candidates = []
+        for res in responses:
+            if isinstance(res, Exception) or not res.is_success:
+                continue
+            candidates.extend(res.json().get("entities") or [])
+        matched = [
+            e for e in candidates
+            if _text_overlap_count(chat_input, f"{e.get('name', '')} {e.get('description', '')}")
+            >= _PROJECT_MATCH_MIN_OVERLAP
+        ]
+        return [
+            PreferenceEntity(id=e["id"], content=e.get("description") or e.get("name") or "")
+            for e in matched[:_MAX_PREFERENCE_ENTITIES_IN_PROMPT]
+        ]
+    except Exception:
+        logger.exception("list_preference_entities failed")
         return []

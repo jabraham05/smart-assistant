@@ -48,6 +48,11 @@ class OpenProject:
 
 
 @dataclass(frozen=True)
+class RelevantPreference:
+    content: str
+
+
+@dataclass(frozen=True)
 class OpenTeachingSession:
     id: int
     mode: str
@@ -109,6 +114,15 @@ class SystemPromptInput:
     # own server-side dedup check at actual proposal time
     # (findOverlappingProject), just not pre-empted in-context anymore.
     open_projects: list[OpenProject] | None = None
+    # 2026-10-27, Phase 3 of the same context-assembly fix: durable
+    # preference/fact entities (knowledge_client.list_preference_entities),
+    # relevance-filtered the same way as goals/tasks/projects above. Before
+    # this, a stated preference promoted into `entities` was write-only -
+    # nothing ever read it back into a later turn's prompt; confirmed live
+    # that raw memory-engine recall was the only thing actually surfacing
+    # it, as an unintentional fallback, not a real substitute. Additive -
+    # memory-engine recall is untouched.
+    relevant_preferences: list[RelevantPreference] | None = None
     # Real gap found via live testing (2026-10-11): without this, a
     # teaching-session continuation turn with no trigger phrase of its own
     # ("Also - if you find conflicting info...") had no way to be
@@ -288,6 +302,13 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         else ""
     )
 
+    relevant_preferences_line = (
+        "Relevant stored preferences/facts about the user:\n"
+        + "\n".join(f"- {p.content}" for p in input.relevant_preferences)
+        if input.relevant_preferences
+        else ""
+    )
+
     open_teaching_session_line = (
         f"A teaching session is already open for this conversation (id={input.open_teaching_session.id}, "
         f"mode={input.open_teaching_session.mode}), capturing: \"{input.open_teaching_session.captured_preview}"
@@ -426,6 +447,7 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         open_tasks_line,
         relevant_goals_line,
         open_projects_line,
+        relevant_preferences_line,
         open_teaching_session_line,
         needs_planning_line,
         narrate_line,

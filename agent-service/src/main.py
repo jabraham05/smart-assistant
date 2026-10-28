@@ -413,14 +413,16 @@ async def webhook(request: Request):
             beats_enabled = True
 
             logger.info(
-                "context built session=%s history=%d multiTurn=%s tools=%s groups=%s memories=%s knowledge=%s tasks=%s goals=%s projects=%d system_chars=%d",
+                "context built session=%s history=%d multiTurn=%s tools=%s groups=%s memories=%s knowledge=%s tasks=%s goals=%s projects=%d preferences=%s system_chars=%d",
                 session_id, len(message_history), turn_output.multi_turn, bound_tools, turn_output.relevant_groups,
                 [_preview(f"{m.domain or 'general'}: {m.content}", 140) for m in relevant_memory_results[:5]],
                 [_preview(f"{k.document_title or k.source_title or k.domain}: {k.content}", 140)
                  for k in relevant_knowledge_results[:5]],
                 [_preview(t.objective, 100) for t in open_tasks[:3]],
                 [_preview(g.title, 100) for g in relevant_goals[:3]],
-                len(ctx.open_projects), len(system_prompt),
+                len(ctx.open_projects),
+                [_preview(p.content, 100) for p in ctx.relevant_preferences[:3]],
+                len(system_prompt),
             )
             # Validation infra for the context-assembly fix pass (2026-10):
             # the line above shows selection metadata, not what was actually
