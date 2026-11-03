@@ -1,0 +1,1712 @@
+{
+  "config": {
+    "models": [
+      "llama3.2:3b",
+      "qwen3:4b",
+      "qwen2.5-coder:7b",
+      "llama3-groq-tool-use:8b",
+      "llama3.1:8b",
+      "granite3.1-dense:8b",
+      "hermes3:8b",
+      "qwen3:8b",
+      "qwen3.5:9b",
+      "qwen3:14b"
+    ],
+    "reps": 3,
+    "think": false
+  },
+  "results": [
+    {
+      "model": "llama3.2:3b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\",\"unit\":\"celsius\"})",
+          "ttftMs": 348.8903,
+          "totalMs": 353.6180000000004
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 321.3696,
+          "totalMs": 326.28510000000006
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 297.4357,
+          "totalMs": 302.1268
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"latest news Mars Perseverance rover\"})",
+          "ttftMs": 317.8762000000006,
+          "totalMs": 322.59940000000006
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"text\":\"Call mom\",\"time\":\"tomorrow at 5pm\"})",
+          "ttftMs": 355.21410000000014,
+          "totalMs": 359.6956
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": false,
+          "detail": "unexpectedly called search_web",
+          "ttftMs": 287.4449999999997,
+          "totalMs": 292.2493000000013
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 214.04429999999957,
+          "totalMs": 230.82840000000033
+        },
+        {
+          "name": "speed-math",
+          "pass": false,
+          "response": "80",
+          "ttftMs": 200.03079999999864,
+          "totalMs": 208.72999999999956
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 209.1252999999997,
+          "totalMs": 227.3788999999997
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "8",
+          "ttftMs": 196.80349999999999,
+          "totalMs": 201.59730000000127
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold.",
+          "ttftMs": 198.11139999999978,
+          "totalMs": 215.0669999999991
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 199.1301999999996,
+          "totalMs": 208.8160000000007
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "The word \"necessary\" spelled backwards is \"ylssenesen\".",
+          "ttftMs": 192.82690000000002,
+          "totalMs": 272.7664999999997
+        }
+      ],
+      "codingToolTests": [
+        {
+          "name": "run-tests",
+          "pass": true,
+          "detail": "called run_command({\"command\":\"npm run test\"})",
+          "ttftMs": 333.53269999999975,
+          "totalMs": 340.9311999999991
+        },
+        {
+          "name": "write-file",
+          "pass": false,
+          "detail": "called write_file({\"filename\":\"hello.py\",\"content\":\"def greet():\\n    return \"})",
+          "ttftMs": 368.04769999999917,
+          "totalMs": 373.3162999999986
+        }
+      ],
+      "codingAccuracyTests": [
+        {
+          "name": "off-by-one",
+          "pass": false,
+          "response": "The issue is that the `range()` function generates numbers up to but not including the specified end value, so the output will be 0-9 instead of 1-10.",
+          "ttftMs": 220.5619999999999,
+          "totalMs": 416.2416999999987
+        },
+        {
+          "name": "reverse-string",
+          "pass": true,
+          "response": "s = s[::-1]",
+          "ttftMs": 203.27039999999943,
+          "totalMs": 240.36149999999907
+        },
+        {
+          "name": "find-bug",
+          "pass": true,
+          "response": "The issue lies in the fact that you're re-declaring the `total` variable inside the `forEach` loop, which creates a new local scope and resets the value to 0 on each iteration.",
+          "ttftMs": 190.30639999999948,
+          "totalMs": 405.65860000000066
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 199.92849999999999,
+          "totalMs": 536.281500000001,
+          "tokensPerSec": 196.0772663264033,
+          "evalCount": 66
+        },
+        {
+          "ttftMs": 193.7528000000002,
+          "totalMs": 534.8517000000011,
+          "tokensPerSec": 193.18637509183668,
+          "evalCount": 66
+        },
+        {
+          "ttftMs": 190.38800000000083,
+          "totalMs": 547.5084000000006,
+          "tokensPerSec": 184.79061263687805,
+          "evalCount": 66
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "qwen3:4b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 232.64290000000256,
+          "totalMs": 2195.2629000000015
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 215.90149999999994,
+          "totalMs": 2012.8973000000005
+        },
+        {
+          "name": "calculate",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 245.47790000000168,
+          "totalMs": 2222.7213999999985
+        },
+        {
+          "name": "search",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 225.82979999999952,
+          "totalMs": 2214.7888999999996
+        },
+        {
+          "name": "reminder",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 231.2990000000027,
+          "totalMs": 2221.4792000000016
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 228.869200000001,
+          "totalMs": 1196.6944000000003
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Hmm, the user is asking about the capital of Australia and wants just the city name. This seems straightforward, but I should be careful because there's a common misconception here. \n\nI recall that many people think Sydney is the capital, but that's not right. The actual capital is Canberra. It's a bit tricky because Canberra was built specifically to be the capital after the Australian federation, to avoid favoring Sydney or Melbourne. \n\nThe user specified \"just the city name,\" so I shouldn't add any extra information like \"Canberra, Australia\" or explanations. They want a clean, direct answer. \n\nAlso, the user seems to be testing basic geography knowledge—maybe a student doing homework or someone curious about trivia. No need to overcomplicate it. \n\nDouble-checking my knowledge: Yes, Canberra is the capital since 1913. No recent changes. \n\nSo, the answer should be \"Canberra\" alone. I'll make sure to phrase it exactly as requested—no fluff, just the city name.\n</think>\n\nCanberra",
+          "ttftMs": 190.39979999999923,
+          "totalMs": 1552.9190000000017
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "Okay, let's see. The problem is asking for the average speed of a train that travels 60 miles in 1.5 hours. Hmm, average speed is usually distance divided by time, right? So I need to remember the formula: speed = distance / time. \n\nFirst, let me confirm the units. The distance is given in miles, and the time is in hours, so the speed will be in miles per hour (mph), which is what we need. \n\nThe train travels 6.0 miles? Wait, no, 60 miles. So distance is 60 miles, time is 1.5 hours. So speed = 60 miles / 1.5 hours. Let me calculate that. \n\nDividing 60 by 1.5. Let's think. 1.5 times 40 is 60, because 1.5 * 40 = 60. So 60 divided by 1.5 is 40. So the average speed is 40 mph. \n\nWait, let me check again. If the train goes 40 mph for 1.5 hours, how far does it go? 40 * 1.5 = 60 miles. Yep, that matches the problem statement. So that makes sense. \n\nSo the answer should be 40.\n</think>\n\n40",
+          "ttftMs": 183.71500000000378,
+          "totalMs": 2036.0132000000012
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "First, the question is: Which is bigger: 0.9 or 0.89? I need to answer with just the number.\n\nI should compare these two decimal numbers. 0.9 and 0.89.\n\nLet me write them out:\n\n- 0.9 is the same as 0.90\n\n- 0.89 is 0.89\n\nNow, to compare them, I can look at the digits after the decimal point.\n\nFor 0.90, it's 9 tenths and 0 hundredths.\n\nFor 0.89, it's 8 tenths and 9 hundredths.\n\nSince the tenths place is the first digit after the decimal, I should compare the tenths.\n\n0.9 has 9 in the tenths place.\n\n0.89 has 8 in the tent. place.\n\n9 is greater than 8, so 0.9 should be bigger than 0.89.\n\nBut let me make sure. Sometimes people get confused with decimals.\n\nI can think in terms of fractions.\n\n0.9 = 9/10\n\n0.89 = 89/100\n\nTo compare 9/10 and 89/100, I can find a common denominator.\n\n10 and 100, the least common multiple is 100.\n\nSo, 9/10 = 9",
+          "ttftMs": 195.75129999999626,
+          "totalMs": 2091.881699999998
+        },
+        {
+          "name": "word-problem",
+          "pass": true,
+          "response": "Okay, let's see. The problem says: I have 3 apples, eat one, then buy 5 more. How many apples do I have? Hmm, I need to figure this out step by step.\n\nFirst, starting with 3 apples. Then I eat one. So if I eat one, that means I subtract one from the original number. So 3 minus 1 is 2. So after eating one, I have 2 apples left.\n\nThen, the next part is buying 5 more apples. So buying 5 more would add 5 to the current number of apples. So after buying, it's 2 plus 5. Let me calculate that. 2 plus 5 equals 7.\n\nWait, let me double-check. Starting with 3, eat 1: 3 - 1 = 2. Then buy 5: 2 + 5 = 7. Yeah, that seems right. So the answer should be 7.\n\nI don't think there's any trick here. Sometimes these problems might have a twist, but in this case, it's straightforward. Eating one reduces the count, then buying more adds to it. So yeah, 7 is the number.\n</think>\n\n7",
+          "ttftMs": 186.8570999999938,
+          "totalMs": 1794.589399999997
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Hmm, the user is asking for the opposite of \"hot\" and wants just the word as the answer. \n\nOkay, this seems straightforward but I should be careful. In English, \"hot\" can mean temperature or intensity, but the most common opposite in temperature context is \"cold\". \n\nThe user specified \"just the word\" so I shouldn't overcomplicate it. They probably want a quick answer for a game or quiz. \n\nI recall that in some contexts like \"hot\" meaning popular, the opposite could be \"cold\" too, but temperature is the primary meaning here. \n\nBetter stick with \"cold\" since it's the universal opposite for temperature. No need to mention other meanings - user said \"just the word\". \n\n*Double-checking mental dictionary*: Yes, hot → cold is standard antonym. \n\nUser seems to want minimal response, so I'll output only \"cold\" without any extra text. \n\n...Though I wonder if they're testing if I'll say \"cold\" or \"cool\"? But \"cool\" is more like \"not hot\" than direct opposite. No, \"cold\" is correct. \n\nFinal decision: \"cold\"\n</think>\n\ncold",
+          "ttftMs": 188.6324999999997,
+          "totalMs": 1733.7566000000006
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "Hmm, the user is asking how many continents there are on Earth and wants just the number as the answer. \n\nThis seems like a straightforward geography question, but I know there's some debate about continent counts. The user specifically said \"just the number,\" so they probably want the most commonly accepted answer without extra details. \n\nI recall that most educational sources and standard geography teach seven continents: Africa, Antarctica, Asia, Europe, North America, South America, and Australia. But some systems group continents differently - like the six-continent model that combines Europe and Asia into Eurasia, or the three-continent model for the Americas. \n\nThe user seems to want a quick, simple answer though. Since they said \"just the number,\" I should pick the most widely taught number. In schools and most introductory materials, it's seven. \n\nWait, but Australia is sometimes called Oceania, which might confuse people. Still, the standard answer for \"how many continents\" in basic contexts is seven. \n\nI think I'll go with 7. It's the safest bet for this query. The user didn't ask for explanations, so no need to mention the controversies. Just the number. \n\n*Double-checking mentally*: Yep, seven continents is the answer that appears in most textbooks and quizzes. Alright, response is 7.\n</think>\n\n7",
+          "ttftMs": 199.73470000000088,
+          "totalMs": 1938.3408999999956
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "We are to spell the word 'necessary' backwards, without spaces and only letters.\n The word is: 'necessary'\n\n Steps:\n 1. Write the word: n e c e s s a r y\n 2. Reverse the string: y r a s s e c n\n\n But note: the word \"necessary\" has 9 letters.\n\n Let's break it down:\n   n -> index 0\n   e -> 1\n   c -> 2\n   e -> 3\n   s -> 4\n   s -> 5\n   a -> 6\n   r -> 7\n   y -> 8\n\n So the string is: \"necessary\" (length 9)\n\n Reverse: \n   Start from the last letter (index 8) to the first (index 0):\n      index 8: 'y'\n      index 7: 'r'\n      index 6: 'a'\n      index 5: 's'\n      index 4: 's'\n      index 3: 'e'\n      index 2: 'c'\n      index 1: 'e'\n      index 0: 'n'\n\n Therefore, the reversed string is: \"yrass ecn\" without spaces -> \"yrassecn\" ??? Wait, let's write without spaces.\n\n Actually, let's write the string without spaces and in reverse order:\n\n Original: 'n','e','c','e','s','s','a",
+          "ttftMs": 198.22470000000612,
+          "totalMs": 2064.4630000000034
+        }
+      ],
+      "codingToolTests": [
+        {
+          "name": "run-tests",
+          "pass": true,
+          "detail": "called run_command({\"command\":\"npm test\"})",
+          "ttftMs": 213.7948999999935,
+          "totalMs": 1913.6419999999998
+        },
+        {
+          "name": "write-file",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 201.5196999999971,
+          "totalMs": 2105.827400000002
+        }
+      ],
+      "codingAccuracyTests": [
+        {
+          "name": "off-by-one",
+          "pass": true,
+          "response": "We are given a loop that is supposed to print numbers 1 through 10 inclusive.\n The loop is: for i in range(10): print(i)\n\n The `range(10)` function in Python generates numbers from 0 to 9 (10 numbers: 0,1,2,...,9).\n Therefore, it prints 0 to 9, not 1 to 10.\n\n The problem: The loop prints numbers 0 through 9, but we want 1 through 10.\n\n To fix it, we could do:\n   for i in range(1, 11): print(i)\n\n But the question asks for what's wrong in one short sentence.\n\n Answer: The loop prints numbers 0 to 9 (inclusive) because `range(10)` starts at 0 and goes up to 9, not 1 to 10.\n</think>\n\nThe loop prints numbers 0 through 9 (inclusive) because `range(10)` generates integers from 0 to 9, not 1 through 10.",
+          "ttftMs": 209.43760000000475,
+          "totalMs": 1613.5195999999996
+        },
+        {
+          "name": "reverse-string",
+          "pass": true,
+          "response": "We are given a string variable `s`\n We want to reverse the string and assign it to a new variable? But the problem says: \"reverses the string stored in variable s\"\n However, note: the problem says \"Write a single line of Python that reverses the string stored in variable s\"\n\n But note: the problem does not specify that we have to assign the reversed string to a new variable? \n However, the typical way to reverse a string in Python is by slicing: s[::-1]\n\n But the problem says: \"reverses the string stored in variable s\"\n\n We have two interpretations:\n 1. We want to create a new string that is the reverse of s and then assign it to a variable? But the problem doesn't specify a new variable name.\n 2. Or, we want to reverse the string in place? But strings are immutable in Python, so we cannot reverse in place.\n\n Since the problem says \"reverses the string\", it probably means we create a new reversed string.\n\n However, the problem says: \"Answer with just the code\"\n\n Let me read the problem again: \"Write a single line of Python that reverses the string stored in variable s\"\n\n I think they want a single line that does the reversing and we don't have to assign to a new variable? \n But note: if we just do `s[::-1]` that returns a new string without assigning. But the problem says \"reverses the",
+          "ttftMs": 178.1955999999991,
+          "totalMs": 2060.0043000000005
+        },
+        {
+          "name": "find-bug",
+          "pass": true,
+          "response": "We are given a function `sum(arr)` that is supposed to return the sum of an array but always returns 0.\n The function uses `arr.forEach` to iterate over the array. However, note that inside the `forEach` callback, we are reassigning `total` to `total + n`.\n The problem is that the `total` variable in the callback is a new variable (shadowing the outer `total`). \n But wait, let's look: the function declares `let total = 0;` at the top. Then inside the forEach, we have `let total = total + n;`.\n This creates a new block-scoped variable `total` inside the forEach callback. The outer `total` is not being updated because the inner `total` is a new variable.\n\n However, note: in JavaScript, the `let` declaration in a block (like the body of the forEach callback) creates a new variable in that block. \n So the outer `total` (the one we want to update) is not being changed by the inner `total` assignment.\n\n But wait, the code says: `arr.forEach(n => { let total = total + n; })`\n This is incorrect because the inner `total` is a new variable that is not the same as the outer `total`. \n\n Actually, the problem is that the inner `total` is a new variable that is not the same as the outer ``total`. \n The outer `total",
+          "ttftMs": 191.7286000000022,
+          "totalMs": 2075.9307000000044
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 200.5083999999988,
+          "totalMs": 2086.277000000002,
+          "tokensPerSec": 158.74225337803514,
+          "evalCount": 300
+        },
+        {
+          "ttftMs": 185.33909999999742,
+          "totalMs": 2057.368999999999,
+          "tokensPerSec": 160.2147304627482,
+          "evalCount": 300
+        },
+        {
+          "ttftMs": 183.70479999999952,
+          "totalMs": 2078.957499999997,
+          "tokensPerSec": 158.26182097106286,
+          "evalCount": 300
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "qwen2.5-coder:7b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 248.5980000000127,
+          "totalMs": 481.19880000001285
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 174.84859999999753,
+          "totalMs": 396.8130999999994
+        },
+        {
+          "name": "calculate",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 179.5387000000046,
+          "totalMs": 371.21110000000044
+        },
+        {
+          "name": "search",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 179.3859999999986,
+          "totalMs": 418.31669999999576
+        },
+        {
+          "name": "reminder",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 181.44620000000577,
+          "totalMs": 455.90430000000924
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 161.98539999999048,
+          "totalMs": 175.65209999999206
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 174.2369999999937,
+          "totalMs": 198.29279999999562
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40 mph",
+          "ttftMs": 168.3567000000039,
+          "totalMs": 202.5225999999966
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 168.33209999999963,
+          "totalMs": 199.20060000001104
+        },
+        {
+          "name": "word-problem",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 164.98850000000675,
+          "totalMs": 178.34910000000673
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 162.7265999999945,
+          "totalMs": 176.16679999999178
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 165.52509999999893,
+          "totalMs": 178.5381999999954
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "essecaryn",
+          "ttftMs": 166.6947000000073,
+          "totalMs": 207.64450000000943
+        }
+      ],
+      "codingToolTests": [
+        {
+          "name": "run-tests",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 210.7566999999981,
+          "totalMs": 450.9627000000037
+        },
+        {
+          "name": "write-file",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 158.4789000000019,
+          "totalMs": 563.2593999999954
+        }
+      ],
+      "codingAccuracyTests": [
+        {
+          "name": "off-by-one",
+          "pass": false,
+          "response": "The loop starts from 0 and goes up to 9, missing the number 10.",
+          "ttftMs": 188.75389999999607,
+          "totalMs": 385.6779999999999
+        },
+        {
+          "name": "reverse-string",
+          "pass": true,
+          "response": "s[::-1]",
+          "ttftMs": 173.53759999999602,
+          "totalMs": 215.0865999999951
+        },
+        {
+          "name": "find-bug",
+          "pass": true,
+          "response": "The bug is that a new `total` variable is declared inside the arrow function, shadowing the outer `total` variable. This means the inner `total` is never updated and remains 0, while the outer `total` is still 0 after the loop completes.",
+          "ttftMs": 189.36759999999776,
+          "totalMs": 730.4450999999972
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 169.25040000000445,
+          "totalMs": 678.4955000000045,
+          "tokensPerSec": 108.0223272330179,
+          "evalCount": 55
+        },
+        {
+          "ttftMs": 164.95120000001043,
+          "totalMs": 663.555600000007,
+          "tokensPerSec": 110.28298614244152,
+          "evalCount": 55
+        },
+        {
+          "ttftMs": 170.50340000000142,
+          "totalMs": 670.2063999999955,
+          "tokensPerSec": 109.94348904663005,
+          "evalCount": 55
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "llama3-groq-tool-use:8b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 241.75769999998738,
+          "totalMs": 737.2111000000004
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 489.7183999999979,
+          "totalMs": 507.74239999998827
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 449.716499999995,
+          "totalMs": 467.4277000000002
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"Mars Perseverance rover\"})",
+          "ttftMs": 479.6661000000022,
+          "totalMs": 497.9779000000126
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"text\":\"Call mom\",\"time\":\"tomorrow at 5pm\"})",
+          "ttftMs": 539.0492999999988,
+          "totalMs": 557.7309000000096
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 225.73769999999786,
+          "totalMs": 239.11200000000827
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 234.18769999999495,
+          "totalMs": 259.1895999999979
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 216.88899999999558,
+          "totalMs": 231.5460000000021
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 213.30849999999919,
+          "totalMs": 246.1999999999971
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "8",
+          "ttftMs": 213.5636999999988,
+          "totalMs": 228.12450000000536
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 215.99130000000878,
+          "totalMs": 229.69010000000708
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 208.0613000000012,
+          "totalMs": 221.79809999999998
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "yrrifecsen",
+          "ttftMs": 208.51350000000093,
+          "totalMs": 260.59060000001045
+        }
+      ],
+      "codingToolTests": [
+        {
+          "name": "run-tests",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 227.50500000000466,
+          "totalMs": 653.9584000000032
+        },
+        {
+          "name": "write-file",
+          "pass": true,
+          "detail": "called write_file({\"filename\":\"hello.py\",\"content\":\"def greet():\\n    return 'Hello, World!'\"})",
+          "ttftMs": 597.7030999999988,
+          "totalMs": 615.9533999999985
+        }
+      ],
+      "codingAccuracyTests": [
+        {
+          "name": "off-by-one",
+          "pass": true,
+          "response": "The issue is that the `range` function generates numbers up to but not including the stop value. Therefore, this loop will only print numbers from 0 to 9, missing the number 10.",
+          "ttftMs": 247.28919999999925,
+          "totalMs": 659.1298000000097
+        },
+        {
+          "name": "reverse-string",
+          "pass": true,
+          "response": "s = s[::-1]",
+          "ttftMs": 212.7780000000057,
+          "totalMs": 280.8545000000013
+        },
+        {
+          "name": "find-bug",
+          "pass": true,
+          "response": "The issue is that the variable `total` inside the callback function is redeclared on each iteration of the loop, effectively resetting its value to 0.",
+          "ttftMs": 234.6993999999977,
+          "totalMs": 533.8359999999957
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 242.08810000000813,
+          "totalMs": 818.5213000000076,
+          "tokensPerSec": 109.21875650111646,
+          "evalCount": 63
+        },
+        {
+          "ttftMs": 269.2925999999861,
+          "totalMs": 896.9863999999943,
+          "tokensPerSec": 108.24474774198272,
+          "evalCount": 68
+        },
+        {
+          "ttftMs": 198.91790000000037,
+          "totalMs": 811.6386999999959,
+          "tokensPerSec": 110.91628267340863,
+          "evalCount": 68
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "llama3.1:8b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\",\"unit\":\"celsius\"})",
+          "ttftMs": 640.7856999999931,
+          "totalMs": 650.9177999999956
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 473.41710000000603,
+          "totalMs": 483.196299999996
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 367.0911999999953,
+          "totalMs": 376.7811999999976
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"Mars Perseverance rover latest news\"})",
+          "ttftMs": 433.6853000000119,
+          "totalMs": 442.95679999999993
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"text\":\"call mom\",\"time\":\"tomorrow at 5pm\"})",
+          "ttftMs": 490.7971000000107,
+          "totalMs": 501.1284000000014
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": false,
+          "detail": "unexpectedly called search_web",
+          "ttftMs": 366.09790000000794,
+          "totalMs": 375.383799999996
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 234.41270000000077,
+          "totalMs": 258.60860000000685
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 217.1478999999963,
+          "totalMs": 231.66090000000258
+        },
+        {
+          "name": "decimal-compare",
+          "pass": false,
+          "response": "0.89",
+          "ttftMs": 214.53610000001208,
+          "totalMs": 249.88780000001134
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "8",
+          "ttftMs": 200.613400000002,
+          "totalMs": 214.25379999999132
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 201.57249999999476,
+          "totalMs": 216.1140000000014
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 195.09389999999257,
+          "totalMs": 208.56239999999525
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "yretseccen",
+          "ttftMs": 190.86770000000251,
+          "totalMs": 242.95720000000438
+        }
+      ],
+      "codingToolTests": [
+        {
+          "name": "run-tests",
+          "pass": true,
+          "detail": "called run_command({\"command\":\"npm run test\"})",
+          "ttftMs": 408.75740000000224,
+          "totalMs": 417.5871000000043
+        },
+        {
+          "name": "write-file",
+          "pass": true,
+          "detail": "called write_file({\"filename\":\"hello.py\",\"content\":\"def greet():\\n    return 'Hello, World!'\"})",
+          "ttftMs": 515.4792000000016,
+          "totalMs": 524.5276000000013
+        }
+      ],
+      "codingAccuracyTests": [
+        {
+          "name": "off-by-one",
+          "pass": true,
+          "response": "The loop will only print numbers 0 through 9, not 1 through 10.",
+          "ttftMs": 230.8069000000105,
+          "totalMs": 414.3747000000003
+        },
+        {
+          "name": "reverse-string",
+          "pass": true,
+          "response": "`s = s[::-1]`",
+          "ttftMs": 213.11870000000636,
+          "totalMs": 287.2758000000031
+        },
+        {
+          "name": "find-bug",
+          "pass": true,
+          "response": "The variable `total` is being redeclared within each iteration of the `forEach` loop, hiding the outer scope's `total`, so it always starts at 0.",
+          "ttftMs": 199.3914999999979,
+          "totalMs": 542.3922999999922
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 210.98219999999856,
+          "totalMs": 992.4687999999878,
+          "tokensPerSec": 104.92078480747035,
+          "evalCount": 82
+        },
+        {
+          "ttftMs": 210.51910000000498,
+          "totalMs": 988.0093999999954,
+          "tokensPerSec": 105.4674587873043,
+          "evalCount": 82
+        },
+        {
+          "ttftMs": 196.54569999998785,
+          "totalMs": 992.64479999998,
+          "tokensPerSec": 103.01973456085953,
+          "evalCount": 82
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "granite3.1-dense:8b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 156.27410000000964,
+          "totalMs": 486.0195999999996
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 104.53170000002137,
+          "totalMs": 421.1389999999956
+        },
+        {
+          "name": "calculate",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 102.38770000002114,
+          "totalMs": 315.43030000000726
+        },
+        {
+          "name": "search",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 101.57200000001467,
+          "totalMs": 416.992499999993
+        },
+        {
+          "name": "reminder",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 102.63819999998668,
+          "totalMs": 457.7994999999937
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 90.09960000001593,
+          "totalMs": 184.40340000001015
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 114.13420000000042,
+          "totalMs": 152.32709999999497
+        },
+        {
+          "name": "speed-math",
+          "pass": false,
+          "response": "30",
+          "ttftMs": 86.01490000000922,
+          "totalMs": 114.73420000000624
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 82.73850000000675,
+          "totalMs": 121.30990000002203
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "8",
+          "ttftMs": 81.16649999999208,
+          "totalMs": 97.30770000000484
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold.",
+          "ttftMs": 89.35910000000149,
+          "totalMs": 144.11059999998542
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 90.38949999999022,
+          "totalMs": 107.79670000000624
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "yratcedesnera",
+          "ttftMs": 90.78899999998976,
+          "totalMs": 161.8362999999954
+        }
+      ],
+      "codingToolTests": [
+        {
+          "name": "run-tests",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 139.99199999999837,
+          "totalMs": 351.43739999999525
+        },
+        {
+          "name": "write-file",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 109.5792000000074,
+          "totalMs": 518.5830999999889
+        }
+      ],
+      "codingAccuracyTests": [
+        {
+          "name": "off-by-one",
+          "pass": false,
+          "response": "The provided code is correct and will print the numbers 1 through 10 as intended. There's no error or issue with this Python loop.",
+          "ttftMs": 117.55059999998775,
+          "totalMs": 426.51540000000386
+        },
+        {
+          "name": "reverse-string",
+          "pass": true,
+          "response": "s = s[::-1]",
+          "ttftMs": 95.53449999997974,
+          "totalMs": 173.35559999998077
+        },
+        {
+          "name": "find-bug",
+          "pass": true,
+          "response": "The variable 'total' is being redefined inside the forEach loop, shadowing the original 'total' variable and causing it to always be 0.",
+          "ttftMs": 88.95290000000386,
+          "totalMs": 409.7393999999913
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 94.98480000000563,
+          "totalMs": 843.74549999999,
+          "tokensPerSec": 97.49218059291272,
+          "evalCount": 73
+        },
+        {
+          "ttftMs": 82.5176999999967,
+          "totalMs": 887.6843999999983,
+          "tokensPerSec": 90.6528245184845,
+          "evalCount": 73
+        },
+        {
+          "ttftMs": 76.40759999997681,
+          "totalMs": 820.7554999999993,
+          "tokensPerSec": 98.0384256909023,
+          "evalCount": 73
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "hermes3:8b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\",\"unit\":\"celsius\"})",
+          "ttftMs": 499.5462000000116,
+          "totalMs": 517.2173000000184
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 422.21120000001974,
+          "totalMs": 440.13529999999446
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 367.77979999998934,
+          "totalMs": 385.82809999998426
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"latest news on Mars Perseverance rover\"})",
+          "ttftMs": 424.65419999998994,
+          "totalMs": 442.5121999999974
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"text\":\"Call mom\",\"time\":\"tomorrow at 5pm\"})",
+          "ttftMs": 469.95470000000205,
+          "totalMs": 487.315499999997
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 191.90580000000773,
+          "totalMs": 204.9612999999954
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 222.79529999999795,
+          "totalMs": 246.2266000000236
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 202.5812000000151,
+          "totalMs": 219.1364000000176
+        },
+        {
+          "name": "decimal-compare",
+          "pass": false,
+          "response": "0.89",
+          "ttftMs": 208.86209999999846,
+          "totalMs": 242.67599999997765
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "8",
+          "ttftMs": 205.8250999999873,
+          "totalMs": 220.2317000000039
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 225.3562999999849,
+          "totalMs": 240.589799999987
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "There are 7 continents on Earth.",
+          "ttftMs": 295.78470000001835,
+          "totalMs": 384.19370000000345
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "ybbersoncehtesecer",
+          "ttftMs": 284.5730999999796,
+          "totalMs": 368.35759999998845
+        }
+      ],
+      "codingToolTests": [
+        {
+          "name": "run-tests",
+          "pass": true,
+          "detail": "called run_command({\"command\":\"npm test\"})",
+          "ttftMs": 482.67230000000563,
+          "totalMs": 501.38959999999497
+        },
+        {
+          "name": "write-file",
+          "pass": false,
+          "detail": "no tool called",
+          "ttftMs": 570.3597000000009,
+          "totalMs": 570.4425000000047
+        }
+      ],
+      "codingAccuracyTests": [
+        {
+          "name": "off-by-one",
+          "pass": true,
+          "response": "The code will only print the numbers 0 through 9 because the `range()` function generates a sequence of numbers starting from 0 by default.",
+          "ttftMs": 226.67679999998654,
+          "totalMs": 497.29489999997895
+        },
+        {
+          "name": "reverse-string",
+          "pass": true,
+          "response": "s[::-1]",
+          "ttftMs": 209.53800000000047,
+          "totalMs": 250.77010000002338
+        },
+        {
+          "name": "find-bug",
+          "pass": true,
+          "response": "The bug is that the `total` variable is being redeclared inside the forEach callback instead of updating the outer scope variable.",
+          "ttftMs": 199.67680000001565,
+          "totalMs": 435.08150000000023
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 203.30970000001253,
+          "totalMs": 698.5885999999882,
+          "tokensPerSec": 113.00689140239534,
+          "evalCount": 56
+        },
+        {
+          "ttftMs": 192.17869999998948,
+          "totalMs": 678.3585000000021,
+          "tokensPerSec": 115.06865077897368,
+          "evalCount": 56
+        },
+        {
+          "ttftMs": 179.79939999998896,
+          "totalMs": 666.9242000000086,
+          "tokensPerSec": 114.90408586618189,
+          "evalCount": 56
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "qwen3:8b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\",\"unit\":\"celsius\"})",
+          "ttftMs": 474.96710000000894,
+          "totalMs": 493.9521999999997
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 412.0376999999862,
+          "totalMs": 431.56609999999637
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 392.19719999999506,
+          "totalMs": 411.7485999999917
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"latest news on the Mars Perseverance rover\"})",
+          "ttftMs": 430.2811999999976,
+          "totalMs": 450.6981000000087
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"text\":\"Call mom\",\"time\":\"tomorrow at 5pm\"})",
+          "ttftMs": 475.5895999999775,
+          "totalMs": 494.3726000000024
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 173.44120000000112,
+          "totalMs": 187.19860000000335
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 184.91339999999036,
+          "totalMs": 211.82020000001648
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 172.31010000000242,
+          "totalMs": 199.1040000000212
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 171.83249999998952,
+          "totalMs": 210.0696000000171
+        },
+        {
+          "name": "word-problem",
+          "pass": false,
+          "response": "8",
+          "ttftMs": 173.0843000000168,
+          "totalMs": 188.61750000002212
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 181.22450000001118,
+          "totalMs": 197.69659999999567
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 179.89949999999953,
+          "totalMs": 195.47569999998086
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "yseressan",
+          "ttftMs": 168.23420000000624,
+          "totalMs": 214.30799999999
+        }
+      ],
+      "codingToolTests": [
+        {
+          "name": "run-tests",
+          "pass": true,
+          "detail": "called run_command({\"command\":\"npm test\"})",
+          "ttftMs": 382.37390000000596,
+          "totalMs": 401.3671000000031
+        },
+        {
+          "name": "write-file",
+          "pass": true,
+          "detail": "called write_file({\"filename\":\"hello.py\",\"content\":\"def greet():\\n    return 'Hello, World!'\"})",
+          "ttftMs": 523.2681999999913,
+          "totalMs": 542.6345999999903
+        }
+      ],
+      "codingAccuracyTests": [
+        {
+          "name": "off-by-one",
+          "pass": true,
+          "response": "The loop starts at 0 instead of 1, so it prints numbers 0 through 9 instead of 1 through 10.",
+          "ttftMs": 182.86030000000028,
+          "totalMs": 471.1749000000127
+        },
+        {
+          "name": "reverse-string",
+          "pass": true,
+          "response": "s = s[::-1]",
+          "ttftMs": 170.12919999999576,
+          "totalMs": 236.27059999998892
+        },
+        {
+          "name": "find-bug",
+          "pass": true,
+          "response": "The bug is that the `total` variable inside the `forEach` is redeclared with `let`, shadowing the outer `total` variable.",
+          "ttftMs": 175.6075000000128,
+          "totalMs": 480.75380000000587
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 177.2786999999953,
+          "totalMs": 786.3734000000113,
+          "tokensPerSec": 103.38105271449108,
+          "evalCount": 63
+        },
+        {
+          "ttftMs": 153.91130000000703,
+          "totalMs": 756.8930000000109,
+          "tokensPerSec": 104.4445291789831,
+          "evalCount": 63
+        },
+        {
+          "ttftMs": 164.08740000001853,
+          "totalMs": 761.2832000000053,
+          "tokensPerSec": 105.45609762221609,
+          "evalCount": 63
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "qwen3.5:9b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\"})",
+          "ttftMs": 804.1615999999922,
+          "totalMs": 810.7703999999794
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 825.2468000000226,
+          "totalMs": 835.8482000000076
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 739.5956000000006,
+          "totalMs": 750.2670999999973
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"latest news on Mars Perseverance rover\"})",
+          "ttftMs": 837.6485999999859,
+          "totalMs": 849.4560000000056
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"text\":\"Call Mom\",\"time\":\"tomorrow at 5pm\"})",
+          "ttftMs": 957.0782000000181,
+          "totalMs": 967.9780000000028
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 426.5908000000054,
+          "totalMs": 444.87950000001
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 444.87959999998566,
+          "totalMs": 480.4814999999944
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 421.23420000000624,
+          "totalMs": 452.50990000000456
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 527.1731999999902,
+          "totalMs": 567.619399999996
+        },
+        {
+          "name": "word-problem",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 428.15669999999227,
+          "totalMs": 446.3197999999975
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold",
+          "ttftMs": 412.2784999999858,
+          "totalMs": 431.5297000000137
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 413.5037000000011,
+          "totalMs": 430.9713000000047
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "ecreesssecn",
+          "ttftMs": 433.0480999999854,
+          "totalMs": 497.4911999999895
+        }
+      ],
+      "codingToolTests": [
+        {
+          "name": "run-tests",
+          "pass": true,
+          "detail": "called run_command({\"command\":\"npm run test 2>&1 || npx jest --passWithNoTests 2>&1 || echo \\\"Running tests...\\\" && ls -la package.json | h)",
+          "ttftMs": 1191.9906999999948,
+          "totalMs": 1202.4720999999845
+        },
+        {
+          "name": "write-file",
+          "pass": true,
+          "detail": "called write_file({\"filename\":\"hello.py\",\"content\":\"def greet():\\n    return \\\"Hello, World!\\\"\\n\"})",
+          "ttftMs": 960.662799999991,
+          "totalMs": 971.9375
+        }
+      ],
+      "codingAccuracyTests": [
+        {
+          "name": "off-by-one",
+          "pass": true,
+          "response": "The `range(10)` function generates numbers from 0 to 9 instead of 1 to 10.",
+          "ttftMs": 406.8098999999929,
+          "totalMs": 697.1020999999892
+        },
+        {
+          "name": "reverse-string",
+          "pass": true,
+          "response": "s[::-1]",
+          "ttftMs": 405.99479999998584,
+          "totalMs": 461.02599999998347
+        },
+        {
+          "name": "find-bug",
+          "pass": true,
+          "response": "The `total` variable inside the arrow function is a new local scope that shadows and discards the outer `total`, so its value never accumulates.",
+          "ttftMs": 408.88630000001285,
+          "totalMs": 759.6686000000045
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 403.4660000000149,
+          "totalMs": 1122.8403000000108,
+          "tokensPerSec": 88.95795485661785,
+          "evalCount": 64
+        },
+        {
+          "ttftMs": 409.53549999999814,
+          "totalMs": 1136.8778999999922,
+          "tokensPerSec": 87.98411886654458,
+          "evalCount": 64
+        },
+        {
+          "ttftMs": 321.98159999999916,
+          "totalMs": 1045.2618000000075,
+          "tokensPerSec": 88.43565615111442,
+          "evalCount": 64
+        }
+      ],
+      "errors": []
+    },
+    {
+      "model": "qwen3:14b",
+      "toolTests": [
+        {
+          "name": "weather-basic",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Tokyo\",\"unit\":\"celsius\"})",
+          "ttftMs": 708.2879000000248,
+          "totalMs": 740.5583000000042
+        },
+        {
+          "name": "weather-with-unit",
+          "pass": true,
+          "detail": "called get_weather({\"location\":\"Berlin\",\"unit\":\"fahrenheit\"})",
+          "ttftMs": 577.4300999999978,
+          "totalMs": 609.3214000000153
+        },
+        {
+          "name": "calculate",
+          "pass": true,
+          "detail": "called calculate({\"expression\":\"47 * 89\"})",
+          "ttftMs": 531.160200000013,
+          "totalMs": 563.453600000008
+        },
+        {
+          "name": "search",
+          "pass": true,
+          "detail": "called search_web({\"query\":\"latest news on the Mars Perseverance rover\"})",
+          "ttftMs": 605.3563999999897,
+          "totalMs": 637.040399999998
+        },
+        {
+          "name": "reminder",
+          "pass": true,
+          "detail": "called create_reminder({\"time\":\"tomorrow at 5pm\",\"text\":\"Call mom\"})",
+          "ttftMs": 673.3742999999959,
+          "totalMs": 706.3421000000089
+        },
+        {
+          "name": "no-tool-needed",
+          "pass": true,
+          "detail": "no tool called (correct)",
+          "ttftMs": 183.44389999998384,
+          "totalMs": 223.0405000000028
+        }
+      ],
+      "accuracyTests": [
+        {
+          "name": "capital",
+          "pass": true,
+          "response": "Canberra",
+          "ttftMs": 206.5633000000089,
+          "totalMs": 246.63890000001993
+        },
+        {
+          "name": "speed-math",
+          "pass": true,
+          "response": "40",
+          "ttftMs": 194.01410000000033,
+          "totalMs": 236.40360000001965
+        },
+        {
+          "name": "decimal-compare",
+          "pass": true,
+          "response": "0.9",
+          "ttftMs": 199.45240000000922,
+          "totalMs": 256.99619999999413
+        },
+        {
+          "name": "word-problem",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 187.69490000000224,
+          "totalMs": 209.54699999999139
+        },
+        {
+          "name": "antonym",
+          "pass": true,
+          "response": "Cold.",
+          "ttftMs": 184.65320000000065,
+          "totalMs": 225.35209999998915
+        },
+        {
+          "name": "continents",
+          "pass": true,
+          "response": "7",
+          "ttftMs": 180.20699999999488,
+          "totalMs": 200.9872000000032
+        },
+        {
+          "name": "reverse-spell",
+          "pass": false,
+          "response": "The word \"necessary\" spelled backwards, with letters only and no spaces, is:\n\n**ysseracne**",
+          "ttftMs": 187.45430000001215,
+          "totalMs": 595.2754000000132
+        }
+      ],
+      "codingToolTests": [
+        {
+          "name": "run-tests",
+          "pass": true,
+          "detail": "called run_command({\"command\":\"npm test\"})",
+          "ttftMs": 545.9675999999745,
+          "totalMs": 578.0009999999893
+        },
+        {
+          "name": "write-file",
+          "pass": true,
+          "detail": "called write_file({\"filename\":\"hello.py\",\"content\":\"def greet():\\n    return 'Hello, World!'\"})",
+          "ttftMs": 764.9175000000105,
+          "totalMs": 796.5448000000033
+        }
+      ],
+      "codingAccuracyTests": [
+        {
+          "name": "off-by-one",
+          "pass": true,
+          "response": "The loop prints numbers from 0 through 9 instead of 1 through 10.",
+          "ttftMs": 206.95490000001155,
+          "totalMs": 519.8470000000088
+        },
+        {
+          "name": "reverse-string",
+          "pass": true,
+          "response": "s[::-1]",
+          "ttftMs": 187.7719999999972,
+          "totalMs": 258.8751999999804
+        },
+        {
+          "name": "find-bug",
+          "pass": true,
+          "response": "The bug is that the `total` variable inside the `forEach` callback is redeclared with `let`, creating a new local variable instead of updating the outer `total`.",
+          "ttftMs": 195.51379999998608,
+          "totalMs": 789.7476999999781
+        }
+      ],
+      "latencyRuns": [
+        {
+          "ttftMs": 186.3586999999825,
+          "totalMs": 1203.3365999999805,
+          "tokensPerSec": 61.933322388502816,
+          "evalCount": 63
+        },
+        {
+          "ttftMs": 176.33320000002277,
+          "totalMs": 1178.0223000000115,
+          "tokensPerSec": 62.873435773787364,
+          "evalCount": 63
+        },
+        {
+          "ttftMs": 163.64970000000903,
+          "totalMs": 1184.1365000000224,
+          "tokensPerSec": 61.72676207860462,
+          "evalCount": 63
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "summaries": [
+    {
+      "model": "llama3.2:3b",
+      "toolAccuracyPct": 83.3,
+      "generalAccuracyPct": 57.1,
+      "codingToolPct": 50,
+      "codingAccuracyPct": 66.7,
+      "avgTtftMs": "195",
+      "avgTotalMs": "540",
+      "avgTokensPerSec": "191.4",
+      "errors": 0
+    },
+    {
+      "model": "qwen3:4b",
+      "toolAccuracyPct": 33.3,
+      "generalAccuracyPct": 85.7,
+      "codingToolPct": 50,
+      "codingAccuracyPct": 100,
+      "avgTtftMs": "190",
+      "avgTotalMs": "2074",
+      "avgTokensPerSec": "159.1",
+      "errors": 0
+    },
+    {
+      "model": "qwen2.5-coder:7b",
+      "toolAccuracyPct": 16.7,
+      "generalAccuracyPct": 85.7,
+      "codingToolPct": 0,
+      "codingAccuracyPct": 66.7,
+      "avgTtftMs": "168",
+      "avgTotalMs": "671",
+      "avgTokensPerSec": "109.4",
+      "errors": 0
+    },
+    {
+      "model": "llama3-groq-tool-use:8b",
+      "toolAccuracyPct": 83.3,
+      "generalAccuracyPct": 71.4,
+      "codingToolPct": 50,
+      "codingAccuracyPct": 100,
+      "avgTtftMs": "237",
+      "avgTotalMs": "842",
+      "avgTokensPerSec": "109.5",
+      "errors": 0
+    },
+    {
+      "model": "llama3.1:8b",
+      "toolAccuracyPct": 83.3,
+      "generalAccuracyPct": 57.1,
+      "codingToolPct": 100,
+      "codingAccuracyPct": 100,
+      "avgTtftMs": "206",
+      "avgTotalMs": "991",
+      "avgTokensPerSec": "104.5",
+      "errors": 0
+    },
+    {
+      "model": "granite3.1-dense:8b",
+      "toolAccuracyPct": 16.7,
+      "generalAccuracyPct": 57.1,
+      "codingToolPct": 0,
+      "codingAccuracyPct": 66.7,
+      "avgTtftMs": "85",
+      "avgTotalMs": "851",
+      "avgTokensPerSec": "95.4",
+      "errors": 0
+    },
+    {
+      "model": "hermes3:8b",
+      "toolAccuracyPct": 100,
+      "generalAccuracyPct": 57.1,
+      "codingToolPct": 50,
+      "codingAccuracyPct": 100,
+      "avgTtftMs": "192",
+      "avgTotalMs": "681",
+      "avgTokensPerSec": "114.3",
+      "errors": 0
+    },
+    {
+      "model": "qwen3:8b",
+      "toolAccuracyPct": 100,
+      "generalAccuracyPct": 71.4,
+      "codingToolPct": 100,
+      "codingAccuracyPct": 100,
+      "avgTtftMs": "165",
+      "avgTotalMs": "768",
+      "avgTokensPerSec": "104.4",
+      "errors": 0
+    },
+    {
+      "model": "qwen3.5:9b",
+      "toolAccuracyPct": 100,
+      "generalAccuracyPct": 85.7,
+      "codingToolPct": 100,
+      "codingAccuracyPct": 100,
+      "avgTtftMs": "378",
+      "avgTotalMs": "1102",
+      "avgTokensPerSec": "88.5",
+      "errors": 0
+    },
+    {
+      "model": "qwen3:14b",
+      "toolAccuracyPct": 100,
+      "generalAccuracyPct": 85.7,
+      "codingToolPct": 100,
+      "codingAccuracyPct": 100,
+      "avgTtftMs": "175",
+      "avgTotalMs": "1188",
+      "avgTokensPerSec": "62.2",
+      "errors": 0
+    }
+  ]
+}
