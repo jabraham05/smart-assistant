@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppDrawer } from "@/components/AppDrawer";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
-import { ActiveSessionProvider } from "@/contexts/ActiveSessionContext";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -39,12 +38,10 @@ export default function RootLayout({
     >
       <body className="flex h-full flex-col">
         <ConnectionBanner />
-        <ActiveSessionProvider>
-          <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-            <AppDrawer />
-            <div className="min-h-0 min-w-0 flex-1">{children}</div>
-          </div>
-        </ActiveSessionProvider>
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          <AppDrawer />
+          <div className="min-h-0 min-w-0 flex-1">{children}</div>
+        </div>
       </body>
     </html>
   );
