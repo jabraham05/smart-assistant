@@ -70,6 +70,43 @@ def test_voice_line_comes_before_tone_line_which_stays_last():
     assert prompt.index('Address the user as "sir"') < prompt.index("Close naturally")
 
 
+def test_voice_line_teaches_investigation_and_partial_agreement_and_mistake_handling():
+    # 2026-11-04 addition, user-provided behavioral spec: Mode C
+    # (Investigation), Mode D (Partial Agreement), and honest mistake-
+    # handling, folded into the existing ungated voice_line (see its
+    # comment on why this belongs in the same tier as the Mode B sentence
+    # rather than a new, possibly budget-gated section).
+    prompt = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
+    assert "distinguishing what you actually know" in prompt
+    assert "propose the piece that completes it" in prompt
+    assert "that's my mistake, let me re-check" in prompt
+    assert "no over-apologizing" in prompt
+
+
+def test_includes_initiative_line_when_not_fast_budget():
+    # 2026-11-04 addition, user-provided behavioral spec, execution-
+    # communication section (4.2 Initiative) - gated the same way
+    # action_clarify_line/status_narration_clarify_line are: meaningless at
+    # budget=="fast", which never runs a tool loop.
+    default_budget = build_system_prompt(SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW))
+    assert "notice something else worth the user's attention" in default_budget
+
+    tool_budget = build_system_prompt(
+        SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW, budget="tool")
+    )
+    assert "notice something else worth the user's attention" in tool_budget
+
+    planning_budget = build_system_prompt(
+        SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW, budget="planning")
+    )
+    assert "notice something else worth the user's attention" in planning_budget
+
+    fast_budget = build_system_prompt(
+        SystemPromptInput(persona_system_prompt="You are Amy.", now=NOW, budget="fast")
+    )
+    assert "notice something else worth the user's attention" not in fast_budget
+
+
 def test_tone_line_examples_never_trip_the_search_intent_safety_net():
     # Real, live-verified regression (2026-10-19, session amy-main): the
     # weather example originally taught "Let me check." as the reaction
@@ -114,6 +151,16 @@ def test_fast_budget_prompt_stays_near_its_prior_documented_size():
     # the growth from that one edit stays small (a few hundred chars, not
     # thousands), so a future edit accidentally ballooning this doesn't
     # silently slide back toward that failure mode.
+    #
+    # 2026-11-04 re-measurement, after folding the behavioral-spec voice_line
+    # extension (Modes C/D, calibration, mistake-handling) into this same
+    # synthetic call: this specific call (persona_system_prompt="You are
+    # Amy.", respond_instructions="x"*10_000, budget="fast" - initiative_line
+    # doesn't render here since it's gated off at budget=="fast") grew from a
+    # previously-measured 14,531 chars to 15,332 - about 800 chars, bigger
+    # than the "few hundred" bar the comment above was originally calibrated
+    # for from a single one-sentence fold, but still under 2% of the margin
+    # to the 42,500 ceiling below, so the ceiling itself needs no change.
     prompt = build_system_prompt(
         SystemPromptInput(
             persona_system_prompt="You are Amy.",
@@ -204,6 +251,9 @@ def test_includes_open_tasks_and_relevant_goals_when_present():
         )
     )
     assert "Open tasks you're tracking across conversations" in prompt
+    # 2026-11-04 addition, user-provided behavioral spec, Continuity
+    # section (5.2 topic switching) - folded into open_tasks_line itself.
+    assert "a task staying open here doesn't mean it's abandoned" in prompt
     assert "[task #7, waiting_for_user] measure the fuel sender twice" in prompt
     assert "Relevant to one of the user's ongoing goals" in prompt
     assert "[goal #3, active] increase general knowledge via daily news" in prompt

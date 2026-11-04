@@ -257,9 +257,17 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         else ""
     )
 
+    # 2026-11-04 addition, user-provided behavioral spec, Continuity section
+    # (5.2 topic switching): folded into this line's own existing trigger
+    # condition rather than a separate line - the guidance is only ever
+    # meaningful when a task is actually open, which is exactly what gates
+    # this line already.
     open_tasks_line = (
         "Open tasks you're tracking across conversations, relevant to this message (use "
-        "task_context_manage to check in on or advance one):\n"
+        "task_context_manage to check in on or advance one). If this message is about "
+        "something else, answer that first - a task staying open here doesn't mean it's "
+        "abandoned; bring it back up naturally once the new thing is handled, don't just "
+        "drop it silently:\n"
         + "\n".join(f"- [task #{t.id}, {t.status}] {t.objective}" for t in input.open_tasks)
         if input.open_tasks
         else ""
@@ -306,6 +314,29 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         "about to do before doing it (e.g. \"I'll check your calendar first...\"), so it's clear "
         "something's happening rather than leaving the user waiting with no context."
         if input.narrate_before_slow_answer
+        else ""
+    )
+
+    # 2026-11-04 addition, user-provided behavioral spec, execution-
+    # communication section (4.2 Initiative). No incident transcript
+    # motivates this - action_clarify_line/status_narration_clarify_line/
+    # safety_net.py already cover ownership and verification; this is the
+    # one named gap nothing existing addresses. Gated the same way those
+    # two are: meaningless at budget=="fast", which never runs a tool loop,
+    # so there's nothing mid-work to have noticed. Deliberately no
+    # accompanying safety_net.py check - "didn't notice anything worth
+    # flagging" is a true negative a regex can't tell apart from "missed
+    # something," and has_unsatisfied_required_tool's retry/override already
+    # had to be disabled after live feedback that an over-eager deterministic
+    # check like that did more harm than good (see its own comment in
+    # main.py). Any future check here should come from a real observed gap,
+    # not be added speculatively alongside this prompt line.
+    initiative_line = (
+        "If, while doing this, you notice something else worth the user's attention - a "
+        "conflict, a risk, an easy related fix - mention it briefly as a side note in this "
+        "same reply, don't stay silent about it and don't turn it into its own project. Only "
+        "if it's genuinely worth raising - don't manufacture something to flag."
+        if input.budget != "fast"
         else ""
     )
 
@@ -358,14 +389,36 @@ def build_system_prompt(input: SystemPromptInput) -> str:
     # Placed immediately before tone_line (not after) so tone_line's
     # closing-style admonitions stay the very last, most recent thing
     # before generation - see that section's own comment on recency bias.
+    #
+    # 2026-11-04 addition, user-provided behavioral spec: Mode C
+    # (Investigation), Mode D (Partial Agreement), confidence calibration,
+    # and honest mistake-handling. No live incident transcript motivates
+    # this (unlike every other line in this file) - this is a deliberate
+    # policy addition the user specified directly, folded into this same
+    # already-ungated voice_line rather than a new section, same reasoning
+    # as the Mode B sentence already here: it's a reasoning-stance
+    # convention, not tool-execution guidance, so it belongs in the tier
+    # that governs the fast path's own replies too, not just the tool loop.
+    # No new worked example added - this line already has exactly one pair,
+    # deliberately, to avoid diluting a small model with too many.
     voice_line = (
         "Address the user as \"sir\" when you naturally would in conversation - after giving an "
         "opinion, confirming a decision, or answering directly - not glued onto every single "
         "sentence. Your voice is composed, perceptive, quietly confident, and occasionally dry - "
         "respectful without being stiff or overly formal. When asked whether to do something you "
         "think is a mistake, say so plainly and explain why, then offer what you'd do instead - "
-        "don't just comply or hedge. When the user confirms a decision you already proposed, "
-        "acknowledge specifically what you're actually doing, not generic enthusiasm.\n\n"
+        "don't just comply or hedge. When you're genuinely not sure about something - a fact, a "
+        "cause, which approach is right - say so plainly, distinguishing what you actually know "
+        "from what you believe but haven't checked from what's simply unknown, rather than "
+        "guessing confidently or hedging vaguely; then say what would resolve it (a lookup, a "
+        "question back, or just trying the straightforward approach) and do that, instead of only "
+        "flagging the uncertainty and stopping there. When the user's reasoning is partly right, "
+        "say which part is, then propose the piece that completes it - don't defer to the rest of "
+        "it just to avoid friction. If you get something wrong, own the specific mistake plainly "
+        "('that's my mistake, let me re-check') and move straight to fixing it, with no "
+        "over-apologizing and no defending the original answer. When the user confirms a decision "
+        "you already proposed, acknowledge specifically what you're actually doing, not generic "
+        "enthusiasm.\n\n"
         "Example - user asks \"should we use a second model to check every answer?\" after you'd "
         "already proposed selective verification:\n"
         "Bad (just complies, no judgment): \"Sure, I can set that up! Let me know if you want any "
@@ -422,6 +475,7 @@ def build_system_prompt(input: SystemPromptInput) -> str:
         open_teaching_session_line,
         needs_planning_line,
         narrate_line,
+        initiative_line,
         skills_line,
         respond_instructions_line,
         voice_line,
