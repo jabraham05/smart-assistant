@@ -38,12 +38,17 @@ export interface InsertMemoryEntryInput {
   domain?: string;
   taskContextId?: number;
   grounding: string;
+  // Which real/test identity this turn belongs to (agent-service's
+  // config.is_test_user concept) - nullable since this column was added
+  // after rows already existed; agent-service always sends a value now
+  // (defaulting to "test" when the caller didn't pick a real identity).
+  userId?: string;
 }
 
 export async function insertMemoryEntry(config: Config, input: InsertMemoryEntryInput): Promise<MemoryEntryRow> {
   const result = await getPool(config).query<MemoryEntryRow>(
-    `INSERT INTO memory_entries (session_id, role, content, embedding, domain, task_context_id, grounding)
-     VALUES ($1, $2, $3, $4::vector, $5, $6, $7)
+    `INSERT INTO memory_entries (session_id, role, content, embedding, domain, task_context_id, grounding, user_id)
+     VALUES ($1, $2, $3, $4::vector, $5, $6, $7, $8)
      RETURNING id, session_id, role, content, domain, task_context_id, created_at, grounding`,
     [
       input.sessionId,
@@ -53,6 +58,7 @@ export async function insertMemoryEntry(config: Config, input: InsertMemoryEntry
       input.domain ?? null,
       input.taskContextId ?? null,
       input.grounding,
+      input.userId ?? null,
     ],
   );
   return result.rows[0];

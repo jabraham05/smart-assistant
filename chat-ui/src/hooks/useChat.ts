@@ -13,7 +13,7 @@ function honchoMessagesToChat(messages: HonchoMessage[]): ChatMessage[] {
   }));
 }
 
-export function useChat(sessionId: string) {
+export function useChat(sessionId: string, userId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
@@ -121,7 +121,7 @@ export function useChat(sessionId: string) {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: content, sessionId }),
+          body: JSON.stringify({ message: content, sessionId, userId }),
         });
 
         if (!res.ok || !res.body) {
@@ -184,7 +184,7 @@ export function useChat(sessionId: string) {
         setIsSending(false);
       }
     },
-    [sessionId]
+    [sessionId, userId]
   );
 
   return { messages, isSending, isLoadingHistory, sendMessage };

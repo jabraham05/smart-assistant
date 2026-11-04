@@ -177,7 +177,7 @@ def _build_prompt(
 
 
 async def build_context(
-    config: Config, session_id: str, chat_input: str, recent_context: str | None
+    config: Config, session_id: str, user_id: str, chat_input: str, recent_context: str | None
 ) -> TurnContext:
     _t = time.monotonic()
     (
@@ -218,11 +218,11 @@ async def build_context(
     user_card_for_amy: list[str] = []
     _t = time.monotonic()
     if not await session_memory.is_honcho_initialized(config, session_id):
-        await honcho_client.ensure_session_exists(config, session_id)
-        await honcho_client.set_user_observe_config(config, session_id)
+        await honcho_client.ensure_session_exists(config, session_id, user_id)
+        await honcho_client.set_user_observe_config(config, session_id, user_id)
         await session_memory.mark_honcho_initialized(config, session_id)
     user_card, user_card_for_amy = await asyncio.gather(
-        honcho_client.get_user_card(config), honcho_client.get_user_card_for_amy(config)
+        honcho_client.get_user_card(config, user_id), honcho_client.get_user_card_for_amy(config, user_id)
     )
     logger.debug("TIMING honcho session=%s took=%.2fs", session_id, time.monotonic() - _t)
 

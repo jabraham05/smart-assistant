@@ -42,7 +42,9 @@ function publishDmReceivedEvent(preview: string): void {
 }
 
 client.once(Events.ClientReady, (c) => {
-  console.log(`discord-bot logged in as ${c.user.tag}, forwarding DMs from user ${config.allowedUserId}`);
+  console.log(
+    `discord-bot logged in as ${c.user.tag}, forwarding DMs from user ${config.allowedUserId} as Amy identity "${config.amyUserId}"`,
+  );
 });
 
 // Real, live-observed failure (2026-10-10): the container never crashed and
@@ -138,7 +140,7 @@ client.on(Events.MessageCreate, async (message) => {
     // The ack (if any) is sent as its own message the moment it arrives,
     // well before the rest of the turn finishes - the typing indicator
     // above keeps running throughout, unaffected.
-    const reply = await sendChatMessage(config.chatWebhookUrl, message.content, sessionId, (ackText) => {
+    const reply = await sendChatMessage(config.chatWebhookUrl, message.content, sessionId, config.amyUserId, (ackText) => {
       message.channel.send(ackText).catch(() => {});
     });
     const text = reply.trim() || "(no response)";

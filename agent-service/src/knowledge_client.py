@@ -7,13 +7,13 @@ from dataclasses import dataclass
 
 import httpx
 
-from .config import Config, is_test_session
+from .config import Config, is_test_user
 
 logger = logging.getLogger(__name__)
 
 
 async def create_entity_from_chat(
-    config: Config, item_type: str, content: str, session_id: str | None = None
+    config: Config, user_id: str, item_type: str, content: str, session_id: str | None = None
 ) -> None:
     """Promotes a classifier-extracted memorable item (fact/preference/decision/
     learning) or a behavior-feedback capture into a durable `entities` row -
@@ -21,7 +21,7 @@ async def create_entity_from_chat(
     validation all happen inside knowledge-engine's own POST /entities; this
     is a thin, fail-silent client.
     """
-    if is_test_session(session_id):
+    if is_test_user(user_id):
         return
     try:
         async with httpx.AsyncClient() as client:

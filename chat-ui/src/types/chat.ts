@@ -20,6 +20,10 @@ export interface ChatMessage {
 export interface ChatRequest {
   message: string;
   sessionId: string;
+  // Which Amy identity (lib/identity.ts) this turn is attributed to -
+  // optional on the wire (the API route defaults it) but always sent by
+  // the real browser client.
+  userId?: string;
 }
 
 // Raw event shape streamed by chat-orchestrator (and, before it, n8n's Chat

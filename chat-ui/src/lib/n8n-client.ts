@@ -15,7 +15,7 @@ export async function streamFromN8n(request: ChatRequest): Promise<Response> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     // n8n's Chat Trigger expects `chatInput`/`sessionId`, not our own ChatRequest shape.
-    body: JSON.stringify({ chatInput: request.message, sessionId: request.sessionId }),
+    body: JSON.stringify({ chatInput: request.message, sessionId: request.sessionId, userId: request.userId }),
   });
 
   if (!res.ok || !res.body) {

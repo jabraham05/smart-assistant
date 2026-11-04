@@ -32,6 +32,7 @@ app.post("/ingest", async (req, res) => {
     domain?: string;
     taskContextId?: number;
     grounding?: string;
+    userId?: string;
   };
   if (!body.sessionId || typeof body.sessionId !== "string") {
     return res.status(400).json({ error: "sessionId is required" });
@@ -54,6 +55,7 @@ app.post("/ingest", async (req, res) => {
       domain: body.domain,
       taskContextId: body.taskContextId,
       grounding,
+      userId: body.userId,
     });
     res.status(201).json({ id: entry.id });
   } catch (e) {
