@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import type { ChatMessage } from "@/types/chat";
 import { useChat } from "@/hooks/useChat";
-import { useActiveSession } from "@/contexts/ActiveSessionContext";
 import { useEvents } from "@/hooks/useEvents";
 import { useRegistry } from "@/hooks/useRegistry";
 import { MessageBubble } from "./MessageBubble";
@@ -14,17 +13,24 @@ import { AgentRegistryPanel } from "./AgentRegistryPanel";
 
 type SidePanel = "events" | "registry" | null;
 
+// One fixed, persistent thread for the whole web client - deliberately not
+// a per-visit random session, same model as the iOS app's single
+// `amy-main` thread (ios/Amy/Chat/ChatViewModel.swift's mainThreadId). The
+// web app used to mint a fresh random UUID session on every page load
+// (useSessions.ts), which fragmented conversation history across disposable
+// threads instead of feeling like talking to one person - user-requested
+// fix, 2026-11-04. Amy Lab's own session browser is unrelated and keeps its
+// independent useSessions() instance for debugging/inspecting any session.
+const WEB_THREAD_ID = "amy-web";
+
 export function ChatWindow() {
-  // Session list/switching now lives in the global AppDrawer (the "☰" menu
-  // on every page) - this just reads the conversation the drawer selected.
-  const { sessions, activeSessionId, refresh } = useActiveSession();
-  const { messages, isSending, isLoadingHistory, sendMessage } = useChat(activeSessionId);
+  const { messages, isSending, isLoadingHistory, sendMessage } = useChat(WEB_THREAD_ID);
   const [sidePanel, setSidePanel] = useState<SidePanel>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
   // Scoped to the active session - this is the per-conversation activity
   // sidebar (tool calls, research pulled, goals/tasks created), not the
   // global feed Home's Recent Activity card shows.
-  const eventsState = useEvents(activeSessionId);
+  const eventsState = useEvents(WEB_THREAD_ID);
   const registryState = useRegistry();
 
   const toggleSidePanel = (panel: SidePanel) => {
@@ -36,17 +42,10 @@ export function ChatWindow() {
     if (sidePanel === "events") eventsState.refresh();
     if (sidePanel === "registry") registryState.refresh();
     // registryState.refresh is stable (useCallback with no deps);
-    // eventsState.refresh's identity changes with activeSessionId, which is
-    // exactly the re-fetch trigger needed when switching sessions with the
-    // panel already open.
+    // eventsState.refresh's identity is stable too now that the session is
+    // fixed (WEB_THREAD_ID never changes), but kept in deps for honesty.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sidePanel, activeSessionId, eventsState.refresh]);
-
-  const handleSend = async (content: string) => {
-    const isNewSession = !sessions.some((s) => s.id === activeSessionId);
-    await sendMessage(content);
-    if (isNewSession) refresh();
-  };
+  }, [sidePanel, eventsState.refresh]);
 
   // A "turn" is a user message + the assistant reply that followed it -
   // clicking either bubble in the pair opens the same debug panel, keyed
@@ -100,7 +99,7 @@ export function ChatWindow() {
             />
           ))}
         </div>
-        <InputBar onSend={handleSend} disabled={isSending} />
+        <InputBar onSend={sendMessage} disabled={isSending} />
       </div>
       {selectedAssistant && (
         <div className="hidden md:flex">

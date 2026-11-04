@@ -3,9 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { useActiveSession } from "@/contexts/ActiveSessionContext";
-import { SessionList } from "@/components/chat/SessionList";
 import { LogoutButton } from "./LogoutButton";
+
+function ChatIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]">
+      <path d="M4 5.5h16v10H9l-4 3.5v-3.5H4z" />
+    </svg>
+  );
+}
 
 function HomeIcon() {
   return (
@@ -45,23 +51,21 @@ function MenuIcon() {
 }
 
 const LINKS: { href: string; label: string; icon: () => ReactNode }[] = [
+  { href: "/chat", label: "Chat", icon: ChatIcon },
   { href: "/home", label: "Home", icon: HomeIcon },
   { href: "/artifacts", label: "Artifacts", icon: ArtifactsIcon },
   { href: "/amy-lab", label: "Amy Lab", icon: LabIcon },
 ];
 
 function isActive(pathname: string, href: string) {
+  if (href === "/chat") return pathname === "/" || pathname === "/chat";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 // Shared between the persistent desktop column and the mobile slide-over -
-// same content either way. Chat (the default "/" route) gets the
-// conversation list; every other page just gets the nav links, since
-// there's no active conversation to switch between there.
+// same content either way.
 function DrawerContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const { sessions, activeSessionId, setActiveSessionId, startNewSession, isLoading } = useActiveSession();
-  const isChatRoute = pathname === "/" || pathname === "/chat";
 
   return (
     <div className="flex h-full w-72 flex-col border-r border-white/10 bg-zinc-950">
@@ -77,24 +81,6 @@ function DrawerContent({ onNavigate }: { onNavigate?: () => void }) {
         </span>
         <span className="text-sm font-semibold tracking-wide text-zinc-100">Amy</span>
       </Link>
-
-      {isChatRoute && (
-        <div className="min-h-0 flex-1">
-          <SessionList
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelect={(id) => {
-              setActiveSessionId(id);
-              onNavigate?.();
-            }}
-            onNewSession={() => {
-              startNewSession();
-              onNavigate?.();
-            }}
-            isLoading={isLoading}
-          />
-        </div>
-      )}
 
       <div className="shrink-0 space-y-0.5 border-t border-white/10 px-3 py-2">
         {LINKS.map(({ href, label, icon: Icon }) => {
