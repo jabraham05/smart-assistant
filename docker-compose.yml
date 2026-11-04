@@ -512,7 +512,7 @@ services:
       # clean negative control (no spurious tool call on an unrelated
       # question). Same thinking-mode-on-by-default behavior as qwen3:8b,
       # already handled by agent.py's existing model_settings.
-      CHAT_MODEL: qwen3.5:9b
+      CHAT_MODEL: ${CHAT_MODEL:-qwen3.5:9b}
       # Debug-level emits the full assembled system prompt per turn (see
       # main.py's "assembled system prompt" log line) - off by default
       # (INFO), set to DEBUG only for an active context-assembly
