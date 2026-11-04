@@ -633,6 +633,12 @@ services:
       AMY_AUTH_PASSWORD: ${AMY_AUTH_PASSWORD}
       HONCHO_API_KEY: ${HONCHO_API_KEY}
       HONCHO_WORKSPACE_ID: smart-assistant
+      # Identity picker choices (src/lib/identity.ts) - comma-separated,
+      # first entry is the default. "test" should always be included so
+      # there's a safe choice; add a real id here (and bootstrap its peer
+      # card via scripts/set-peer-cards.mjs --user=<id>) to make it
+      # selectable from the UI.
+      NEXT_PUBLIC_AMY_USER_IDS: ${NEXT_PUBLIC_AMY_USER_IDS:-test}
       # Read-only event-bus visibility panel (see the "event-bus" toggle
       # in ChatWindow.tsx / GET /api/events) - a debugging/observability
       # surface, nothing here ever writes to event-bus.
@@ -662,6 +668,12 @@ services:
     environment:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
       DISCORD_ALLOWED_USER_ID: ${DISCORD_ALLOWED_USER_ID}
+      # Which Amy identity (config.is_test_user) DISCORD_ALLOWED_USER_ID's
+      # DMs are attributed to - deliberately NOT defaulted here (falls back
+      # to "test" in discord-bot/src/config.ts if unset), so upgrading this
+      # service requires explicitly opting into writing to a real profile
+      # rather than silently starting to on next deploy.
+      AMY_USER_ID: ${AMY_USER_ID:-test}
       # agent-service, same as chat-ui above - identical NDJSON contract
       # (chat-client.ts already documents it as such). Rollback: revert
       # this one line to n8n's own Chat workflow at

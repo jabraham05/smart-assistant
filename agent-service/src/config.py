@@ -97,17 +97,29 @@ class Config:
 # stores real amy-main traffic uses, because nothing distinguished a test
 # session's session_id from a real one - every persistence call just wrote
 # wherever it was told to. ~900 rows across 8 tables had to be found and
-# purged by hand as a result. Any session_id starting with this prefix is
-# now recognized at the persistence layer itself (growth_db.record_observation/
-# log_review_turn, memory_client.ingest_memory, knowledge_client.create_entity_
-# from_chat, honcho_client.store_turn) and silently no-ops instead of writing -
-# checked there, not at each call site in main.py, so a future call site can't
-# forget to gate it.
-TEST_SESSION_PREFIX = "test-"
+# purged by hand as a result.
+#
+# The original fix inferred test-vs-real from a "test-" session_id prefix,
+# but that was itself leaky: chat-ui and the CLI don't reliably generate
+# prefixed session ids during ad-hoc manual testing, so test turns kept
+# writing into the real Honcho peer anyway, and honcho_client's read path
+# (get_user_card/get_user_card_for_amy) was never gated on it at all. This
+# replaces that inference with an explicit, caller-supplied user_id: any
+# entry point that doesn't pass a real identity gets TEST_USER_ID by
+# default (safe by construction - you have to opt into "real", you can't
+# forget your way into it), and any non-test user_id is treated as a real
+# identity with no hardcoded allowlist, so adding another real person is
+# just a new string, not a code change. Checked at the persistence layer
+# itself (growth_db.record_observation/log_review_turn, memory_client.
+# ingest_memory, knowledge_client.create_entity_from_chat, honcho_client's
+# read and write paths) and silently no-ops instead of writing/reading -
+# checked there, not at each call site in main.py, so a future call site
+# can't forget to gate it.
+TEST_USER_ID = "test"
 
 
-def is_test_session(session_id: str | None) -> bool:
-    return bool(session_id) and session_id.startswith(TEST_SESSION_PREFIX)
+def is_test_user(user_id: str | None) -> bool:
+    return not user_id or user_id == TEST_USER_ID
 
 
 def _int_env(env: dict[str, str], name: str, default: int) -> int:

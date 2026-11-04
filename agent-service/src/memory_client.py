@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from .config import Config, is_test_session
+from .config import Config, is_test_user
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +81,14 @@ def is_relevant_memory(result: MemorySearchResult, min_score: float, min_keyword
 async def ingest_memory(
     config: Config,
     session_id: str,
+    user_id: str,
     role: str,
     content: str,
     domain: str | None = None,
     task_context_id: int | None = None,
     grounding: str = "ungrounded",
 ) -> None:
-    if is_test_session(session_id):
+    if is_test_user(user_id):
         return
     try:
         async with httpx.AsyncClient() as client:
@@ -95,6 +96,7 @@ async def ingest_memory(
                 f"{config.memory_engine_url}/ingest",
                 json={
                     "sessionId": session_id,
+                    "userId": user_id,
                     "role": role,
                     "content": content,
                     "domain": domain,

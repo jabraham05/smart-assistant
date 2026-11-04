@@ -10,6 +10,7 @@ import { InputBar } from "./InputBar";
 import { EventLogPanel } from "./EventLogPanel";
 import { TurnDebugPanel } from "./TurnDebugPanel";
 import { AgentRegistryPanel } from "./AgentRegistryPanel";
+import { getAvailableUserIds, getStoredUserId, setStoredUserId } from "@/lib/identity";
 
 type SidePanel = "events" | "registry" | null;
 
@@ -24,7 +25,16 @@ type SidePanel = "events" | "registry" | null;
 const WEB_THREAD_ID = "amy-web";
 
 export function ChatWindow() {
-  const { messages, isSending, isLoadingHistory, sendMessage } = useChat(WEB_THREAD_ID);
+  // Defaults to "test" until the user explicitly picks a real identity
+  // (see lib/identity.ts) - persisted per-browser so it survives reloads
+  // without ever being silently upgraded to real on its own.
+  const [userId, setUserId] = useState(getStoredUserId);
+  const availableUserIds = getAvailableUserIds();
+  const handleUserIdChange = (next: string) => {
+    setUserId(next);
+    setStoredUserId(next);
+  };
+  const { messages, isSending, isLoadingHistory, sendMessage } = useChat(WEB_THREAD_ID, userId);
   const [sidePanel, setSidePanel] = useState<SidePanel>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
   // Scoped to the active session - this is the per-conversation activity
@@ -65,6 +75,20 @@ export function ChatWindow() {
     <div className="flex h-full w-full">
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="hidden items-center justify-end gap-4 border-b border-white/10 px-4 py-2.5 md:flex">
+          <label className="flex items-center gap-1.5 text-xs text-zinc-500" title="Which identity this conversation's memory is attributed to">
+            identity
+            <select
+              value={userId}
+              onChange={(e) => handleUserIdChange(e.target.value)}
+              className="rounded border border-white/10 bg-transparent px-1 py-0.5 text-xs text-zinc-300"
+            >
+              {availableUserIds.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="flex items-center gap-1.5 text-xs text-zinc-500">
             <input
               type="checkbox"

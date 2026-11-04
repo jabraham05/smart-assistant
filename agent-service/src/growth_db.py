@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 import asyncpg
 
 from . import growth_graphiti
-from .config import Config, is_test_session
+from .config import Config, is_test_user
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ async def _ensure_persona_snapshot(pool: asyncpg.Pool, persona_system_prompt: st
 async def log_review_turn(
     config: Config,
     session_id: str,
+    user_id: str,
     persona_system_prompt: str,
     user_message: str,
     agent_reply: str,
@@ -78,7 +79,7 @@ async def log_review_turn(
     Never raises: this is awaited in the same gather as those writes, and a
     failure here must not affect a reply that has already streamed back to
     the user."""
-    if is_test_session(session_id):
+    if is_test_user(user_id):
         return
     try:
         pool = await _get_pool(config)
@@ -86,8 +87,8 @@ async def log_review_turn(
         await pool.execute(
             "INSERT INTO review_turns "
             "(session_id, user_message, agent_reply, tool_calls, persona_prompt_hash, "
-            " user_card_snapshot, user_card_for_amy_snapshot, model) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            " user_card_snapshot, user_card_for_amy_snapshot, model, user_id) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
             session_id,
             user_message,
             agent_reply,
@@ -96,6 +97,7 @@ async def log_review_turn(
             json.dumps(user_card_snapshot),
             json.dumps(user_card_for_amy_snapshot),
             model,
+            user_id,
         )
     except Exception:
         logger.exception("growth_db.log_review_turn failed for session %s", session_id)
@@ -372,6 +374,7 @@ async def promote_opportunity_to_proposal(config: Config, opportunity_id: int) -
 
 async def record_observation(
     config: Config,
+    user_id: str,
     source: str,
     summary: str,
     evidence: dict,
@@ -386,7 +389,7 @@ async def record_observation(
     search - deterministic and good enough for now; Phase 6.2 follow-up
     work can swap in similarity matching without changing this function's
     signature. Returns the opportunity id touched, or None on failure."""
-    if is_test_session(session_id):
+    if is_test_user(user_id):
         return None
     try:
         pool = await _get_pool(config)
@@ -437,14 +440,16 @@ async def record_observation(
                 opportunity_id = row["id"]
 
             await conn.execute(
-                "INSERT INTO growth_observations (source, category, summary, evidence, session_id, opportunity_id) "
-                "VALUES ($1, $2, $3, $4, $5, $6)",
+                "INSERT INTO growth_observations "
+                "(source, category, summary, evidence, session_id, opportunity_id, user_id) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7)",
                 source,
                 category,
                 summary,
                 json.dumps(evidence),
                 session_id,
                 opportunity_id,
+                user_id,
             )
             await conn.execute(
                 "INSERT INTO growth_history (opportunity_id, event_type, detail) VALUES ($1, 'observed', $2)",

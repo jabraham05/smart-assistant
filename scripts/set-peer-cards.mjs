@@ -2,11 +2,23 @@
 // One-off bootstrap: seeds Honcho peer cards before dreaming has had a
 // chance to discover facts organically. Safe to re-run (set_card replaces
 // the whole card each time, it doesn't merge).
-// Usage: HONCHO_API_KEY=... node scripts/set-peer-cards.mjs
-
+// Usage: HONCHO_API_KEY=... node scripts/set-peer-cards.mjs --user=<id>
+//
+// --user/AMY_USER_ID picks which real identity (agent-service's
+// config.is_test_user) these cards belong to - deliberately has no
+// default of "test" (unlike every other entry point in this project):
+// seeding a durable profile card onto the test identity defeats the whole
+// point of having one, so this requires an explicit real id.
 const apiKey = process.env.HONCHO_API_KEY;
 if (!apiKey) {
   console.error("Set HONCHO_API_KEY in the environment");
+  process.exit(1);
+}
+
+const userArg = process.argv.find((a) => a.startsWith("--user="));
+const userId = userArg ? userArg.slice("--user=".length) : process.env.AMY_USER_ID;
+if (!userId || userId === "test") {
+  console.error("Pass --user=<id> (or set AMY_USER_ID) to a real identity, not the test identity");
   process.exit(1);
 }
 
@@ -48,5 +60,5 @@ async function setCard(peerId, card, target) {
   console.log(`Set card for peer=${peerId}${target ? ` target=${target}` : ""} (${card.length} facts)`);
 }
 
-await setCard("user", userCard);
-await setCard("user", userCardForAmy, "amy");
+await setCard(userId, userCard);
+await setCard(userId, userCardForAmy, "amy");

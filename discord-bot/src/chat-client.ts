@@ -16,12 +16,13 @@ export async function sendChatMessage(
   webhookUrl: string,
   chatInput: string,
   sessionId: string,
+  userId: string,
   onAck?: (text: string) => void,
 ): Promise<string> {
   const res = await fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chatInput, sessionId }),
+    body: JSON.stringify({ chatInput, sessionId, userId }),
   });
 
   if (!res.ok || !res.body) {

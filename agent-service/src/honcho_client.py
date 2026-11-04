@@ -12,7 +12,7 @@ import logging
 
 import httpx
 
-from .config import Config, is_test_session
+from .config import Config, is_test_user
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,8 @@ def _workspace_url(config: Config, path: str) -> str:
     return f"{_HONCHO_BASE_URL}/workspaces/{config.honcho_workspace_id}{path}"
 
 
-async def ensure_session_exists(config: Config, session_id: str) -> None:
-    if is_test_session(session_id):
+async def ensure_session_exists(config: Config, session_id: str, user_id: str) -> None:
+    if is_test_user(user_id):
         return
     try:
         async with httpx.AsyncClient() as client:
@@ -39,13 +39,13 @@ async def ensure_session_exists(config: Config, session_id: str) -> None:
         logger.exception("honcho ensure_session_exists failed")
 
 
-async def set_user_observe_config(config: Config, session_id: str) -> None:
-    if is_test_session(session_id):
+async def set_user_observe_config(config: Config, session_id: str, user_id: str) -> None:
+    if is_test_user(user_id):
         return
     try:
         async with httpx.AsyncClient() as client:
             await client.put(
-                _workspace_url(config, f"/sessions/{session_id}/peers/user/config"),
+                _workspace_url(config, f"/sessions/{session_id}/peers/{user_id}/config"),
                 headers=_auth_headers(config),
                 json={"observe_others": True},
             )
@@ -65,18 +65,30 @@ async def _get_peer_card(config: Config, path: str) -> list[str]:
         return []
 
 
-async def get_user_card(config: Config) -> list[str]:
-    return await _get_peer_card(config, "/peers/user/card")
+async def get_user_card(config: Config, user_id: str) -> list[str]:
+    # Previously ungated: a test user_id still read the real "user" peer's
+    # card into its prompt even though it never wrote one - this closes
+    # that leak, and skips the HTTP round-trip for test turns entirely.
+    if is_test_user(user_id):
+        return []
+    return await _get_peer_card(config, f"/peers/{user_id}/card")
 
 
-async def get_user_card_for_amy(config: Config) -> list[str]:
-    return await _get_peer_card(config, "/peers/user/card?target=amy")
+async def get_user_card_for_amy(config: Config, user_id: str) -> list[str]:
+    if is_test_user(user_id):
+        return []
+    return await _get_peer_card(config, f"/peers/{user_id}/card?target=amy")
 
 
 async def store_turn(
-    config: Config, session_id: str, user_message: str, amy_message: str, amy_metadata: dict | None = None
+    config: Config,
+    session_id: str,
+    user_id: str,
+    user_message: str,
+    amy_message: str,
+    amy_metadata: dict | None = None,
 ) -> None:
-    if is_test_session(session_id):
+    if is_test_user(user_id):
         return
     amy_entry: dict = {"content": amy_message, "peer_id": "amy"}
     if amy_metadata:
@@ -88,7 +100,7 @@ async def store_turn(
                 headers=_auth_headers(config),
                 json={
                     "messages": [
-                        {"content": user_message, "peer_id": "user"},
+                        {"content": user_message, "peer_id": user_id},
                         amy_entry,
                     ]
                 },

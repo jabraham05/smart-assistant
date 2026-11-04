@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from .config import Config, is_test_session
+from .config import Config, is_test_user
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,9 @@ async def match_goals(config: Config, text: str) -> list[GoalSummary]:
         return []
 
 
-async def publish_behavior_feedback(config: Config, session_id: str, category: str, note: str) -> None:
+async def publish_behavior_feedback(
+    config: Config, session_id: str, user_id: str, category: str, note: str
+) -> None:
     """Direct port of chat-orchestrator's publishBehaviorFeedbackEvent - the
     live backend (agent-service) computed this signal every turn but never
     persisted it (confirmed via grep this session), meaning zero real
@@ -68,7 +70,7 @@ async def publish_behavior_feedback(config: Config, session_id: str, category: s
     Fire-and-forget, same swallow-and-log pattern as match_task_contexts/
     match_goals above - a slow/unreachable event-bus must never affect the
     actual chat turn."""
-    if is_test_session(session_id):
+    if is_test_user(user_id):
         return
     try:
         async with httpx.AsyncClient() as client:

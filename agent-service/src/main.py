@@ -48,7 +48,7 @@ from . import (
 )
 from .agent import AgentDeps, build_agent
 from .detached_stream import detach
-from .config import Config, load_config
+from .config import Config, TEST_USER_ID, load_config
 from .respond import expand_groups_to_tools
 from .safety_net import (
     FABRICATED_ID_NUDGE,
@@ -336,6 +336,11 @@ async def webhook(request: Request):
     body = await request.json()
     chat_input = body.get("chatInput")
     session_id = body.get("sessionId")
+    # Explicit, caller-supplied identity, not inferred from session_id shape
+    # (see config.is_test_user) - defaults to the safe test identity so a
+    # caller that forgets this field (including a stray curl/manual test)
+    # can never accidentally write into a real identity's data.
+    user_id = body.get("userId") or TEST_USER_ID
     if not chat_input or not session_id:
         return {"error": "chatInput and sessionId are required"}, 400
 
@@ -375,7 +380,7 @@ async def webhook(request: Request):
             # relocation (same calls, same order, same log lines), not a
             # behavior change. See that module's docstring for why side
             # effects below stay here instead of moving with it.
-            ctx = await context_builder.build_context(config, session_id, chat_input, recent_context)
+            ctx = await context_builder.build_context(config, session_id, user_id, chat_input, recent_context)
             turn_output = ctx.turn_output
             persona_prompt = ctx.persona_prompt
             open_tasks = ctx.open_tasks
@@ -426,6 +431,7 @@ async def webhook(request: Request):
                 asyncio.create_task(
                     growth_db.record_observation(
                         config,
+                        user_id,
                         "knowledge_gap",
                         turn_output.knowledge_gap_topic,
                         {
@@ -448,7 +454,7 @@ async def webhook(request: Request):
                 # research aren't mutually exclusive.
                 async def _defer_to_growth() -> None:
                     opportunity_id = await growth_db.record_observation(
-                        config, "explicit_research_request", chat_input[:200],
+                        config, user_id, "explicit_research_request", chat_input[:200],
                         {"chatInput": chat_input, "injectedKnowledge": [k.content[:500] for k in relevant_knowledge_results]},
                         session_id=session_id, category="knowledge", auto_promote=False,
                     )
@@ -462,6 +468,7 @@ async def webhook(request: Request):
                     event_bus_client.publish_behavior_feedback(
                         config,
                         session_id,
+                        user_id,
                         turn_output.behavior_feedback.category,
                         turn_output.behavior_feedback.note,
                     )
@@ -472,6 +479,7 @@ async def webhook(request: Request):
                 asyncio.create_task(
                     knowledge_client.create_entity_from_chat(
                         config,
+                        user_id,
                         "learning",
                         f"{turn_output.behavior_feedback.category}: {turn_output.behavior_feedback.note}",
                         session_id=session_id,
@@ -485,6 +493,7 @@ async def webhook(request: Request):
                 asyncio.create_task(
                     growth_db.record_observation(
                         config,
+                        user_id,
                         "behavior_feedback",
                         turn_output.behavior_feedback.note,
                         {"category": turn_output.behavior_feedback.category, "chatInput": chat_input},
@@ -497,7 +506,9 @@ async def webhook(request: Request):
 
             for item in turn_output.memorable_items:
                 asyncio.create_task(
-                    knowledge_client.create_entity_from_chat(config, item.type, item.content, session_id=session_id)
+                    knowledge_client.create_entity_from_chat(
+                        config, user_id, item.type, item.content, session_id=session_id
+                    )
                 )
 
             if turn_output.is_correction:
@@ -508,7 +519,7 @@ async def webhook(request: Request):
                 # is the first time it becomes a real Growth observation.
                 asyncio.create_task(
                     growth_db.record_observation(
-                        config, "user_correction", chat_input, {"chatInput": chat_input}, session_id=session_id
+                        config, user_id, "user_correction", chat_input, {"chatInput": chat_input}, session_id=session_id
                     )
                 )
 
@@ -685,7 +696,7 @@ async def webhook(request: Request):
                 search_intent_retries += 1
                 asyncio.create_task(
                     growth_db.record_observation(
-                        config, "safety_net_failure", "Reply implied a search without calling a search tool",
+                        config, user_id, "safety_net_failure", "Reply implied a search without calling a search tool",
                         {"reason": "search_intent", "chatInput": chat_input}, session_id=session_id,
                     )
                 )
@@ -739,6 +750,7 @@ async def webhook(request: Request):
                 asyncio.create_task(
                     growth_db.record_observation(
                         config,
+                        user_id,
                         "safety_net_failure",
                         "Reply included a URL absent from retrieved sources",
                         {"reason": "ungrounded_citation", "chatInput": chat_input},
@@ -770,6 +782,7 @@ async def webhook(request: Request):
                 asyncio.create_task(
                     growth_db.record_observation(
                         config,
+                        user_id,
                         "safety_net_failure",
                         "Reply added specific details absent from retrieved evidence",
                         {"reason": "ungrounded_specifics", "chatInput": chat_input},
@@ -796,7 +809,7 @@ async def webhook(request: Request):
             if is_confabulated_action(final_text, bound_tools, state.called_tools):
                 asyncio.create_task(
                     growth_db.record_observation(
-                        config, "safety_net_failure", "Reply claimed an action was taken without calling a tool",
+                        config, user_id, "safety_net_failure", "Reply claimed an action was taken without calling a tool",
                         {"reason": "confabulation", "chatInput": chat_input}, session_id=session_id,
                     )
                 )
@@ -830,7 +843,7 @@ async def webhook(request: Request):
             if has_fabricated_id_reference(final_text, state.called_tools, state.tool_results):
                 asyncio.create_task(
                     growth_db.record_observation(
-                        config, "safety_net_failure", "Reply referenced an id not present in any real tool result",
+                        config, user_id, "safety_net_failure", "Reply referenced an id not present in any real tool result",
                         {"reason": "fabricated_id", "chatInput": chat_input}, session_id=session_id,
                     )
                 )
@@ -862,7 +875,7 @@ async def webhook(request: Request):
             if has_status_narration_mismatch(final_text, state.called_tools, state.tool_results):
                 asyncio.create_task(
                     growth_db.record_observation(
-                        config, "safety_net_failure", "Reply's narration didn't match what a status/lookup tool actually returned",
+                        config, user_id, "safety_net_failure", "Reply's narration didn't match what a status/lookup tool actually returned",
                         {"reason": "status_narration_mismatch", "chatInput": chat_input}, session_id=session_id,
                     )
                 )
@@ -894,7 +907,7 @@ async def webhook(request: Request):
             if has_unwarranted_checking_opener(final_text, state.called_tools):
                 asyncio.create_task(
                     growth_db.record_observation(
-                        config, "safety_net_failure", "Reply opened with a checking-now acknowledgment but called no tool",
+                        config, user_id, "safety_net_failure", "Reply opened with a checking-now acknowledgment but called no tool",
                         {"reason": "unwarranted_checking_opener", "chatInput": chat_input}, session_id=session_id,
                     )
                 )
@@ -926,7 +939,7 @@ async def webhook(request: Request):
             if has_tool_failure_narration(final_text, state.called_tools):
                 asyncio.create_task(
                     growth_db.record_observation(
-                        config, "safety_net_failure", "Reply told the user a tool call of ours failed",
+                        config, user_id, "safety_net_failure", "Reply told the user a tool call of ours failed",
                         {"reason": "tool_failure_narration", "chatInput": chat_input}, session_id=session_id,
                     )
                 )
@@ -979,7 +992,7 @@ async def webhook(request: Request):
             ):
                 asyncio.create_task(
                     growth_db.record_observation(
-                        config, "safety_net_failure", "A required tool for this message's category was never called",
+                        config, user_id, "safety_net_failure", "A required tool for this message's category was never called",
                         {"reason": "required_tool", "chatInput": chat_input, "relevantGroups": turn_output.relevant_groups},
                         session_id=session_id,
                     )
@@ -988,7 +1001,7 @@ async def webhook(request: Request):
             if has_unaddressed_teaching_intent(chat_input, turn_output.relevant_groups, state.called_tools):
                 asyncio.create_task(
                     growth_db.record_observation(
-                        config, "safety_net_failure",
+                        config, user_id, "safety_net_failure",
                         "Reply promised to follow a standing instruction without calling teaching_session_manage",
                         {"reason": "unaddressed_teaching_intent", "chatInput": chat_input}, session_id=session_id,
                     )
@@ -1021,7 +1034,7 @@ async def webhook(request: Request):
             if has_trailing_confirmation_question(final_text, tool_required):
                 asyncio.create_task(
                     growth_db.record_observation(
-                        config, "safety_net_failure", "Reply tacked on a stock trailing confirmation question",
+                        config, user_id, "safety_net_failure", "Reply tacked on a stock trailing confirmation question",
                         {"reason": "trailing_confirmation", "chatInput": chat_input}, session_id=session_id,
                     )
                 )
@@ -1092,13 +1105,14 @@ async def webhook(request: Request):
             memory_task_context_id = open_tasks[0].id if open_tasks else None
             await asyncio.gather(
                 honcho_client.store_turn(
-                    config, session_id, chat_input, final_text,
+                    config, session_id, user_id, chat_input, final_text,
                     response_blocks.history_metadata(turn_output.relevant_groups, final_text, beats_enabled),
                 ),
                 session_memory.append_turn(config, session_id, chat_input, final_text),
                 memory_client.ingest_memory(
                     config,
                     session_id,
+                    user_id,
                     "user",
                     chat_input,
                     memory_domain,
@@ -1108,6 +1122,7 @@ async def webhook(request: Request):
                 memory_client.ingest_memory(
                     config,
                     session_id,
+                    user_id,
                     "assistant",
                     final_text,
                     memory_domain,
@@ -1122,6 +1137,7 @@ async def webhook(request: Request):
                 growth_db.log_review_turn(
                     config,
                     session_id,
+                    user_id,
                     persona_prompt or "You are Amy, a helpful personal assistant.",
                     chat_input,
                     final_text,

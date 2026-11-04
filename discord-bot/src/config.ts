@@ -5,6 +5,12 @@ export interface Config {
   // Always-on internal infra, real default rather than optional/undefined -
   // same tier as chatWebhookUrl.
   eventBusUrl: string;
+  // The Amy identity (agent-service's config.is_test_user) the allowlisted
+  // Discord account maps to - NOT the same thing as allowedUserId (that's
+  // just "which Discord account may DM this bot at all"). Defaults to
+  // "test" so a freshly deployed/upgraded bot never silently writes into a
+  // real profile until this is explicitly set.
+  amyUserId: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -24,6 +30,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   }
 
   const eventBusUrl = env.EVENT_BUS_URL || "http://event-bus:3004";
+  const amyUserId = env.AMY_USER_ID || "test";
 
-  return { discordBotToken, allowedUserId, chatWebhookUrl, eventBusUrl };
+  return { discordBotToken, allowedUserId, chatWebhookUrl, eventBusUrl, amyUserId };
 }
