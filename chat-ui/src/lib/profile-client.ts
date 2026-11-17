@@ -22,8 +22,10 @@ export interface UserProfile {
   userCardForAmy: string[];
 }
 
-export async function getUserProfile(): Promise<UserProfile> {
-  const res = await fetch(`${AGENT_SERVICE_URL}/user-profile`, { cache: "no-store" });
+export async function getUserProfile(userId: string): Promise<UserProfile> {
+  const url = new URL(`${AGENT_SERVICE_URL}/user-profile`);
+  url.searchParams.set("user_id", userId);
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`agent-service /user-profile failed with ${res.status}`);
   }

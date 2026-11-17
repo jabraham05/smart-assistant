@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getStoredUserId } from "@/lib/identity";
 
 // Same token-estimate convention chat-orchestrator/src/agent-loop.ts already
 // uses (CHARS_PER_TOKEN_ESTIMATE = 4) - reused here rather than inventing a
@@ -69,7 +70,7 @@ export function SystemPromptView() {
   useEffect(() => {
     Promise.all([
       fetch("/api/amy/persona").then((res) => (res.ok ? res.json() : Promise.reject())),
-      fetch("/api/amy/user-profile").then((res) => (res.ok ? res.json() : Promise.reject())),
+      fetch(`/api/amy/user-profile?userId=${getStoredUserId()}`).then((res) => (res.ok ? res.json() : Promise.reject())),
     ])
       .then(([persona, profile]) => {
         setPersonaTokens(estimateTokens(persona.systemPrompt ?? ""));
