@@ -13,7 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from . import db, honcho_client
-from .config import Config
+from .config import TEST_USER_ID, Config
 
 
 def build_router(config: Config) -> APIRouter:
@@ -25,9 +25,9 @@ def build_router(config: Config) -> APIRouter:
         return {"systemPrompt": system_prompt}
 
     @router.get("/user-profile")
-    async def get_user_profile():
-        user_card = await honcho_client.get_user_card(config)
-        user_card_for_amy = await honcho_client.get_user_card_for_amy(config)
+    async def get_user_profile(user_id: str = TEST_USER_ID):
+        user_card = await honcho_client.get_user_card(config, user_id)
+        user_card_for_amy = await honcho_client.get_user_card_for_amy(config, user_id)
         return {"userCard": user_card, "userCardForAmy": user_card_for_amy}
 
     return router

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { getStoredUserId } from "@/lib/identity";
 
 interface UserProfile {
   userCard: string[];
@@ -67,7 +68,7 @@ export function UserProfileView() {
   useEffect(() => {
     setIsLoading(true);
     Promise.all([
-      fetch("/api/amy/user-profile").then((res) => (res.ok ? res.json() : Promise.reject())),
+      fetch(`/api/amy/user-profile?userId=${getStoredUserId()}`).then((res) => (res.ok ? res.json() : Promise.reject())),
       fetch("/api/entities?type=fact")
         .then((res) => (res.ok ? res.json() : { entities: [] }))
         .catch(() => ({ entities: [] })),
@@ -125,7 +126,7 @@ export function UserInstructionsView() {
 
   useEffect(() => {
     setIsLoading(true);
-    fetch("/api/amy/user-profile")
+    fetch(`/api/amy/user-profile?userId=${getStoredUserId()}`)
       .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((data) => setProfile(data))
       .catch(() => setError("Couldn't reach Honcho."))
