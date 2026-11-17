@@ -332,7 +332,7 @@ services:
       # 100% tool-calling reliability on the same tool schema, with
       # meaningfully better general reasoning accuracy (see
       # scripts/benchmark-results/).
-      CODER_MODEL: qwen3.5:9b
+      CODER_MODEL: ${CODER_MODEL:-qwen3.5:9b}
       SANDBOX_NETWORK: sandbox-net
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       # Same defaults coding-orchestrator's own config.ts already uses -
@@ -512,8 +512,8 @@ services:
       # clean negative control (no spurious tool call on an unrelated
       # question). Same thinking-mode-on-by-default behavior as qwen3:8b,
       # already handled by agent.py's existing model_settings.
-      CHAT_MODEL: qwen3.5:9b
-      CHAT_CLASSIFIER_MODEL: qwen3.5:9b
+      CHAT_MODEL: ${CHAT_MODEL:-qwen3.5:9b}
+      CHAT_CLASSIFIER_MODEL: ${CHAT_CLASSIFIER_MODEL:-qwen3.5:9b}
       SKILLS_MCP_URL: http://skills-mcp:3001
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       CHAT_DB_SCHEMA: public
